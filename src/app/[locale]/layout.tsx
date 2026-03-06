@@ -24,10 +24,11 @@ export const metadata: Metadata = {
   },
   description:
     "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global y mantén tu racha.",
-  manifest: "/manifest.json",
+  // manifest.json en src/app/ es recogido automáticamente por Next.js App Router
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
+    // Genera: <meta name="apple-mobile-web-app-title" content="Ecos" />
     title: "Ecos",
   },
   openGraph: {
