@@ -40,8 +40,15 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# cursor
-.cursor
+# cursor (incluye mcp.json con tokens)
+.cursor/
+**/mcp.json
+*.mcp.json
+
+# secrets y tokens
+*.publishable-key
+*.access-token
+**/secrets.json
 
 # project_overview.md
 project_overview.md
