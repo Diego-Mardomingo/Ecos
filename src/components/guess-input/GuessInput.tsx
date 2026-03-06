@@ -1,0 +1,131 @@
+"use client";
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useTranslations } from "next-intl";
+import { motion, AnimatePresence } from "framer-motion";
+import { searchTracks, type DeezerTrack } from "@/lib/deezer";
+import { cn } from "@/lib/utils";
+import Image from "next/image";
+
+interface GuessInputProps {
+  onGuess: (track: DeezerTrack) => void;
+  disabled?: boolean;
+  className?: string;
+}
+
+export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
+  const t = useTranslations("game");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<DeezerTrack[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleSearch = useCallback((value: string) => {
+    setQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (value.trim().length < 2) {
+      setResults([]);
+      setOpen(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const tracks = await searchTracks(value, 8);
+        setResults(tracks);
+        setOpen(tracks.length > 0);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+  }, []);
+
+  const handleSelect = useCallback(
+    (track: DeezerTrack) => {
+      setQuery("");
+      setResults([]);
+      setOpen(false);
+      onGuess(track);
+    },
+    [onGuess]
+  );
+
+  // Cerrar al clicar fuera
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={containerRef} className={cn("relative w-full", className)}>
+      <div className="relative">
+        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-xl text-muted-foreground">
+          search
+        </span>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => handleSearch(e.target.value)}
+          disabled={disabled}
+          placeholder={t("typeToSearch")}
+          className={cn(
+            "w-full rounded-2xl border border-border bg-card py-3.5 pl-10 pr-4 text-sm outline-none transition-all",
+            "placeholder:text-muted-foreground",
+            "focus:border-brand focus:ring-2 focus:ring-brand/20",
+            disabled && "cursor-not-allowed opacity-50"
+          )}
+        />
+        {loading && (
+          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-xl text-brand">
+            progress_activity
+          </span>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {open && results.length > 0 && (
+          <motion.ul
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute bottom-full z-50 mb-2 w-full overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
+          >
+            {results.map((track) => (
+              <li key={track.id}>
+                <button
+                  onClick={() => handleSelect(track)}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted active:bg-muted/70"
+                >
+                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg">
+                    <Image
+                      src={track.album.cover_medium}
+                      alt={track.album.title}
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{track.title}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {track.artist.name}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

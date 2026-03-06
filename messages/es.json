@@ -1,0 +1,118 @@
+{
+  "common": {
+    "appName": "Ecos",
+    "loading": "Cargando...",
+    "error": "Algo salió mal",
+    "retry": "Reintentar",
+    "share": "Compartir",
+    "back": "Volver",
+    "viewAll": "Ver todo",
+    "liveNow": "En vivo",
+    "points": "pts",
+    "days": "días",
+    "day": "día"
+  },
+  "nav": {
+    "home": "Inicio",
+    "ranking": "Ranking",
+    "play": "Jugar",
+    "profile": "Perfil"
+  },
+  "auth": {
+    "signIn": "Iniciar sesión",
+    "signInWithGoogle": "Continuar con Google",
+    "welcomeBack": "Bienvenido de nuevo",
+    "welcome": "Bienvenido a Ecos",
+    "subtitle": "Adivina la canción del día y compite con el mundo",
+    "signingIn": "Iniciando sesión...",
+    "signOut": "Cerrar sesión",
+    "continueAsGuest": "Continuar como invitado"
+  },
+  "home": {
+    "todaysChallenge": "Reto de Hoy",
+    "playNow": "Jugar ahora",
+    "playing": "jugando",
+    "currentStreak": "Racha actual",
+    "globalRank": "Ranking global",
+    "previousDays": "Días anteriores",
+    "notPlayedYet": "Sin jugar aún",
+    "score": "Puntuación",
+    "guessTheHit": "Adivina el éxito"
+  },
+  "game": {
+    "dailyChallenge": "Reto diario",
+    "skip": "Saltar",
+    "hint": "Pista",
+    "askFriends": "Preguntar amigos",
+    "listening": "Escuchando...",
+    "typeToSearch": "Escribe canción o artista...",
+    "remaining": "RESTANTE",
+    "attempt": "Intento",
+    "of": "de",
+    "correct": "¡Correcto!",
+    "wrong": "Incorrecto",
+    "almostThere": "¡Casi!",
+    "gameOver": "Fin del juego",
+    "revealingSong": "La canción era...",
+    "playAgainTomorrow": "Vuelve mañana para el siguiente reto",
+    "yourScore": "Tu puntuación",
+    "attempts": "intentos",
+    "shareResult": "Compartir resultado",
+    "listenFull": "Escuchar completa",
+    "hintsLeft": "pistas restantes",
+    "hintTitle": "Pista",
+    "hintArtist": "El artista empieza por",
+    "hintAlbum": "Pertenece al álbum",
+    "hintYear": "Año de lanzamiento",
+    "hintGenre": "Género musical"
+  },
+  "ranking": {
+    "title": "Clasificación",
+    "global": "Global",
+    "friends": "Amigos",
+    "rank": "Pos.",
+    "user": "Usuario",
+    "streak": "Racha",
+    "totalPoints": "Puntos",
+    "youLabel": "Tú",
+    "topPercent": "Top {percent}%",
+    "noFriends": "Aún no sigues a nadie",
+    "loadMore": "Cargar más"
+  },
+  "profile": {
+    "title": "Perfil",
+    "editProfile": "Editar perfil",
+    "memberSince": "Miembro desde",
+    "stats": {
+      "guessed": "Adivinadas",
+      "streak": "Racha",
+      "points": "Puntos"
+    },
+    "achievements": "Logros",
+    "settings": {
+      "appSettings": "Ajustes de la app",
+      "notifications": "Notificaciones",
+      "darkMode": "Modo oscuro",
+      "language": "Idioma",
+      "account": "Cuenta",
+      "privacyPolicy": "Política de privacidad",
+      "logOut": "Cerrar sesión"
+    },
+    "theme": {
+      "label": "Tema",
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema"
+    }
+  },
+  "scoring": {
+    "attempt1": "1000 puntos",
+    "attempt2": "800 puntos",
+    "attempt3": "600 puntos",
+    "attempt4": "400 puntos",
+    "attempt5": "200 puntos",
+    "attempt6": "100 puntos",
+    "streakBonus": "Bonus racha",
+    "totalScore": "Puntuación total"
+  }
+}

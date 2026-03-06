@@ -1,0 +1,122 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* Fuente */
+  --font-sans: var(--font-spline-sans);
+
+  /* Colores semánticos mapeados desde variables CSS */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+
+  /* Tokens de marca Ecos */
+  --color-brand: #2bee79;
+  --color-brand-dim: #1abc62;
+  --color-bronze: #cd7f32;
+
+  /* Radio de bordes — boceto usa radios grandes */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 2.5rem;
+  --radius-full: 9999px;
+}
+
+/* ---- LIGHT THEME ---- */
+:root {
+  --radius: 1rem;
+
+  --background:         #f6f8f7;
+  --foreground:         #111827;
+  --card:               #ffffff;
+  --card-foreground:    #111827;
+  --popover:            #ffffff;
+  --popover-foreground: #111827;
+  --primary:            #2bee79;
+  --primary-foreground: #0a2015;
+  --secondary:          #e8f5ee;
+  --secondary-foreground:#1a3a27;
+  --muted:              #e8f5ee;
+  --muted-foreground:   #6b7280;
+  --accent:             #e8f5ee;
+  --accent-foreground:  #111827;
+  --destructive:        oklch(0.577 0.245 27.325);
+  --border:             #d1e8db;
+  --input:              #d1e8db;
+  --ring:               #2bee79;
+  --surface:            #ffffff;
+}
+
+/* ---- DARK THEME ---- */
+.dark {
+  --background:         #102217;
+  --foreground:         #f3f4f6;
+  --card:               #1a2e22;
+  --card-foreground:    #f3f4f6;
+  --popover:            #1a2e22;
+  --popover-foreground: #f3f4f6;
+  --primary:            #2bee79;
+  --primary-foreground: #0a2015;
+  --secondary:          #193324;
+  --secondary-foreground:#d1fae5;
+  --muted:              #193324;
+  --muted-foreground:   #9ca3af;
+  --accent:             #193324;
+  --accent-foreground:  #f3f4f6;
+  --destructive:        oklch(0.704 0.191 22.216);
+  --border:             rgba(255,255,255,0.08);
+  --input:              rgba(255,255,255,0.10);
+  --ring:               #2bee79;
+  --surface:            #1a2e22;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* Altura completa mobile sin barra de navegador */
+    min-height: 100dvh;
+  }
+  ::selection {
+    background-color: #2bee79;
+    color: #0a2015;
+  }
+}
+
+/* Safe area para dispositivos con notch */
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}

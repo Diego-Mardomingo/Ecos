@@ -1,0 +1,118 @@
+{
+  "common": {
+    "appName": "Ecos",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try again",
+    "share": "Share",
+    "back": "Back",
+    "viewAll": "View all",
+    "liveNow": "Live Now",
+    "points": "pts",
+    "days": "days",
+    "day": "day"
+  },
+  "nav": {
+    "home": "Home",
+    "ranking": "Ranking",
+    "play": "Play",
+    "profile": "Profile"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signInWithGoogle": "Continue with Google",
+    "welcomeBack": "Welcome back",
+    "welcome": "Welcome to Ecos",
+    "subtitle": "Guess the song of the day and compete with the world",
+    "signingIn": "Signing in...",
+    "signOut": "Sign out",
+    "continueAsGuest": "Continue as guest"
+  },
+  "home": {
+    "todaysChallenge": "Today's Challenge",
+    "playNow": "Play Now",
+    "playing": "playing",
+    "currentStreak": "Current Streak",
+    "globalRank": "Global Rank",
+    "previousDays": "Previous Days",
+    "notPlayedYet": "Not played yet",
+    "score": "Score",
+    "guessTheHit": "Guess the Hit"
+  },
+  "game": {
+    "dailyChallenge": "Daily Challenge",
+    "skip": "Skip",
+    "hint": "Hint",
+    "askFriends": "Ask Friends",
+    "listening": "Listening...",
+    "typeToSearch": "Type song or artist name...",
+    "remaining": "REMAINING",
+    "attempt": "Attempt",
+    "of": "of",
+    "correct": "Correct!",
+    "wrong": "Wrong",
+    "almostThere": "Almost!",
+    "gameOver": "Game Over",
+    "revealingSong": "The song was...",
+    "playAgainTomorrow": "Come back tomorrow for the next challenge",
+    "yourScore": "Your score",
+    "attempts": "attempts",
+    "shareResult": "Share result",
+    "listenFull": "Listen full song",
+    "hintsLeft": "hints left",
+    "hintTitle": "Hint",
+    "hintArtist": "The artist starts with",
+    "hintAlbum": "It belongs to the album",
+    "hintYear": "Release year",
+    "hintGenre": "Music genre"
+  },
+  "ranking": {
+    "title": "Leaderboard",
+    "global": "Global",
+    "friends": "Friends",
+    "rank": "Rank",
+    "user": "User",
+    "streak": "Streak",
+    "totalPoints": "Points",
+    "youLabel": "You",
+    "topPercent": "Top {percent}%",
+    "noFriends": "You're not following anyone yet",
+    "loadMore": "Load more"
+  },
+  "profile": {
+    "title": "Profile",
+    "editProfile": "Edit profile",
+    "memberSince": "Member since",
+    "stats": {
+      "guessed": "Guessed",
+      "streak": "Streak",
+      "points": "Points"
+    },
+    "achievements": "Achievements",
+    "settings": {
+      "appSettings": "App Settings",
+      "notifications": "Notifications",
+      "darkMode": "Dark mode",
+      "language": "Language",
+      "account": "Account",
+      "privacyPolicy": "Privacy Policy",
+      "logOut": "Log out"
+    },
+    "theme": {
+      "label": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    }
+  },
+  "scoring": {
+    "attempt1": "1000 points",
+    "attempt2": "800 points",
+    "attempt3": "600 points",
+    "attempt4": "400 points",
+    "attempt5": "200 points",
+    "attempt6": "100 points",
+    "streakBonus": "Streak bonus",
+    "totalScore": "Total score"
+  }
+}

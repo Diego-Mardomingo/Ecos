@@ -1,0 +1,90 @@
+import type { ReactNode } from "react";
+import type { Metadata, Viewport } from "next";
+import { Spline_Sans } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages } from "next-intl/server";
+import { notFound } from "next/navigation";
+import { routing } from "@/i18n/routing";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { QueryProvider } from "@/components/providers/QueryProvider";
+import { Toaster } from "@/components/ui/sonner";
+import "../globals.css";
+
+const splineSans = Spline_Sans({
+  variable: "--font-spline-sans",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
+});
+
+export const metadata: Metadata = {
+  title: {
+    default: "Ecos — Adivina la canción del día",
+    template: "%s | Ecos",
+  },
+  description:
+    "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global y mantén tu racha.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Ecos",
+  },
+  openGraph: {
+    title: "Ecos",
+    description: "Adivina la canción del día",
+    type: "website",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f8f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#102217" },
+  ],
+};
+
+type Props = {
+  children: ReactNode;
+  params: Promise<{ locale: string }>;
+};
+
+export default async function LocaleLayout({ children, params }: Props) {
+  const { locale } = await params;
+
+  if (!routing.locales.includes(locale as "es" | "en")) {
+    notFound();
+  }
+
+  const messages = await getMessages();
+
+  return (
+    <html lang={locale} suppressHydrationWarning>
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+        />
+      </head>
+      <body className={`${splineSans.variable} font-sans antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange={false}
+        >
+          <QueryProvider>
+            <NextIntlClientProvider messages={messages}>
+              {children}
+            </NextIntlClientProvider>
+          </QueryProvider>
+          <Toaster position="top-center" richColors />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
