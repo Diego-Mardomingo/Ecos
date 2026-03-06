@@ -1,17 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { getTodaysGame } from "@/lib/queries/games";
 import { GameClient } from "@/components/game/GameClient";
-import { redirect } from "next/navigation";
 
 export default async function PlayPage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login?redirect=/play");
-  }
 
   const todaysGame = await getTodaysGame();
 
@@ -27,5 +22,6 @@ export default async function PlayPage() {
     );
   }
 
-  return <GameClient game={todaysGame} userId={user.id} />;
+  // userId es null para invitados — el juego se guarda en localStorage
+  return <GameClient game={todaysGame} userId={user?.id ?? null} />;
 }

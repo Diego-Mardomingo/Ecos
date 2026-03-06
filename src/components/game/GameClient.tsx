@@ -2,10 +2,11 @@
 
 import { useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
 import confetti from "canvas-confetti";
+import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
 import { useGameStore, ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
@@ -15,12 +16,14 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   game: GameWithSong;
-  userId: string;
+  userId: string | null; // null = invitado
 }
 
 export function GameClient({ game, userId }: Props) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
+  const isGuest = !userId;
+
   const {
     phase,
     currentAttempt,
@@ -56,25 +59,6 @@ export function GameClient({ game, userId }: Props) {
         track.title.toLowerCase().trim() ===
           game.ecos_songs.title.toLowerCase().trim();
 
-      // Registrar intento en el servidor
-      try {
-        await fetch("/api/validate-guess", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            gameId: game.id,
-            userId,
-            attemptNumber: currentAttempt,
-            guessText,
-            deezerTrackId: track.id,
-          }),
-        });
-      } catch {
-        // Continuar aunque falle el registro
-      }
-
-      addGuess({ text: guessText, correct: isCorrect, attemptNumber: currentAttempt });
-
       if (isCorrect) {
         // Lanzar confetti
         confetti({
@@ -84,30 +68,82 @@ export function GameClient({ game, userId }: Props) {
           colors: ["#2bee79", "#ffffff", "#0a2015"],
         });
 
-        // Obtener puntuación del servidor
-        try {
-          const res = await fetch("/api/validate-guess", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              gameId: game.id,
-              userId,
-              attemptNumber: currentAttempt,
-              guessText,
-              deezerTrackId: track.id,
-              finalize: true,
-            }),
-          });
-          const data = await res.json();
-          setWon(currentAttempt, data.totalPoints ?? 1000);
-        } catch {
-          setWon(currentAttempt, 1000);
+        if (isGuest) {
+          // Invitado: calcular puntuación localmente, no persistir en servidor
+          const { totalPoints } = calculateScore(currentAttempt, 0);
+          addGuess({ text: guessText, correct: true, attemptNumber: currentAttempt });
+          setWon(currentAttempt, totalPoints);
+        } else {
+          // Usuario autenticado: registrar y puntuar en el servidor
+          try {
+            const res = await fetch("/api/validate-guess", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                gameId: game.id,
+                userId,
+                attemptNumber: currentAttempt,
+                guessText,
+                deezerTrackId: track.id,
+                finalize: true,
+              }),
+            });
+            const data = await res.json();
+            addGuess({ text: guessText, correct: true, attemptNumber: currentAttempt });
+            setWon(currentAttempt, data.totalPoints ?? 1000);
+          } catch {
+            const { totalPoints } = calculateScore(currentAttempt, 0);
+            addGuess({ text: guessText, correct: true, attemptNumber: currentAttempt });
+            setWon(currentAttempt, totalPoints);
+          }
         }
-      } else if (currentAttempt >= maxAttempts) {
-        setLost();
+      } else {
+        addGuess({ text: guessText, correct: false, attemptNumber: currentAttempt });
+
+        if (!isGuest) {
+          // Registrar intento fallido en el servidor
+          try {
+            await fetch("/api/validate-guess", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                gameId: game.id,
+                userId,
+                attemptNumber: currentAttempt,
+                guessText,
+                deezerTrackId: track.id,
+              }),
+            });
+          } catch {
+            // Continuar aunque falle el registro
+          }
+        }
+
+        if (currentAttempt >= maxAttempts) {
+          if (!isGuest) {
+            // Registrar derrota en el servidor
+            try {
+              await fetch("/api/validate-guess", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  gameId: game.id,
+                  userId,
+                  attemptNumber: currentAttempt,
+                  guessText,
+                  deezerTrackId: track.id,
+                  finalize: true,
+                }),
+              });
+            } catch {
+              // continuar
+            }
+          }
+          setLost();
+        }
       }
     },
-    [phase, game, userId, currentAttempt, maxAttempts, addGuess, setWon, setLost]
+    [phase, game, userId, isGuest, currentAttempt, maxAttempts, addGuess, setWon, setLost]
   );
 
   const song = game.ecos_songs;
@@ -121,6 +157,7 @@ export function GameClient({ game, userId }: Props) {
         finalScore={finalScore}
         maxAttempts={maxAttempts}
         gameNumber={game.game_number}
+        isGuest={isGuest}
       />
     );
   }
@@ -145,6 +182,24 @@ export function GameClient({ game, userId }: Props) {
           {t("skip")}
         </button>
       </header>
+
+      {/* Banner de invitado */}
+      {isGuest && (
+        <div className="mx-4 mb-1 flex items-center gap-2 rounded-xl bg-brand/10 px-3 py-2">
+          <span
+            className="material-symbols-outlined text-base text-brand"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            info
+          </span>
+          <p className="flex-1 text-xs text-brand/90">
+            Juegas como invitado — tu puntuación no se guarda en el ranking.
+          </p>
+          <Link href="/login" className="text-xs font-bold text-brand underline underline-offset-2">
+            Entrar
+          </Link>
+        </div>
+      )}
 
       {/* Área principal */}
       <div className="relative flex flex-1 flex-col items-center justify-center gap-6 px-4 py-4">
@@ -176,29 +231,26 @@ export function GameClient({ game, userId }: Props) {
           </div>
         </div>
 
-        {/* Intentos y pistas */}
-        <div className="flex items-center gap-3">
-          {/* Indicador de intentos */}
-          <div className="flex items-center gap-1">
-            {Array.from({ length: maxAttempts }).map((_, i) => {
-              const guess = guesses[i];
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "h-2 w-2 rounded-full transition-all",
-                    i < guesses.length
-                      ? guess?.correct
-                        ? "bg-brand"
-                        : "bg-destructive"
-                      : i === guesses.length
-                      ? "bg-brand/50 ring-2 ring-brand/30"
-                      : "bg-muted"
-                  )}
-                />
-              );
-            })}
-          </div>
+        {/* Indicador de intentos */}
+        <div className="flex items-center gap-1">
+          {Array.from({ length: maxAttempts }).map((_, i) => {
+            const guess = guesses[i];
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "h-2 w-2 rounded-full transition-all",
+                  i < guesses.length
+                    ? guess?.correct
+                      ? "bg-brand"
+                      : "bg-destructive"
+                    : i === guesses.length
+                    ? "bg-brand/50 ring-2 ring-brand/30"
+                    : "bg-muted"
+                )}
+              />
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-3">
@@ -244,6 +296,7 @@ function ResultScreen({
   finalScore,
   maxAttempts,
   gameNumber,
+  isGuest,
 }: {
   phase: "won" | "lost";
   song: GameWithSong["ecos_songs"];
@@ -251,6 +304,7 @@ function ResultScreen({
   finalScore: number | null;
   maxAttempts: number;
   gameNumber: number;
+  isGuest: boolean;
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
@@ -260,14 +314,14 @@ function ResultScreen({
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="flex min-h-full flex-col items-center justify-center gap-6 px-6 text-center"
+      className="flex min-h-full flex-col items-center justify-center gap-5 px-6 py-8 text-center"
     >
       {/* Artwork */}
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1 }}
-        className="relative h-48 w-48 overflow-hidden rounded-2xl shadow-2xl"
+        className="relative h-44 w-44 overflow-hidden rounded-2xl shadow-2xl"
       >
         {song.cover_url ? (
           <Image src={song.cover_url} alt={song.title} fill className="object-cover" />
@@ -320,11 +374,46 @@ function ResultScreen({
             </p>
           </>
         ) : (
-          <p className="text-lg font-semibold text-muted-foreground">
+          <p className="text-base font-semibold text-muted-foreground">
             {t("playAgainTomorrow")}
           </p>
         )}
       </motion.div>
+
+      {/* Banner de invitado — CTA para registrarse */}
+      {isGuest && (
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.35 }}
+          className="w-full overflow-hidden rounded-2xl bg-gradient-to-br from-brand/20 to-brand/5 p-4"
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <span
+              className="material-symbols-outlined text-xl text-brand"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              leaderboard
+            </span>
+            <p className="text-sm font-bold">
+              {won ? "¡Buen resultado! Guárdalo en el ranking" : "¿A ver si mañana lo consigues?"}
+            </p>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Inicia sesión para que tu puntuación cuente en el ranking global y puedas competir con otros jugadores.
+          </p>
+          <Link
+            href={`/login?redirect=/play`}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-[#0a2015]"
+          >
+            <span className="material-symbols-outlined text-base"
+              style={{ fontVariationSettings: "'FILL' 1" }}>
+              login
+            </span>
+            Iniciar sesión con Google
+          </Link>
+        </motion.div>
+      )}
 
       {/* Acciones */}
       <motion.div
@@ -337,13 +426,15 @@ function ResultScreen({
           <span className="material-symbols-outlined text-lg">share</span>
           {t("shareResult")}
         </button>
-        <Link
-          href="/ranking"
-          className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
-        >
-          <span className="material-symbols-outlined text-lg">leaderboard</span>
-          Ver ranking
-        </Link>
+        {!isGuest && (
+          <Link
+            href="/ranking"
+            className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
+          >
+            <span className="material-symbols-outlined text-lg">leaderboard</span>
+            Ver ranking
+          </Link>
+        )}
       </motion.div>
     </motion.div>
   );

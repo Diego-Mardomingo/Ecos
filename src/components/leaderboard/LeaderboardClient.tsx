@@ -63,6 +63,30 @@ export function LeaderboardClient({ entries, currentUserId }: Props) {
         </button>
       </header>
 
+      {/* Banner de invitado */}
+      {!currentUserId && (
+        <div className="mx-4 mt-1 flex items-center gap-3 rounded-2xl bg-brand/10 px-4 py-3">
+          <span
+            className="material-symbols-outlined text-xl text-brand"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            emoji_events
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">¿Quieres competir?</p>
+            <p className="text-xs text-muted-foreground">
+              Inicia sesión para aparecer en el ranking global.
+            </p>
+          </div>
+          <Link
+            href="/login?redirect=/ranking"
+            className="flex-shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-[#0a2015]"
+          >
+            Entrar
+          </Link>
+        </div>
+      )}
+
       {/* Toggle Global / Amigos */}
       <div className="px-4 py-3">
         <div className="relative flex rounded-full bg-muted p-1">

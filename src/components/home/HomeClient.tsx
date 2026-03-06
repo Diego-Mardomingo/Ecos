@@ -132,7 +132,7 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
       </section>
 
       {/* Stats rápidas */}
-      {user && (
+      {user ? (
         <section className="grid grid-cols-2 gap-3">
           <StatCard
             label={t("currentStreak")}
@@ -147,6 +147,30 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
             icon="emoji_events"
             iconColor="text-brand"
           />
+        </section>
+      ) : (
+        /* Invitado: CTA motivacional para registrarse */
+        <section>
+          <Link
+            href="/login"
+            className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 transition-colors active:bg-card/70"
+          >
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand/15">
+              <span
+                className="material-symbols-outlined text-xl text-brand"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                person_add
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">Únete al ranking global</p>
+              <p className="text-xs text-muted-foreground">
+                Inicia sesión para guardar tu racha y competir
+              </p>
+            </div>
+            <span className="material-symbols-outlined text-brand">chevron_right</span>
+          </Link>
         </section>
       )}
 
