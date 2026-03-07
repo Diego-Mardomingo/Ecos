@@ -276,7 +276,7 @@ function PreviousDaysSection() {
               <p className="truncate font-semibold">{day.title}</p>
               {day.played && day.score !== null ? (
                 <p className="text-xs font-medium text-brand">
-                  {t("score")}: {day.score.toLocaleString()} {tc("points")}
+                  {t("score")}: {day.score.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">{t("notPlayedYet")}</p>
