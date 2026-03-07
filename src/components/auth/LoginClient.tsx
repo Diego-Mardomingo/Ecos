@@ -34,13 +34,13 @@ export function LoginClient() {
       >
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-brand/15 ring-1 ring-brand/30">
+          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-brand/15 ring-1 ring-brand/30">
             <Image
               src="/ecos_icon_v2_192.png"
               alt="Ecos"
               width={80}
               height={80}
-              className="object-contain p-2"
+              className="object-contain"
             />
           </div>
           <h1 className="text-3xl font-bold tracking-tight">Ecos</h1>

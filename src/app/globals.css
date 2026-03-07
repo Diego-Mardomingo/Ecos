@@ -6,7 +6,7 @@
 
 @theme inline {
   /* Fuente */
-  --font-sans: var(--font-spline-sans);
+  --font-sans: var(--font-dm-sans);
 
   /* Colores semánticos mapeados desde variables CSS */
   --color-background: var(--background);

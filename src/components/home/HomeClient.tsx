@@ -30,7 +30,7 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
         style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}>
         <div className="flex items-center gap-2">
-          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/20">
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-brand/15 ring-1 ring-brand/30">
             <Image
               src="/ecos_icon_v2_192.png"
               alt=""
