@@ -71,25 +71,25 @@
 
 /* ---- DARK THEME ---- */
 .dark {
-  --background:         #102217;
-  --foreground:         #f3f4f6;
-  --card:               #1a2e22;
-  --card-foreground:    #f3f4f6;
-  --popover:            #1a2e22;
-  --popover-foreground: #f3f4f6;
+  --background:         #0f1112;
+  --foreground:         #f4f4f5;
+  --card:               #181b1d;
+  --card-foreground:    #f4f4f5;
+  --popover:            #181b1d;
+  --popover-foreground: #f4f4f5;
   --primary:            #2bee79;
   --primary-foreground: #0a2015;
-  --secondary:          #193324;
-  --secondary-foreground:#d1fae5;
-  --muted:              #193324;
-  --muted-foreground:   #9ca3af;
-  --accent:             #193324;
-  --accent-foreground:  #f3f4f6;
+  --secondary:          #1c1f21;
+  --secondary-foreground:#d4d4d8;
+  --muted:              #1c1f21;
+  --muted-foreground:   #a1a1aa;
+  --accent:             #1c1f21;
+  --accent-foreground:  #f4f4f5;
   --destructive:        oklch(0.704 0.191 22.216);
   --border:             rgba(255,255,255,0.08);
   --input:              rgba(255,255,255,0.10);
   --ring:               #2bee79;
-  --surface:            #1a2e22;
+  --surface:            #181b1d;
 }
 
 @layer base {

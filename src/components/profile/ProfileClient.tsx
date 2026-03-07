@@ -208,12 +208,6 @@ export function ProfileClient({ profile, stats }: Props) {
               <span className="material-symbols-outlined text-muted-foreground">chevron_right</span>
             </button>
             <div className="mx-4 h-px bg-border" />
-            <button className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50">
-              <span className="material-symbols-outlined text-xl text-muted-foreground">policy</span>
-              <span className="flex-1 text-left text-sm font-medium">{t("settings.privacyPolicy")}</span>
-              <span className="material-symbols-outlined text-muted-foreground">chevron_right</span>
-            </button>
-            <div className="mx-4 h-px bg-border" />
             <button
               onClick={handleSignOut}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-destructive transition-colors hover:bg-destructive/5"

@@ -85,11 +85,6 @@ export function LoginClient() {
             {loading ? t("signingIn") : t("signInWithGoogle")}
           </motion.button>
         </div>
-
-        <p className="text-center text-xs text-muted-foreground">
-          Al continuar aceptas nuestros{" "}
-          <span className="text-brand">Términos de uso</span>
-        </p>
       </motion.div>
     </div>
   );
