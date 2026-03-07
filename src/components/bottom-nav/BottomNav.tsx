@@ -10,12 +10,11 @@ interface NavItem {
   href: string;
   labelKey: string;
   icon: string;
-  isFab?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/ranking", labelKey: "ranking", icon: "leaderboard" },
-  { href: "/", labelKey: "home", icon: "play_circle", isFab: true },
+  { href: "/", labelKey: "play", icon: "play_circle" },
   { href: "/profile", labelKey: "profile", icon: "person" },
 ];
 
@@ -42,65 +41,22 @@ export function BottomNav() {
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
 
-          if (item.isFab) {
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex min-w-0 flex-1 flex-col items-center gap-1"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                  <motion.div
-                    whileTap={{ scale: 0.92 }}
-                    className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-lg shadow-md transition-all ring-1 ring-brand/30",
-                      active
-                        ? "bg-brand shadow-brand/30"
-                        : "bg-brand/20 shadow-brand/10"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "material-symbols-outlined text-2xl leading-none",
-                        active ? "text-[#111827]" : "text-brand"
-                      )}
-                      style={{
-                        fontVariationSettings: "'FILL' 1, 'wght' 600",
-                      }}
-                    >
-                      {item.icon}
-                    </span>
-                  </motion.div>
-                </div>
-                <span
-                  className={cn(
-                    "text-[10px] font-medium transition-colors",
-                    active ? "text-brand" : "text-muted-foreground"
-                  )}
-                >
-                  {t(item.labelKey)}
-                </span>
-              </Link>
-            );
-          }
-
           return (
             <Link
               key={item.href}
               href={item.href}
               className="flex min-w-0 flex-1 flex-col items-center gap-1"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center">
                 <motion.span
                   whileTap={{ scale: 0.85 }}
                   className={cn(
-                    "material-symbols-outlined text-2xl transition-colors",
+                    "material-symbols-outlined transition-colors",
                     active ? "text-brand" : "text-muted-foreground"
                   )}
                   style={{
-                    fontVariationSettings: active
-                      ? "'FILL' 1, 'wght' 500"
-                      : "'FILL' 0, 'wght' 400",
+                    fontVariationSettings: "'FILL' 1, 'wght' 500, 'opsz' 28",
+                    fontSize: 28,
                   }}
                 >
                   {item.icon}

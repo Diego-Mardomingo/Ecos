@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
@@ -38,7 +38,9 @@ const MOCK_ENTRIES: LeaderboardEntry[] = [
 
 export function LeaderboardClient({ entries, currentUserId }: Props) {
   const t = useTranslations("ranking");
+  const locale = useLocale();
   const [activeTab, setActiveTab] = useState<Tab>("global");
+  const formatPoints = (n: number) => n.toLocaleString(locale === "es" ? "es-ES" : "en-US");
 
   const displayEntries = entries.length > 0 ? entries : MOCK_ENTRIES;
   const top3 = displayEntries.slice(0, 3);
@@ -116,11 +118,11 @@ export function LeaderboardClient({ entries, currentUserId }: Props) {
         <div className="px-4 py-6">
           <div className="flex items-end justify-center gap-4">
             {/* 2º puesto */}
-            <PodiumEntry entry={top3[1]} position={2} isCurrentUser={isCurrentUser(top3[1]?.user_id)} />
+            <PodiumEntry entry={top3[1]} position={2} isCurrentUser={isCurrentUser(top3[1]?.user_id)} formatPoints={formatPoints} />
             {/* 1º puesto */}
-            <PodiumEntry entry={top3[0]} position={1} isCurrentUser={isCurrentUser(top3[0]?.user_id)} elevated />
+            <PodiumEntry entry={top3[0]} position={1} isCurrentUser={isCurrentUser(top3[0]?.user_id)} formatPoints={formatPoints} elevated />
             {/* 3º puesto */}
-            <PodiumEntry entry={top3[2]} position={3} isCurrentUser={isCurrentUser(top3[2]?.user_id)} />
+            <PodiumEntry entry={top3[2]} position={3} isCurrentUser={isCurrentUser(top3[2]?.user_id)} formatPoints={formatPoints} />
           </div>
         </div>
 
@@ -177,7 +179,7 @@ export function LeaderboardClient({ entries, currentUserId }: Props) {
                 <span className="text-sm font-medium">{entry.streak}</span>
               </div>
               <span className="w-16 text-right text-sm font-bold tabular-nums">
-                {entry.total_points.toLocaleString()}
+                {formatPoints(entry.total_points)}
               </span>
             </motion.div>
           ))}
@@ -191,11 +193,13 @@ function PodiumEntry({
   entry,
   position,
   isCurrentUser,
+  formatPoints,
   elevated,
 }: {
   entry: LeaderboardEntry | undefined;
   position: 1 | 2 | 3;
   isCurrentUser: boolean;
+  formatPoints: (n: number) => string;
   elevated?: boolean;
 }) {
   if (!entry) return <div className="flex-1" />;
@@ -246,7 +250,7 @@ function PodiumEntry({
           {entry.profiles?.display_name ?? "Unknown"}
         </p>
         <p className="text-xs font-bold text-brand">
-          {entry.total_points.toLocaleString()}
+          {formatPoints(entry.total_points)}
         </p>
       </div>
       <div className={cn("w-full rounded-t-lg", barHeights[position], barColors[position])} />
