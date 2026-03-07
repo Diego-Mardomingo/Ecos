@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
@@ -33,13 +34,14 @@ export function LoginClient() {
       >
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-brand/15 ring-1 ring-brand/30">
-            <span
-              className="material-symbols-outlined text-4xl text-brand"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              music_note
-            </span>
+          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-brand/15 ring-1 ring-brand/30">
+            <Image
+              src="/ecos_icon_v2_192.png"
+              alt="Ecos"
+              width={80}
+              height={80}
+              className="object-contain p-2"
+            />
           </div>
           <h1 className="text-3xl font-bold tracking-tight">Ecos</h1>
           <p className="text-center text-sm text-muted-foreground">

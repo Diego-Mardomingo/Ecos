@@ -24,6 +24,7 @@ export const metadata: Metadata = {
   },
   description:
     "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global y mantén tu racha.",
+  // favicon.ico, icon0.svg, icon1.png, apple-icon.png en src/app/ son recogidos por Next.js
   // manifest.json en src/app/ es recogido automáticamente por Next.js App Router
   appleWebApp: {
     capable: true,

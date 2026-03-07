@@ -30,11 +30,14 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
         style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}>
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/20">
-            <span className="material-symbols-outlined text-lg text-brand"
-              style={{ fontVariationSettings: "'FILL' 1" }}>
-              music_note
-            </span>
+          <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand/20">
+            <Image
+              src="/ecos_favicon_v2_32.png"
+              alt=""
+              width={32}
+              height={32}
+              className="object-contain"
+            />
           </div>
           <span className="text-lg font-bold tracking-tight">{tc("appName")}</span>
         </div>
