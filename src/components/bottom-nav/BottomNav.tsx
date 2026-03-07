@@ -14,9 +14,8 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/", labelKey: "home", icon: "home" },
   { href: "/ranking", labelKey: "ranking", icon: "leaderboard" },
-  { href: "/play", labelKey: "play", icon: "play_circle", isFab: true },
+  { href: "/", labelKey: "home", icon: "play_circle", isFab: true },
   { href: "/profile", labelKey: "profile", icon: "person" },
 ];
 
@@ -33,15 +32,13 @@ export function BottomNav() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2">
+    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t border-brand/40 bg-card">
+      {/* Blob verde sutil centrado en Inicio */}
       <div
-        className="relative flex items-end justify-around px-2 pb-safe"
-        style={{
-          background:
-            "linear-gradient(to top, var(--card) 85%, transparent)",
-          borderTop: "1px solid var(--border)",
-        }}
-      >
+        className="pointer-events-none absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/8 blur-[50px]"
+        aria-hidden
+      />
+      <div className="relative flex justify-around px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
 
@@ -50,27 +47,31 @@ export function BottomNav() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="relative -mt-5 flex flex-col items-center gap-1"
+                className="flex min-w-0 flex-1 flex-col items-center gap-1"
               >
-                <motion.div
-                  whileTap={{ scale: 0.92 }}
-                  className={cn(
-                    "flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all",
-                    active
-                      ? "bg-brand shadow-brand/40"
-                      : "bg-brand shadow-brand/20"
-                  )}
-                >
-                  <span
-                    className="material-symbols-outlined text-2xl"
-                    style={{
-                      color: "#0a2015",
-                      fontVariationSettings: "'FILL' 1, 'wght' 600",
-                    }}
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                  <motion.div
+                    whileTap={{ scale: 0.92 }}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-lg shadow-md transition-all ring-1 ring-brand/30",
+                      active
+                        ? "bg-brand shadow-brand/30"
+                        : "bg-brand/20 shadow-brand/10"
+                    )}
                   >
-                    {item.icon}
-                  </span>
-                </motion.div>
+                    <span
+                      className={cn(
+                        "material-symbols-outlined text-2xl leading-none",
+                        active ? "text-[#111827]" : "text-brand"
+                      )}
+                      style={{
+                        fontVariationSettings: "'FILL' 1, 'wght' 600",
+                      }}
+                    >
+                      {item.icon}
+                    </span>
+                  </motion.div>
+                </div>
                 <span
                   className={cn(
                     "text-[10px] font-medium transition-colors",
@@ -87,22 +88,24 @@ export function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center gap-1 py-3"
+              className="flex min-w-0 flex-1 flex-col items-center gap-1"
             >
-              <motion.span
-                whileTap={{ scale: 0.85 }}
-                className={cn(
-                  "material-symbols-outlined text-2xl transition-colors",
-                  active ? "text-brand" : "text-muted-foreground"
-                )}
-                style={{
-                  fontVariationSettings: active
-                    ? "'FILL' 1, 'wght' 500"
-                    : "'FILL' 0, 'wght' 400",
-                }}
-              >
-                {item.icon}
-              </motion.span>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                <motion.span
+                  whileTap={{ scale: 0.85 }}
+                  className={cn(
+                    "material-symbols-outlined text-2xl transition-colors",
+                    active ? "text-brand" : "text-muted-foreground"
+                  )}
+                  style={{
+                    fontVariationSettings: active
+                      ? "'FILL' 1, 'wght' 500"
+                      : "'FILL' 0, 'wght' 400",
+                  }}
+                >
+                  {item.icon}
+                </motion.span>
+              </div>
               <span
                 className={cn(
                   "text-[10px] font-medium transition-colors",
