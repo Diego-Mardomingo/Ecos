@@ -55,3 +55,6 @@ project_overview.md
 
 # supabase
 supabase/
+
+# pnpm
+.pnpm-store/

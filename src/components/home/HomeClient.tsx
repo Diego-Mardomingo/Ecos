@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import Image from "next/image";
@@ -7,18 +8,18 @@ import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
-import type { User } from "@supabase/supabase-js";
-import type { GameWithSong } from "@/lib/queries/games";
+import type { GameWithSong, PreviousDayGame } from "@/lib/queries/games";
 import type { UserStats } from "@/lib/queries/users";
 import { cn } from "@/lib/utils";
 
 interface Props {
   todaysGame: GameWithSong | null;
   userStats: UserStats | null;
-  user: User | null;
+  userId: string | null;
+  previousDays: PreviousDayGame[];
 }
 
-export function HomeClient({ todaysGame, userStats, user }: Props) {
+export function HomeClient({ todaysGame, userStats, userId, previousDays }: Props) {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
@@ -87,28 +88,8 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
             12k {t("playing")}
           </div>
 
-          {/* Waveform decorativa animada */}
-          <div className="absolute left-0 right-0 top-1/3 flex items-center justify-center gap-[3px] px-8 opacity-60">
-            {Array.from({ length: 40 }).map((_, i) => (
-              <motion.div
-                key={i}
-                className="w-[3px] rounded-full bg-brand"
-                animate={{
-                  height: [
-                    `${8 + Math.random() * 24}px`,
-                    `${8 + Math.random() * 24}px`,
-                  ],
-                }}
-                transition={{
-                  duration: 0.6 + Math.random() * 0.8,
-                  repeat: Infinity,
-                  repeatType: "reverse",
-                  ease: "easeInOut",
-                  delay: i * 0.03,
-                }}
-              />
-            ))}
-          </div>
+          {/* Waveform decorativa animada (valores estables para evitar re-renders) */}
+          <WaveformBars />
 
           {/* Info y acciones */}
           <div className="absolute bottom-0 left-0 right-0 p-4">
@@ -136,7 +117,7 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
       </section>
 
       {/* Stats rápidas */}
-      {user ? (
+      {userId ? (
         <section className="grid grid-cols-2 gap-3">
           <StatCard
             label={t("currentStreak")}
@@ -179,7 +160,39 @@ export function HomeClient({ todaysGame, userStats, user }: Props) {
       )}
 
       {/* Días anteriores */}
-      <PreviousDaysSection />
+      <PreviousDaysSection previousDays={previousDays} />
+    </div>
+  );
+}
+
+function WaveformBars() {
+  const bars = useMemo(
+    () =>
+      Array.from({ length: 40 }, (_, i) => ({
+        key: i,
+        heightA: 8 + Math.random() * 24,
+        heightB: 8 + Math.random() * 24,
+        duration: 0.6 + Math.random() * 0.8,
+        delay: i * 0.03,
+      })),
+    []
+  );
+  return (
+    <div className="absolute left-0 right-0 top-1/3 flex items-center justify-center gap-[3px] px-8 opacity-60">
+      {bars.map(({ key, heightA, heightB, duration, delay }) => (
+        <motion.div
+          key={key}
+          className="w-[3px] rounded-full bg-brand"
+          animate={{ height: [`${heightA}px`, `${heightB}px`] }}
+          transition={{
+            duration,
+            repeat: Infinity,
+            repeatType: "reverse",
+            ease: "easeInOut",
+            delay,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -210,19 +223,11 @@ function StatCard({
   );
 }
 
-function PreviousDaysSection() {
+function PreviousDaysSection({ previousDays }: { previousDays: PreviousDayGame[] }) {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
-
-  // Días de ejemplo (en producción vendrían del servidor)
-  const mockDays = [
-    { id: "1", date: "2026-03-05", game_number: 41, played: true, won: true, score: 4500, cover_url: "", title: "Yesterday's Jam", artist_name: "Artist" },
-    { id: "2", date: "2026-03-04", game_number: 40, played: false, won: false, score: null, cover_url: "", title: "Missed Opportunity", artist_name: "Artist" },
-    { id: "3", date: "2026-03-03", game_number: 39, played: true, won: true, score: 3200, cover_url: "", title: "Retro Vibes", artist_name: "Artist" },
-    { id: "4", date: "2026-03-02", game_number: 38, played: false, won: false, score: null, cover_url: "", title: "Sunday Chill", artist_name: "Artist" },
-  ];
 
   return (
     <section>
@@ -232,7 +237,12 @@ function PreviousDaysSection() {
       </div>
 
       <div className="flex flex-col gap-2">
-        {mockDays.map((day) => (
+        {previousDays.length === 0 ? (
+          <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+            Aún no hay días anteriores
+          </p>
+        ) : (
+          previousDays.map((day) => (
           <motion.div
             key={day.id}
             whileTap={{ scale: 0.99 }}
@@ -291,7 +301,7 @@ function PreviousDaysSection() {
               {day.played ? "chevron_right" : "play_circle"}
             </span>
           </motion.div>
-        ))}
+        )))}
       </div>
     </section>
   );
