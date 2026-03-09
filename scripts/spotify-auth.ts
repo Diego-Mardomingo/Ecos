@@ -12,7 +12,8 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 dotenv.config();
 
-const SCOPES = ["playlist-read-public"].join(" ");
+// playlist-read-public fue deprecado. Para playlists públicas no hace falta scope.
+const SCOPES = "";
 
 function main() {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
@@ -33,14 +34,14 @@ function main() {
     process.exit(1);
   }
 
-  const authUrl =
-    "https://accounts.spotify.com/authorize?" +
-    new URLSearchParams({
-      client_id: clientId,
-      response_type: "code",
-      redirect_uri: redirectUri,
-      scope: SCOPES,
-    }).toString();
+  const params: Record<string, string> = {
+    client_id: clientId,
+    response_type: "code",
+    redirect_uri: redirectUri,
+  };
+  if (SCOPES) params.scope = SCOPES;
+
+  const authUrl = "https://accounts.spotify.com/authorize?" + new URLSearchParams(params).toString();
 
   console.log("\n1. Abre esta URL en el navegador:\n   " + authUrl + "\n");
   console.log("2. Autoriza y copia SPOTIFY_REFRESH_TOKEN a .env.local\n");
