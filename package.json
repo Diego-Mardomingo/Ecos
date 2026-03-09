@@ -13,9 +13,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ingest": "tsx scripts/ingest.ts",
-    "verify-youtube": "tsx scripts/verify-youtube.ts",
-    "spotify-auth": "tsx scripts/spotify-auth.ts"
+    "ingest-weekly": "python scripts/ingest-weekly.py",
+    "verify-youtube": "tsx scripts/verify-youtube.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

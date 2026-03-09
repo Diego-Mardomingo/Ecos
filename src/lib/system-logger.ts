@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type JobType =
   | "ingestion"
+  | "weekly_games"
   | "cron_daily"
   | "verify_youtube"
   | "report_auto_deactivate";

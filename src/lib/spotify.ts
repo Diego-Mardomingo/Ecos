@@ -1,7 +1,7 @@
 /**
- * Cliente Spotify API - OAuth Refresh Token Flow.
- * Usa SPOTIFY_REFRESH_TOKEN (obtenido con pnpm run spotify-auth).
- * Solo metadatos (sin audio). Usado por scripts de ingesta.
+ * Cliente Spotify API - Client Credentials Flow.
+ * Usa Search API para ingesta (compatible con playlists editoriales restringidas).
+ * Solo metadatos (sin audio). Requiere SPOTIFY_CLIENT_ID y SPOTIFY_CLIENT_SECRET.
  */
 
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -25,13 +25,6 @@ export interface SpotifyTrack {
   };
 }
 
-export interface SpotifyAudioFeatures {
-  id: string;
-  tempo: number | null;
-  danceability: number;
-  energy: number;
-}
-
 async function getAccessToken(): Promise<string> {
   const now = Date.now();
   if (cachedToken && tokenExpiresAt > now + 60000) {
@@ -40,13 +33,9 @@ async function getAccessToken(): Promise<string> {
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  const refreshToken = process.env.SPOTIFY_REFRESH_TOKEN;
 
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error(
-      "SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET and SPOTIFY_REFRESH_TOKEN required. " +
-        "Run 'pnpm run spotify-auth' to obtain the refresh token."
-    );
+  if (!clientId || !clientSecret) {
+    throw new Error("SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET required");
   }
 
   const res = await fetch(TOKEN_URL, {
@@ -55,10 +44,7 @@ async function getAccessToken(): Promise<string> {
       Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }).toString(),
+    body: "grant_type=client_credentials",
   });
 
   if (!res.ok) {
@@ -69,7 +55,6 @@ async function getAccessToken(): Promise<string> {
   const data = (await res.json()) as {
     access_token: string;
     expires_in: number;
-    refresh_token?: string;
   };
 
   cachedToken = data.access_token;
@@ -91,88 +76,71 @@ async function apiGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export interface PlaylistTrack {
-  track: SpotifyTrack | null;
-}
-
-export interface PlaylistTracksResponse {
-  items: { track: SpotifyTrack | null }[];
-  next: string | null;
-  total: number;
+interface SearchTracksResponse {
+  tracks: {
+    items: SpotifyTrack[];
+    next: string | null;
+    offset: number;
+    limit: number;
+  };
 }
 
 /**
- * Obtiene las canciones de una playlist.
- * Pagina automáticamente si hay más de 100.
+ * Busca canciones por query. Search API (límite 10 por request en feb 2026).
  */
-export async function getPlaylistTracks(
-  playlistId: string
+export async function searchTracks(
+  query: string,
+  options: { market?: string; limit?: number; offset?: number } = {}
 ): Promise<SpotifyTrack[]> {
+  const market = options.market ?? "ES";
+  const limit = Math.min(options.limit ?? 10, 10);
+  const offset = options.offset ?? 0;
+
+  const params = new URLSearchParams({
+    q: query,
+    type: "track",
+    market,
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  const data = (await apiGet<SearchTracksResponse>(
+    `/search?${params.toString()}`
+  )) as SearchTracksResponse;
+
+  return data.tracks?.items ?? [];
+}
+
+/**
+ * Obtiene canciones de una fuente (query). Pagina y deduplica.
+ */
+export async function searchTracksFromSource(
+  _sourceId: string,
+  query: string,
+  maxTracks: number,
+  market = "ES"
+): Promise<SpotifyTrack[]> {
+  const seen = new Set<string>();
   const tracks: SpotifyTrack[] = [];
-  let url = `/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,duration_ms,explicit,popularity,artists(id,name),album(id,name,release_date,images)))`;
+  let offset = 0;
+  const limit = 10;
 
-  while (url) {
-    const fullUrl = url.startsWith("http") ? url : `${API_BASE}${url}`;
-    const token = await getAccessToken();
-    const res = await fetch(fullUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+  while (tracks.length < maxTracks) {
+    const batch = await searchTracks(query, { market, limit, offset });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Spotify API error: ${res.status} ${text}`);
-    }
+    if (batch.length === 0) break;
 
-    const data = (await res.json()) as PlaylistTracksResponse;
-    for (const item of data.items) {
-      if (item.track?.id) {
-        tracks.push(item.track);
+    for (const t of batch) {
+      if (t?.id && !seen.has(t.id)) {
+        seen.add(t.id);
+        tracks.push(t);
+        if (tracks.length >= maxTracks) break;
       }
     }
-    url = data.next ?? "";
+
+    if (batch.length < limit) break;
+    offset += limit;
   }
 
   return tracks;
-}
-
-/**
- * Obtiene audio features por track (GET /audio-features/{id}).
- * El endpoint batch ?ids= da 403 en Development Mode (feb 2026).
- */
-export async function getAudioFeatures(
-  trackIds: string[]
-): Promise<Map<string, SpotifyAudioFeatures>> {
-  const map = new Map<string, SpotifyAudioFeatures>();
-  const CONCURRENCY = 5;
-
-  async function fetchOne(id: string): Promise<void> {
-    try {
-      const af = (await apiGet<SpotifyAudioFeatures | null>(
-        `/audio-features/${id}`
-      )) as SpotifyAudioFeatures | null;
-      if (af?.id) map.set(af.id, af);
-    } catch {
-      // Ignorar errores individuales (track sin features)
-    }
-  }
-
-  for (let i = 0; i < trackIds.length; i += CONCURRENCY) {
-    const batch = trackIds.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(fetchOne));
-    if (i + CONCURRENCY < trackIds.length) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-
-  return map;
-}
-
-/**
- * Obtiene el nombre de una playlist.
- */
-export async function getPlaylistName(playlistId: string): Promise<string> {
-  const data = (await apiGet<{ name: string }>(
-    `/playlists/${playlistId}?fields=name`
-  )) as { name: string };
-  return data.name;
 }

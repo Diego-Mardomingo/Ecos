@@ -1,0 +1,2 @@
+# Dependencias para scripts de ingesta con SpotifyScraper
+spotifyscraper>=2.0.0

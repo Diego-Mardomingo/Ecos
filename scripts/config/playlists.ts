@@ -12,6 +12,7 @@ export const SPOTIFY_PLAYLISTS = [
   "37i9dQZF1DWVskFRGurTfg", // Hits Urbanos (urbano/reggaetón que peta en España, 2.6M saves)
   "37i9dQZF1DXcd2Vmhfon1w", // Rap Español (trap/rap nacional, 533K saves)
   "37i9dQZF1DWV7FWPDK0Dg1", // Flamenco Pop (género único español, 453K saves)
+  "37i9dQZF1DWZMtkg0cMXbp", // Flamenco Flow (flamenco + urban fusion, Casa del Flamenco)
   "37i9dQZF1DX8SfyqmSFDwe", // Old School Reggaeton (clásicos del reggaetón, 3.3M saves)
   "37i9dQZF1DX09mi3a4Zmox", // Baladas Románticas (pop romántico español, 3.9M saves)
   "37i9dQZF1DXdnGF35OawbN", // Verano Forever (hits de verano, 3.8M saves)
