@@ -37,13 +37,13 @@ export function LoginClient() {
           <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-brand/15 ring-1 ring-brand/30">
             <Image
               src="/ecos_icon_v2_192.png"
-              alt="Ecos"
+              alt="ECOS"
               width={80}
               height={80}
               className="object-contain"
             />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Ecos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">ECOS</h1>
           <p className="text-center text-sm text-muted-foreground">
             {t("subtitle")}
           </p>

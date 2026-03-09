@@ -1,4 +1,4 @@
-# 🎵 Ecos 
+# 🎵 ECOS 
 
 > Adivina canciones escuchando fragmentos de audio. Una nueva canción cada día.
 

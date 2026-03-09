@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "Ecos",
+    "appName": "ECOS",
     "loading": "Cargando...",
     "error": "Algo salió mal",
     "retry": "Reintentar",
@@ -22,7 +22,7 @@
     "signIn": "Iniciar sesión",
     "signInWithGoogle": "Continuar con Google",
     "welcomeBack": "Bienvenido de nuevo",
-    "welcome": "Bienvenido a Ecos",
+    "welcome": "Bienvenido a ECOS",
     "subtitle": "Adivina la canción del día y compite con el mundo",
     "signingIn": "Iniciando sesión...",
     "signOut": "Cerrar sesión",

@@ -42,7 +42,7 @@ export function calculateScore(
 
 /**
  * Genera el texto de resultado para compartir en redes sociales.
- * Ejemplo: Ecos #42 🎵\n🟩⬛⬛⬛⬛⬛\n1000 pts
+ * Ejemplo: ECOS #42 🎵\n🟩⬛⬛⬛⬛⬛\n1000 pts
  */
 export function generateShareText(
   gameNumber: number,
@@ -51,7 +51,7 @@ export function generateShareText(
 ): string {
   if (correctAttempt === null) {
     const boxes = "⬛".repeat(totalAttempts);
-    return `Ecos #${gameNumber} 🎵\n${boxes}\nNo lo conseguí hoy`;
+    return `ECOS #${gameNumber} 🎵\n${boxes}\nNo lo conseguí hoy`;
   }
 
   const correct = "🟩";
@@ -61,7 +61,7 @@ export function generateShareText(
     correct +
     wrong.repeat(totalAttempts - correctAttempt);
 
-  return `Ecos #${gameNumber} 🎵\n${boxes}\n¿Puedes superarme?`;
+  return `ECOS #${gameNumber} 🎵\n${boxes}\n¿Puedes superarme?`;
 }
 
 export { BASE_SCORES, STREAK_BONUS_PER_DAY, MAX_STREAK_BONUS };

@@ -19,8 +19,8 @@ const dmSans = DM_Sans({
 
 export const metadata: Metadata = {
   title: {
-    default: "Ecos — Adivina la canción del día",
-    template: "%s | Ecos",
+    default: "ECOS — Adivina la canción del día",
+    template: "%s | ECOS",
   },
   description:
     "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global y mantén tu racha.",
@@ -29,11 +29,11 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    // Genera: <meta name="apple-mobile-web-app-title" content="Ecos" />
-    title: "Ecos",
+    // Genera: <meta name="apple-mobile-web-app-title" content="ECOS" />
+    title: "ECOS",
   },
   openGraph: {
-    title: "Ecos",
+    title: "ECOS",
     description: "Adivina la canción del día",
     type: "website",
   },
