@@ -8,7 +8,6 @@ dotenv.config();
 import { createClient } from "@supabase/supabase-js";
 import {
   getPlaylistTracks,
-  getAudioFeatures,
   getPlaylistName,
   type SpotifyTrack,
 } from "../src/lib/spotify";
@@ -48,6 +47,9 @@ async function main() {
     (existingSongs ?? []).map((s) => s.spotify_id).filter(Boolean)
   );
 
+  // /audio-features deprecado para apps nuevas (403); no usar
+  const audioFeatures = new Map();
+
   for (const playlistId of SPOTIFY_PLAYLISTS) {
     try {
       const [tracks, name] = await Promise.all([
@@ -58,21 +60,20 @@ async function main() {
       let added = 0;
       const skipped = { duplicates: 0, no_youtube: 0, low_popularity: 0 };
 
-      const trackIds = tracks.map((t) => t.id);
-      const audioFeatures = await getAudioFeatures(trackIds);
-
       for (const track of tracks) {
         if (!track.id || (track.popularity ?? 0) < POPULARITY_MIN) {
           skipped.low_popularity++;
           continue;
         }
-        if (track.explicit) continue;
         if (existingIds.has(track.id)) {
           skipped.duplicates++;
           continue;
         }
 
-        const youtubeId = await searchEmbeddableVideo(track.name, track.artists[0]?.name ?? "");
+        const youtubeId = await searchEmbeddableVideo(
+          track.name,
+          track.artists[0]?.name ?? ""
+        );
         if (!youtubeId) {
           skipped.no_youtube++;
           continue;
@@ -97,12 +98,12 @@ async function main() {
           energy: af?.energy ?? null,
           explicit: track.explicit ?? false,
           release_date: track.album?.release_date ?? null,
-          spotify_playlist_id: playlistId,
-          is_active: true,
-        });
+      spotify_playlist_id: playlistId,
+      is_active: true,
+    });
 
-        if (error) {
-          if (error.code === "23505") {
+    if (error) {
+        if (error.code === "23505") {
             existingIds.add(track.id);
             skipped.duplicates++;
           } else {
@@ -116,8 +117,7 @@ async function main() {
       }
 
       totalAdded += added;
-      totalSkipped +=
-        skipped.duplicates + skipped.no_youtube + skipped.low_popularity;
+      totalSkipped += skipped.duplicates + skipped.no_youtube + skipped.low_popularity;
 
       playlistsData.push({
         id: playlistId,

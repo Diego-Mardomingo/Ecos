@@ -1,25 +1,25 @@
 /**
  * IDs de playlists de Spotify para ingesta.
- * Categorías: Hits España/LATAM, géneros, décadas.
+ * Todas son playlists oficiales de Spotify (prefijo 37i9dQZF1DX).
+ * Orientadas al oyente español — hits actuales + profundidad histórica.
+ * Última revisión: marzo 2026
  */
 
 export const SPOTIFY_PLAYLISTS = [
-  // Hits actuales España / LATAM
-  "37i9dQZF1DX10zKzsJ2jva", // Viva Latino
-  "37i9dQZF1DX2L0iB23Enbq", // Top Hits España
-  "37i9dQZF1DWY4xHQp97fN6", // Baila Reggaeton
-  "37i9dQZF1DX6sLKL3SIoJm", // Reggaeton 2024
-  "37i9dQZF1DWXQnL0j8PH3e", // Latin Pop
-  // Géneros
-  "37i9dQZF1DX4jP4eebSW9L", // Flamenco
-  "37i9dQZF1DX4PrR66miO50", // Bachata
-  "37i9dQZF1DX4sWSpwq3LiO", // Salsa
-  "37i9dQZF1DX5lQg_5OtFV8", // Trap Español
-  "37i9dQZF1DX0vHZ8elq0UK", // R&B en Español
-  // Décadas
-  "37i9dQZF1DX3rxNjfB7ium", // Éxitos Latino 2010s
-  "37i9dQZF1DX6F7I39fkJHz", // Éxitos Latino 2000s
-  "37i9dQZF1DX3s9lsGJ4f76", // Los 90 Latino
-  "37i9dQZF1DWYAcBZQbF6UU", // Latin Party Mix
-  "37i9dQZF1DX1lVhptIYR8L", // Hot Hits España
+  // 🟢 Hits actuales España
+  "37i9dQZEVXbNFJfN1Vw8d9", // Top 50 Spain (charts oficiales)
+  "37i9dQZF1DXaxEKcoCdWHD",  // Éxitos España (los hits de ahora, 3.1M saves)
+  "37i9dQZF1DWVskFRGurTfg", // Hits Urbanos (urbano/reggaetón que peta en España, 2.6M saves)
+  "37i9dQZF1DXcd2Vmhfon1w", // Rap Español (trap/rap nacional, 533K saves)
+  "37i9dQZF1DWV7FWPDK0Dg1", // Flamenco Pop (género único español, 453K saves)
+  "37i9dQZF1DX8SfyqmSFDwe", // Old School Reggaeton (clásicos del reggaetón, 3.3M saves)
+  "37i9dQZF1DX09mi3a4Zmox", // Baladas Románticas (pop romántico español, 3.9M saves)
+  "37i9dQZF1DXdnGF35OawbN", // Verano Forever (hits de verano, 3.8M saves)
+
+  // 🟡 Históricas España
+  "37i9dQZF1DX20VDU4OIBfS", // Canciones del Recuerdo (clásicos 80s/90s/2000s, 2.8M saves)
+  "37i9dQZF1DX7alvT6zKWrM", // Los 2010 España (éxitos de la década en España, 318K saves)
+  "37i9dQZF1DXb0AsvHMF4aM", // Los 2000s España (éxitos de los 2000 en España)
+  "37i9dQZF1DWXm9R2iowygp", // Los 90 España (éxitos de los 90 en España, 869K saves)
+  "37i9dQZF1DWU4xtX4v6Z9l", // Los 80 España (éxitos de los 80 en España, 413K saves)
 ];

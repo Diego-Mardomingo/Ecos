@@ -1,5 +1,6 @@
 /**
- * Cliente Spotify API - Client Credentials Flow.
+ * Cliente Spotify API - OAuth Refresh Token Flow.
+ * Usa SPOTIFY_REFRESH_TOKEN (obtenido con pnpm run spotify-auth).
  * Solo metadatos (sin audio). Usado por scripts de ingesta.
  */
 
@@ -39,9 +40,13 @@ async function getAccessToken(): Promise<string> {
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const refreshToken = process.env.SPOTIFY_REFRESH_TOKEN;
 
-  if (!clientId || !clientSecret) {
-    throw new Error("SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET required");
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error(
+      "SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET and SPOTIFY_REFRESH_TOKEN required. " +
+        "Run 'pnpm run spotify-auth' to obtain the refresh token."
+    );
   }
 
   const res = await fetch(TOKEN_URL, {
@@ -50,7 +55,10 @@ async function getAccessToken(): Promise<string> {
       Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: "grant_type=client_credentials",
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }).toString(),
   });
 
   if (!res.ok) {
@@ -61,6 +69,7 @@ async function getAccessToken(): Promise<string> {
   const data = (await res.json()) as {
     access_token: string;
     expires_in: number;
+    refresh_token?: string;
   };
 
   cachedToken = data.access_token;
@@ -127,28 +136,31 @@ export async function getPlaylistTracks(
 }
 
 /**
- * Obtiene audio features de hasta 100 tracks (batch).
+ * Obtiene audio features por track (GET /audio-features/{id}).
+ * El endpoint batch ?ids= da 403 en Development Mode (feb 2026).
  */
 export async function getAudioFeatures(
   trackIds: string[]
 ): Promise<Map<string, SpotifyAudioFeatures>> {
   const map = new Map<string, SpotifyAudioFeatures>();
-  const chunkSize = 100;
+  const CONCURRENCY = 5;
 
-  for (let i = 0; i < trackIds.length; i += chunkSize) {
-    const chunk = trackIds.slice(i, i + chunkSize);
-    const ids = chunk.join(",");
-    const data = (await apiGet<{
-      audio_features: (SpotifyAudioFeatures | null)[];
-    }>(`/audio-features?ids=${ids}`)) as {
-      audio_features: (SpotifyAudioFeatures | null)[];
-    };
+  async function fetchOne(id: string): Promise<void> {
+    try {
+      const af = (await apiGet<SpotifyAudioFeatures | null>(
+        `/audio-features/${id}`
+      )) as SpotifyAudioFeatures | null;
+      if (af?.id) map.set(af.id, af);
+    } catch {
+      // Ignorar errores individuales (track sin features)
+    }
+  }
 
-    for (let j = 0; j < chunk.length; j++) {
-      const af = data.audio_features?.[j];
-      if (af?.id) {
-        map.set(af.id, af);
-      }
+  for (let i = 0; i < trackIds.length; i += CONCURRENCY) {
+    const batch = trackIds.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(fetchOne));
+    if (i + CONCURRENCY < trackIds.length) {
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
 

@@ -7,7 +7,6 @@ const API_BASE = "https://www.googleapis.com/youtube/v3";
 
 const BLACKLIST_WORDS = [
   "live",
-  "remix",
   "version",
   "acústico",
   "acoustic",
