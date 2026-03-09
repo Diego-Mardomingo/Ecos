@@ -3,12 +3,19 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { searchTracks, type DeezerTrack } from "@/lib/deezer";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 
+export interface EcosSong {
+  id: string;
+  title: string;
+  artist_name: string;
+  cover_url: string | null;
+  spotify_id: string | null;
+}
+
 interface GuessInputProps {
-  onGuess: (track: DeezerTrack) => void;
+  onGuess: (song: EcosSong) => void;
   disabled?: boolean;
   className?: string;
 }
@@ -16,7 +23,7 @@ interface GuessInputProps {
 export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
   const t = useTranslations("game");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<DeezerTrack[]>([]);
+  const [results, setResults] = useState<EcosSong[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -35,9 +42,16 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const tracks = await searchTracks(value, 8);
-        setResults(tracks);
-        setOpen(tracks.length > 0);
+        const res = await fetch(
+          `/api/search-songs?q=${encodeURIComponent(value.trim())}&limit=8`
+        );
+        const json = (await res.json()) as { data: EcosSong[] };
+        const songs = json.data ?? [];
+        setResults(songs);
+        setOpen(songs.length > 0);
+      } catch {
+        setResults([]);
+        setOpen(false);
       } finally {
         setLoading(false);
       }
@@ -45,19 +59,21 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
   }, []);
 
   const handleSelect = useCallback(
-    (track: DeezerTrack) => {
+    (song: EcosSong) => {
       setQuery("");
       setResults([]);
       setOpen(false);
-      onGuess(track);
+      onGuess(song);
     },
     [onGuess]
   );
 
-  // Cerrar al clicar fuera
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     };
@@ -100,24 +116,31 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
             transition={{ duration: 0.15 }}
             className="absolute bottom-full z-50 mb-2 w-full overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
           >
-            {results.map((track) => (
-              <li key={track.id}>
+            {results.map((song) => (
+              <li key={song.id}>
                 <button
-                  onClick={() => handleSelect(track)}
+                  onClick={() => handleSelect(song)}
                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted active:bg-muted/70"
                 >
-                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg">
-                    <Image
-                      src={track.album.cover_medium}
-                      alt={track.album.title}
-                      fill
-                      className="object-cover"
-                    />
+                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
+                    {song.cover_url ? (
+                      <Image
+                        src={song.cover_url}
+                        alt={song.title}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <span className="material-symbols-outlined absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-muted-foreground">
+                        music_note
+                      </span>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{track.title}</p>
+                    <p className="truncate text-sm font-medium">{song.title}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {track.artist.name}
+                      {song.artist_name}
                     </p>
                   </div>
                 </button>

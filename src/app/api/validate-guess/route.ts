@@ -8,7 +8,7 @@ const GuessSchema = z.object({
   userId: z.string().uuid(),
   attemptNumber: z.number().int().min(1).max(6),
   guessText: z.string().min(1).max(500),
-  deezerTrackId: z.number(),
+  songId: z.string().uuid(),
   finalize: z.boolean().optional(),
 });
 
@@ -21,15 +21,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const { gameId, userId, attemptNumber, guessText, deezerTrackId, finalize } =
+    const { gameId, userId, attemptNumber, guessText, songId, finalize } =
       parsed.data;
 
     const supabase = await createServiceClient();
 
-    // Obtener el juego y la canción correcta
     const { data: game, error: gameError } = await supabase
       .from("ecos_games")
-      .select("id, ecos_songs(id, deezer_id, title, artist_name)")
+      .select("id, ecos_songs(id, title, artist_name)")
       .eq("id", gameId)
       .single();
 
@@ -39,7 +38,6 @@ export async function POST(request: NextRequest) {
 
     const song = (game.ecos_songs as unknown) as {
       id: string;
-      deezer_id: number;
       title: string;
       artist_name: string;
     } | null;
@@ -47,11 +45,11 @@ export async function POST(request: NextRequest) {
     if (!song) {
       return NextResponse.json({ error: "Song not found" }, { status: 404 });
     }
+
     const isCorrect =
-      deezerTrackId === song.deezer_id ||
+      songId === song.id ||
       guessText.toLowerCase().includes(song.title.toLowerCase());
 
-    // Registrar el intento
     await supabase.from("ecos_guesses").upsert({
       user_id: userId,
       game_id: gameId,
@@ -64,12 +62,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ correct: isCorrect });
     }
 
-    // Si finalize=true, calcular y guardar puntuación
     if (!isCorrect && attemptNumber < 6) {
       return NextResponse.json({ correct: false });
     }
 
-    // Obtener racha del usuario
     const { data: leaderboard } = await supabase
       .from("ecos_leaderboard")
       .select("streak")
@@ -81,7 +77,6 @@ export async function POST(request: NextRequest) {
       ? calculateScore(attemptNumber, streak)
       : { basePoints: 0, streakBonus: 0, totalPoints: 0 };
 
-    // Guardar puntuación
     await supabase.from("ecos_scores").upsert({
       user_id: userId,
       game_id: gameId,
@@ -90,7 +85,6 @@ export async function POST(request: NextRequest) {
       correct: isCorrect,
     });
 
-    // Actualizar leaderboard
     await supabase.rpc("ecos_update_leaderboard", {
       p_user_id: userId,
       p_points: scoreResult.totalPoints,

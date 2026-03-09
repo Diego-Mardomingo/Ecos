@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -9,9 +9,16 @@ import confetti from "canvas-confetti";
 import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useGameStore, ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import type { GameWithSong } from "@/lib/queries/games";
-import type { DeezerTrack } from "@/lib/deezer";
+import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -50,13 +57,13 @@ export function GameClient({ game, userId }: Props) {
   }, [game.id, game.date, gameId, phase, startGame]);
 
   const handleGuess = useCallback(
-    async (track: DeezerTrack) => {
+    async (song: EcosSong) => {
       if (phase !== "playing") return;
 
-      const guessText = `${track.title} - ${track.artist.name}`;
+      const guessText = `${song.title} - ${song.artist_name}`;
       const isCorrect =
-        String(track.id) === String(game.ecos_songs.id) ||
-        track.title.toLowerCase().trim() ===
+        String(song.id) === String(game.ecos_songs.id) ||
+        song.title.toLowerCase().trim() ===
           game.ecos_songs.title.toLowerCase().trim();
 
       if (isCorrect) {
@@ -84,7 +91,7 @@ export function GameClient({ game, userId }: Props) {
                 userId,
                 attemptNumber: currentAttempt,
                 guessText,
-                deezerTrackId: track.id,
+                songId: song.id,
                 finalize: true,
               }),
             });
@@ -111,7 +118,7 @@ export function GameClient({ game, userId }: Props) {
                 userId,
                 attemptNumber: currentAttempt,
                 guessText,
-                deezerTrackId: track.id,
+                songId: song.id,
               }),
             });
           } catch {
@@ -131,7 +138,7 @@ export function GameClient({ game, userId }: Props) {
                   userId,
                   attemptNumber: currentAttempt,
                   guessText,
-                  deezerTrackId: track.id,
+                  songId: song.id,
                   finalize: true,
                 }),
               });
@@ -153,6 +160,7 @@ export function GameClient({ game, userId }: Props) {
       <ResultScreen
         phase={phase}
         song={song}
+        gameId={game.id}
         correctAttempt={correctAttempt}
         finalScore={finalScore}
         maxAttempts={maxAttempts}
@@ -279,7 +287,7 @@ export function GameClient({ game, userId }: Props) {
       {/* Panel inferior */}
       <div className="rounded-t-[2rem] bg-card px-4 pb-6 pt-5 shadow-[0_-4px_24px_rgba(0,0,0,0.15)]">
         <AudioPlayer
-          previewUrl={song.preview_url}
+          youtubeId={song.youtube_id ?? ""}
           maxDuration={audioDuration}
           className="mb-4"
         />
@@ -289,9 +297,18 @@ export function GameClient({ game, userId }: Props) {
   );
 }
 
+const REPORT_REASONS = [
+  { id: "bad_audio" as const, label: "El audio no funciona o está cortado" },
+  { id: "wrong_video" as const, label: "El vídeo no corresponde a la canción" },
+  { id: "intro_problem" as const, label: "Los primeros segundos no son la canción" },
+  { id: "explicit_content" as const, label: "Contenido inapropiado" },
+  { id: "other" as const, label: "Otro problema" },
+] as const;
+
 function ResultScreen({
   phase,
   song,
+  gameId,
   correctAttempt,
   finalScore,
   maxAttempts,
@@ -300,6 +317,7 @@ function ResultScreen({
 }: {
   phase: "won" | "lost";
   song: GameWithSong["ecos_songs"];
+  gameId: string;
   correctAttempt: number | null;
   finalScore: number | null;
   maxAttempts: number;
@@ -309,6 +327,34 @@ function ResultScreen({
   const t = useTranslations("game");
   const tc = useTranslations("common");
   const won = phase === "won";
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<string>("");
+  const [reportDesc, setReportDesc] = useState("");
+  const [reportSending, setReportSending] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
+
+  const handleReport = async () => {
+    if (!reportReason) return;
+    setReportSending(true);
+    try {
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          songId: song.id,
+          reason: reportReason,
+          description: reportDesc || undefined,
+        }),
+      });
+      if (res.ok) {
+        setReportSent(true);
+        setReportOpen(false);
+      }
+    } finally {
+      setReportSending(false);
+    }
+  };
 
   return (
     <motion.div
@@ -427,13 +473,80 @@ function ResultScreen({
           {t("shareResult")}
         </button>
         {!isGuest && (
-          <Link
-            href="/ranking"
-            className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
-          >
-            <span className="material-symbols-outlined text-lg">leaderboard</span>
-            Ver ranking
-          </Link>
+          <>
+            <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+              <DialogTrigger asChild>
+                <button className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium">
+                  <span className="material-symbols-outlined text-lg">report</span>
+                  Reportar problema
+                </button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Reportar problema con la canción</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {reportSent ? (
+                    <p className="text-sm text-muted-foreground">
+                      Gracias por tu reporte.
+                    </p>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="mb-2 text-sm font-medium">Motivo</p>
+                        <div className="space-y-2">
+                          {REPORT_REASONS.map((r) => (
+                            <label
+                              key={r.id}
+                              className="flex cursor-pointer items-center gap-2"
+                            >
+                              <input
+                                type="radio"
+                                name="reason"
+                                value={r.id}
+                                checked={reportReason === r.id}
+                                onChange={() => setReportReason(r.id)}
+                                className="h-4 w-4"
+                              />
+                              <span className="text-sm">{r.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      {reportReason === "other" && (
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">
+                            Descripción
+                          </label>
+                          <textarea
+                            value={reportDesc}
+                            onChange={(e) => setReportDesc(e.target.value)}
+                            placeholder="Describe el problema..."
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                            rows={3}
+                          />
+                        </div>
+                      )}
+                      <button
+                        onClick={handleReport}
+                        disabled={!reportReason || reportSending}
+                        className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-[#0a2015] disabled:opacity-50"
+                      >
+                        {reportSending ? "Enviando..." : "Enviar reporte"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Link
+              href="/ranking"
+              className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
+            >
+              <span className="material-symbols-outlined text-lg">leaderboard</span>
+              Ver ranking
+            </Link>
+          </>
         )}
       </motion.div>
     </motion.div>

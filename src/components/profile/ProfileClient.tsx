@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { motion } from "framer-motion";
 import Image from "next/image";
@@ -18,6 +19,7 @@ interface Profile {
   avatar_url: string;
   created_at: string;
   email: string;
+  role?: string | null;
 }
 
 interface Props {
@@ -202,6 +204,28 @@ export function ProfileClient({ profile, stats }: Props) {
             {t("settings.account")}
           </p>
           <div className="overflow-hidden rounded-2xl bg-card">
+            {profile.role === "admin" && (
+              <>
+                <Link
+                  href="/admin"
+                  className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
+                >
+                  <span
+                    className="material-symbols-outlined text-xl text-brand"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    admin_panel_settings
+                  </span>
+                  <span className="flex-1 text-left text-sm font-medium">
+                    Panel de administración
+                  </span>
+                  <span className="material-symbols-outlined text-muted-foreground">
+                    chevron_right
+                  </span>
+                </Link>
+                <div className="mx-4 h-px bg-border" />
+              </>
+            )}
             <button className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50">
               <span className="material-symbols-outlined text-xl text-muted-foreground">manage_accounts</span>
               <span className="flex-1 text-left text-sm font-medium">{t("settings.editProfile")}</span>

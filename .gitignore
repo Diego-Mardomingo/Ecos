@@ -58,3 +58,5 @@ supabase/
 
 # pnpm
 .pnpm-store/
+
+ECOS_CURSOR.md

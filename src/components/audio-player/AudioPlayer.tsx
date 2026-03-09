@@ -1,63 +1,68 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Howl } from "howler";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { createYoutubePlayer, type YTPlayer } from "@/lib/youtube-player";
 
 interface AudioPlayerProps {
-  previewUrl: string;
+  youtubeId: string;
   maxDuration: number; // segundos máximos para este intento
   onEnded?: () => void;
   className?: string;
 }
 
 export function AudioPlayer({
-  previewUrl,
+  youtubeId,
   maxDuration,
   onEnded,
   className,
 }: AudioPlayerProps) {
-  const howlRef = useRef<Howl | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<YTPlayer | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Inicializar Howl
   useEffect(() => {
+    if (!youtubeId) return;
+
     setIsLoaded(false);
     setCurrentTime(0);
     setIsPlaying(false);
 
-    const howl = new Howl({
-      src: [previewUrl],
-      html5: true,
-      preload: true,
-      onload: () => setIsLoaded(true),
-      onend: () => {
-        setIsPlaying(false);
-        setCurrentTime(0);
-        if (timerRef.current) clearInterval(timerRef.current);
-        onEnded?.();
-      },
-      onstop: () => {
-        setIsPlaying(false);
-        if (timerRef.current) clearInterval(timerRef.current);
-      },
-    });
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText =
+      "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;";
+    document.body.appendChild(wrapper);
 
-    howlRef.current = howl;
+    createYoutubePlayer({
+      videoId: youtubeId,
+      containerRef: { current: wrapper },
+    })
+      .then((player) => {
+        playerRef.current = player;
+        setIsLoaded(true);
+      })
+      .catch(() => {
+        wrapper.remove();
+      });
 
     return () => {
-      howl.unload();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (playerRef.current) {
+        playerRef.current.stopVideo();
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+      wrapper.remove();
     };
-  }, [previewUrl, onEnded]);
+  }, [youtubeId]);
 
   const stopAndReset = useCallback(() => {
-    if (howlRef.current) {
-      howlRef.current.stop();
+    if (playerRef.current) {
+      playerRef.current.stopVideo();
     }
     if (timerRef.current) clearInterval(timerRef.current);
     setCurrentTime(0);
@@ -65,25 +70,25 @@ export function AudioPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
-    const howl = howlRef.current;
-    if (!howl || !isLoaded) return;
+    const player = playerRef.current;
+    if (!player || !isLoaded) return;
 
     if (isPlaying) {
-      howl.stop();
+      player.stopVideo();
       stopAndReset();
       return;
     }
 
-    howl.seek(0);
-    howl.play();
+    player.seekTo(0, true);
+    player.playVideo();
     setIsPlaying(true);
 
     timerRef.current = setInterval(() => {
-      const seek = howl.seek() as number;
+      const seek = player.getCurrentTime();
       setCurrentTime(seek);
 
       if (seek >= maxDuration) {
-        howl.stop();
+        player.stopVideo();
         stopAndReset();
         onEnded?.();
       }
@@ -96,7 +101,6 @@ export function AudioPlayer({
 
   return (
     <div className={cn("flex flex-col items-center gap-4", className)}>
-      {/* Barra de progreso */}
       <div className="w-full space-y-1">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <motion.div
@@ -106,7 +110,9 @@ export function AudioPlayer({
           />
         </div>
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span className={cn("font-medium", isPlaying && "text-brand animate-pulse")}>
+          <span
+            className={cn("font-medium", isPlaying && "text-brand animate-pulse")}
+          >
             {isPlaying ? "Escuchando..." : "Pulsa play"}
           </span>
           <span>
@@ -115,7 +121,6 @@ export function AudioPlayer({
         </div>
       </div>
 
-      {/* Botón Play */}
       <motion.button
         onClick={togglePlay}
         whileTap={{ scale: 0.92 }}
@@ -140,6 +145,7 @@ export function AudioPlayer({
           </span>
         )}
       </motion.button>
+      <div ref={containerRef} aria-hidden className="sr-only" />
     </div>
   );
 }

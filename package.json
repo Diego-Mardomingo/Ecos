@@ -12,7 +12,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "ingest": "tsx scripts/ingest.ts",
+    "verify-youtube": "tsx scripts/verify-youtube.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
