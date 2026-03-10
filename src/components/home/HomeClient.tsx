@@ -275,8 +275,8 @@ function PreviousDaysSection({ previousDays }: { previousDays: PreviousDayGame[]
           </p>
         ) : (
           previousDays.map((day) => (
+          <Link key={day.id} href={`/play/${day.id}`}>
           <motion.div
-            key={day.id}
             whileTap={{ scale: 0.99 }}
             className="flex items-center gap-3 rounded-2xl bg-card p-3 transition-colors active:bg-card/70"
           >
@@ -333,6 +333,7 @@ function PreviousDaysSection({ previousDays }: { previousDays: PreviousDayGame[]
               {day.played ? "chevron_right" : "play_circle"}
             </span>
           </motion.div>
+          </Link>
         )))}
       </div>
     </section>

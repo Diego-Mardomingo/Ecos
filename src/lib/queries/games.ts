@@ -51,6 +51,26 @@ export async function getTodaysGame(): Promise<GameWithSong | null> {
   return data as unknown as GameWithSong;
 }
 
+export async function getGameById(gameId: string): Promise<GameWithSong | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ecos_games")
+    .select(
+      `
+      id, date, game_number,
+      ecos_songs (
+        id, title, artist_name, album_title,
+        cover_url, youtube_id, preview_url, genre
+      )
+    `
+    )
+    .eq("id", gameId)
+    .single();
+
+  if (error || !data) return null;
+  return data as unknown as GameWithSong;
+}
+
 export async function getPreviousDays(
   userId: string | null,
   limit = 10
