@@ -238,16 +238,20 @@ def main() -> None:
 
             pl_total_in_playlist = len(all_tracks)
             if mode == "all":
-                blocks: list[list] = [all_tracks]
+                block_idx = 0
+                blocks_to_try: list[list] = [all_tracks]
             else:
-                blocks = [
+                block_idx = 0
+                blocks_to_try = [
                     all_tracks[i : i + CHUNK_SIZE]
                     for i in range(0, len(all_tracks), CHUNK_SIZE)
                     if all_tracks[i : i + CHUNK_SIZE]
                 ]
 
             pl_found = 0
-            for block in blocks:
+            done_with_playlist = False
+            while block_idx < len(blocks_to_try) and not done_with_playlist:
+                block = blocks_to_try[block_idx]
                 if mode == "default" and len(block) == CHUNK_SIZE:
                     # Quick check: ¿las 5 duplicadas? Si sí, saltar bloque sin enriquecer
                     sids = [get_spotify_id(tr) or "" for tr in block]
@@ -261,10 +265,11 @@ def main() -> None:
                         pl_duplicates += len(block)
                         total_duplicates += len(block)
                         pl_found += len(block)
+                        block_idx += 1
                         continue
 
+                inserted_in_block = 0
                 for tr in block:
-                    pl_found += 1
                     full = enrich_track(client, tr, log)
                     if not full:
                         continue
@@ -317,6 +322,7 @@ def main() -> None:
                         existing.add(sid)
                         pl_inserted += 1
                         total_inserted += 1
+                        inserted_in_block += 1
                         log.debug("  + %s - %s%s", title[:40], artist[:30], " (preview)" if uses_preview else "")
                     except Exception as ins_err:
                         err_msg = str(ins_err)
@@ -327,6 +333,13 @@ def main() -> None:
                         else:
                             errors.append(f"{title} / {artist}: {err_msg}")
                             log.warning("  Insert error: %s", err_msg)
+
+                pl_found += len(block)
+                if inserted_in_block > 0:
+                    done_with_playlist = True
+                else:
+                    block_idx += 1
+
             total_found += pl_found
             log.info("[%d/%d] %s: procesadas %d tracks (total playlist: %d, modo: %s)", pl_idx + 1, len(PLAYLISTS), pl_name, pl_found, pl_total_in_playlist, mode)
 
