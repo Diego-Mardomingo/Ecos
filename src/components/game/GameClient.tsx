@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { artistsMatch } from "@/lib/artist-match";
 import { useGameStore } from "@/lib/store/gameStore";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
@@ -37,15 +38,12 @@ export function GameClient({ game, userId }: Props) {
     currentAttempt,
     maxAttempts,
     guesses,
-    hintsUsed,
-    maxHints,
     audioDuration,
     finalScore,
     correctAttempt,
     startGame,
     loadProgress,
     addGuess,
-    useHint,
     setWon,
     setLost,
     gameId,
@@ -61,6 +59,11 @@ export function GameClient({ game, userId }: Props) {
     const load = async () => {
       if (isGuest) {
         const progress = getProgress(game.id);
+        if (progress?.phase === "playing" && progress.guesses.length > 0) {
+          loadProgress(game.id, game.date, progress.guesses, progress.guesses.length + 1);
+          setLoadedProgress(null);
+          return;
+        }
         if (progress && (progress.phase === "won" || progress.phase === "lost")) {
           setLoadedProgress(progress);
           return;
@@ -73,8 +76,14 @@ export function GameClient({ game, userId }: Props) {
         try {
           const res = await fetch(`/api/game-progress/${game.id}`);
           const data = (await res.json()) as { progress: GameProgress | null };
-          if (data.progress && (data.progress.phase === "won" || data.progress.phase === "lost")) {
-            setLoadedProgress(data.progress);
+          const p = data.progress;
+          if (p?.phase === "playing" && p.guesses.length > 0) {
+            loadProgress(game.id, game.date, p.guesses, p.guesses.length + 1);
+            setLoadedProgress(null);
+            return;
+          }
+          if (p && (p.phase === "won" || p.phase === "lost")) {
+            setLoadedProgress(p);
             return;
           }
         } catch {
@@ -88,7 +97,7 @@ export function GameClient({ game, userId }: Props) {
     };
 
     load();
-  }, [game.id, game.date, gameId, phase, isGuest, getProgress, startGame, loadedProgress]);
+  }, [game.id, game.date, gameId, phase, isGuest, getProgress, startGame, loadProgress, loadedProgress]);
 
   const handleGuess = useCallback(
     async (song: EcosSong) => {
@@ -101,7 +110,7 @@ export function GameClient({ game, userId }: Props) {
           game.ecos_songs.title.toLowerCase().trim();
 
       const normalize = (s: string) => s.toLowerCase().trim();
-      const correctArtist = normalize(song.artist_name) === normalize(game.ecos_songs.artist_name);
+      const correctArtist = artistsMatch(song.artist_name, game.ecos_songs.artist_name);
       const correctAlbum =
         song.album_title != null &&
         game.ecos_songs.album_title != null &&
@@ -213,6 +222,17 @@ export function GameClient({ game, userId }: Props) {
             guesses: finalGuesses,
             phase: "lost",
           });
+        } else if (isGuest) {
+          const updatedGuesses = [...useGameStore.getState().guesses, guessEntry];
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: false,
+            won: false,
+            score: null,
+            guesses: updatedGuesses,
+            phase: "playing",
+          });
         }
       }
     },
@@ -266,7 +286,7 @@ export function GameClient({ game, userId }: Props) {
   }
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex min-h-screen flex-col">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3">
         <Link href="/" className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
@@ -276,12 +296,52 @@ export function GameClient({ game, userId }: Props) {
           {t("dailyChallenge")} #{game.game_number}
         </h1>
         <button
-          onClick={() => {
+          onClick={async () => {
             addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
-            if (currentAttempt >= maxAttempts) setLost();
+            if (!isGuest && userId) {
+              try {
+                await fetch("/api/skip-attempt", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ gameId: game.id, attemptNumber: currentAttempt }),
+                });
+              } catch {
+                // fallback: progreso en cliente
+              }
+            }
+            if (currentAttempt >= maxAttempts) {
+              setLost();
+              if (isGuest) {
+                const finalGuesses = useGameStore.getState().guesses;
+                saveProgress({
+                  gameId: game.id,
+                  gameDate: game.date,
+                  played: true,
+                  won: false,
+                  score: null,
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url ?? undefined,
+                  guesses: finalGuesses,
+                  phase: "lost",
+                });
+              }
+            } else if (isGuest) {
+              const updatedGuesses = useGameStore.getState().guesses;
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: false,
+                won: false,
+                score: null,
+                guesses: updatedGuesses,
+                phase: "playing",
+              });
+            }
           }}
-          className="text-sm font-medium text-muted-foreground"
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
         >
+          <span className="material-symbols-outlined text-lg">skip_next</span>
           {t("skip")}
         </button>
       </header>
@@ -304,8 +364,8 @@ export function GameClient({ game, userId }: Props) {
         </div>
       )}
 
-      {/* Área principal */}
-      <div className="relative flex flex-1 flex-col items-center justify-center gap-6 px-4 py-4">
+      {/* Área principal: ocupa el espacio para que el panel quede abajo */}
+      <div className="relative flex min-h-0 flex-1 flex-col items-center justify-start gap-6 px-4 py-6">
         {/* Blobs decorativos */}
         <div className="pointer-events-none absolute left-1/4 top-1/4 h-48 w-48 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/10 blur-[80px]" />
         <div className="pointer-events-none absolute right-1/4 bottom-1/4 h-32 w-32 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/10 blur-[60px]" />
@@ -356,38 +416,21 @@ export function GameClient({ game, userId }: Props) {
           })}
         </div>
 
-        <div className="flex items-center gap-3">
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={useHint}
-            disabled={hintsUsed >= maxHints}
-            className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium transition-all disabled:opacity-40"
-          >
-            <span className="material-symbols-outlined text-base text-brand"
-              style={{ fontVariationSettings: "'FILL' 1" }}>
-              lightbulb
-            </span>
-            {t("hint")} ({maxHints - hintsUsed})
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium"
-          >
-            <span className="material-symbols-outlined text-base text-brand">group</span>
-            {t("askFriends")}
-          </motion.button>
-        </div>
       </div>
 
       {/* Panel inferior */}
-      <div className="rounded-t-[2rem] bg-card px-4 pb-6 pt-5 shadow-[0_-4px_24px_rgba(0,0,0,0.15)]">
+      <div className="rounded-t-2xl bg-card px-4 pb-6 pt-5 shadow-[0_-4px_24px_rgba(0,0,0,0.15)]">
         <AudioPlayer
           youtubeId={song.youtube_id ?? ""}
           previewUrl={song.preview_url ?? undefined}
           maxDuration={audioDuration}
           className="mb-4"
         />
-        <GuessInput onGuess={handleGuess} disabled={phase !== "playing"} />
+        <GuessInput
+          onGuess={handleGuess}
+          disabled={phase !== "playing"}
+          alreadyGuessedTexts={guesses.map((g) => g.text)}
+        />
         {guesses.length > 0 && (
           <PreviousAttempts guesses={guesses} />
         )}
@@ -403,6 +446,7 @@ const GUESS_LABELS: Record<string, string> = {
   CORRECT_ALBUM: "Álbum correcto",
   CORRECT_ARTIST_ALBUM: "Artista y álbum correctos",
   WRONG: "Incorrecto",
+  SKIPPED: "Intento saltado",
 };
 
 function PreviousAttempts({
@@ -410,46 +454,108 @@ function PreviousAttempts({
 }: {
   guesses: Array<{ text: string; correct?: boolean; correctArtist?: boolean; correctAlbum?: boolean }>;
 }) {
+  const reversed = [...guesses].reverse();
+
+  const parseGuessText = (text: string) => {
+    const sep = text.lastIndexOf(" - ");
+    if (sep === -1) return { title: text, artist: "" };
+    return { title: text.slice(0, sep).trim(), artist: text.slice(sep + 3).trim() };
+  };
+
+  const attemptCard = (
+    g: (typeof guesses)[0],
+    i: number,
+    labelKey: string,
+    bgClass: string,
+    labelClass: string,
+    icon: string,
+    iconClass: string
+  ) => {
+    const { title, artist } = parseGuessText(g.text);
+    return (
+      <div
+        key={i}
+        className={cn(
+          "flex min-h-[44px] items-center gap-2.5 rounded-lg border px-2.5 py-2",
+          bgClass
+        )}
+      >
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+        <span
+          className={cn("material-symbols-outlined text-lg", iconClass)}
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            {icon}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{title}</p>
+          <p className="truncate text-xs text-muted-foreground">{artist}</p>
+        </div>
+        <span className={cn("shrink-0 text-xs font-semibold", labelClass)}>
+          {GUESS_LABELS[labelKey]}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div className="mt-4">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-brand">
         Intentos anteriores
       </h3>
       <div className="flex flex-col gap-2">
-        {guesses.map((g, i) => {
+        {reversed.map((g, i) => {
+          const origIndex = guesses.length - 1 - i;
+          if (g.text === "skipped") {
+            return (
+              <div
+                key={origIndex}
+                className="flex min-h-[44px] items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/15 px-2.5 py-2"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                  <span
+                    className="material-symbols-outlined text-lg text-destructive"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    skip_next
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1" />
+                <span className="shrink-0 text-xs font-semibold text-destructive">
+                  {GUESS_LABELS.SKIPPED}
+                </span>
+              </div>
+            );
+          }
           let labelKey = "WRONG";
-          let bgClass = "bg-destructive/20 border-destructive/40";
-          let textClass = "text-destructive";
+          let bgClass = "bg-destructive/15 border-destructive/40";
+          let labelClass = "text-destructive";
+          let icon = "close";
+          let iconClass = "text-destructive";
           if (g.correct) {
             labelKey = "CORRECT";
-            bgClass = "bg-brand/20 border-brand/40";
-            textClass = "text-brand";
-          } else if (g.correctArtist && g.correctAlbum) {
-            labelKey = "CORRECT_ARTIST_ALBUM";
-            bgClass = "bg-amber-500/20 border-amber-500/40";
-            textClass = "text-amber-600 dark:text-amber-400";
-          } else if (g.correctArtist) {
-            labelKey = "CORRECT_ARTIST";
-            bgClass = "bg-amber-500/20 border-amber-500/40";
-            textClass = "text-amber-600 dark:text-amber-400";
-          } else if (g.correctAlbum) {
-            labelKey = "CORRECT_ALBUM";
-            bgClass = "bg-amber-500/20 border-amber-500/40";
-            textClass = "text-amber-600 dark:text-amber-400";
+            bgClass = "bg-brand/15 border-brand/40";
+            labelClass = "text-brand";
+            icon = "check_circle";
+            iconClass = "text-brand";
+          } else if (g.correctArtist || g.correctAlbum) {
+            labelKey = g.correctArtist && g.correctAlbum ? "CORRECT_ARTIST_ALBUM" : g.correctArtist ? "CORRECT_ARTIST" : "CORRECT_ALBUM";
+            if (g.correctAlbum) {
+              bgClass = "bg-violet-500/15 border-violet-500/30";
+              labelClass = "text-violet-600 dark:text-violet-400";
+              icon = "album";
+              iconClass = "text-violet-600 dark:text-violet-400";
+            } else {
+              bgClass = "bg-teal-500/15 border-teal-500/30";
+              labelClass = "text-teal-600 dark:text-teal-400";
+              icon = "person";
+              iconClass = "text-teal-600 dark:text-teal-400";
+            }
           } else {
             labelKey = "WRONG_SONG";
           }
-          return (
-            <div
-              key={i}
-              className={cn("flex items-center justify-between gap-2 rounded-xl border px-3 py-2", bgClass)}
-            >
-              <span className="truncate text-sm font-medium">{g.text}</span>
-              <span className={cn("shrink-0 text-xs font-semibold", textClass)}>
-                {GUESS_LABELS[labelKey]}
-              </span>
-            </div>
-          );
+          return attemptCard(g, origIndex, labelKey, bgClass, labelClass, icon, iconClass);
         })}
       </div>
     </div>

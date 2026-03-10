@@ -94,7 +94,10 @@ export const useGameStore = create<GameState>()(
           return; // setWon se llama aparte
         }
 
-        if (nextAttempt > maxAttempts) return; // setLost se llama aparte
+        if (nextAttempt > maxAttempts) {
+          set({ guesses: newGuesses, isPlaying: false });
+          return; // setLost se llama aparte
+        }
 
         set({
           guesses: newGuesses,

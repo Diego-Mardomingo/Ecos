@@ -19,9 +19,11 @@ interface GuessInputProps {
   onGuess: (song: EcosSong) => void;
   disabled?: boolean;
   className?: string;
+  /** Textos de canciones ya elegidas (ej. "Title - Artist") para resaltarlas en el listado */
+  alreadyGuessedTexts?: string[];
 }
 
-export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
+export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts = [] }: GuessInputProps) {
   const t = useTranslations("game");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<EcosSong[]>([]);
@@ -44,7 +46,7 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
       setLoading(true);
       try {
         const res = await fetch(
-          `/api/search-songs?q=${encodeURIComponent(value.trim())}&limit=8`
+          `/api/search-songs?q=${encodeURIComponent(value.trim())}`
         );
         const json = (await res.json()) as { data: EcosSong[] };
         const songs = json.data ?? [];
@@ -92,6 +94,7 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
           type="text"
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
           disabled={disabled}
           placeholder={t("typeToSearch")}
           className={cn(
@@ -115,13 +118,26 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-full z-50 mb-2 w-full overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
+            className="absolute bottom-full z-50 mb-2 flex max-h-64 w-full flex-col overflow-hidden overflow-y-auto rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
           >
-            {results.map((song) => (
+            {results.map((song) => {
+              const guessText = `${song.title} - ${song.artist_name}`;
+              const isAlreadyGuessed = alreadyGuessedTexts.some(
+                (t) => t.toLowerCase().trim() === guessText.toLowerCase().trim()
+              );
+              return (
               <li key={song.id}>
                 <button
-                  onClick={() => handleSelect(song)}
-                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted active:bg-muted/70"
+                  type="button"
+                  disabled={isAlreadyGuessed}
+                  onClick={() => !isAlreadyGuessed && handleSelect(song)}
+                  className={cn(
+                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                    isAlreadyGuessed
+                      ? "cursor-not-allowed opacity-70"
+                      : "hover:bg-muted active:bg-muted/70",
+                    isAlreadyGuessed && "bg-destructive/15"
+                  )}
                 >
                   <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
                     {song.cover_url ? (
@@ -139,14 +155,17 @@ export function GuessInput({ onGuess, disabled, className }: GuessInputProps) {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{song.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">
+                    <p className={cn("truncate text-sm font-medium", isAlreadyGuessed && "text-destructive")}>
+                      {song.title}
+                    </p>
+                    <p className={cn("truncate text-xs", isAlreadyGuessed ? "text-destructive/80" : "text-muted-foreground")}>
                       {song.artist_name}
                     </p>
                   </div>
                 </button>
               </li>
-            ))}
+            );
+            })}
           </motion.ul>
         )}
       </AnimatePresence>

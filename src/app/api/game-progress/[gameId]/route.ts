@@ -25,23 +25,19 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: score } = await supabase
-      .from("ecos_scores")
-      .select("points, guesses_used, correct")
-      .eq("user_id", user.id)
-      .eq("game_id", gameId)
-      .single();
-
-    if (!score) {
-      return NextResponse.json({ progress: null });
-    }
-
     const { data: guesses } = await supabase
       .from("ecos_guesses")
       .select("guess_text, correct, correct_artist, correct_album, attempt_number")
       .eq("user_id", user.id)
       .eq("game_id", gameId)
       .order("attempt_number", { ascending: true });
+
+    const { data: score } = await supabase
+      .from("ecos_scores")
+      .select("points, guesses_used, correct")
+      .eq("user_id", user.id)
+      .eq("game_id", gameId)
+      .single();
 
     const { data: game } = await supabase
       .from("ecos_games")
@@ -55,6 +51,31 @@ export async function GET(
         ? (songRaw as { title: string; artist_name: string; cover_url: string })
         : null;
 
+    const mappedGuesses = (guesses ?? []).map((g) => ({
+      text: g.guess_text,
+      correct: g.correct,
+      correctArtist: g.correct_artist ?? false,
+      correctAlbum: g.correct_album ?? false,
+      attemptNumber: g.attempt_number,
+    }));
+
+    if (!score) {
+      if (mappedGuesses.length === 0) {
+        return NextResponse.json({ progress: null });
+      }
+      return NextResponse.json({
+        progress: {
+          gameId,
+          gameDate: game?.date ?? "",
+          played: false,
+          won: false,
+          score: null,
+          guesses: mappedGuesses,
+          phase: "playing" as const,
+        },
+      });
+    }
+
     const progress = {
       gameId,
       gameDate: game?.date ?? "",
@@ -64,13 +85,7 @@ export async function GET(
       title: song?.title,
       artist_name: song?.artist_name,
       cover_url: song?.cover_url,
-      guesses: (guesses ?? []).map((g) => ({
-        text: g.guess_text,
-        correct: g.correct,
-        correctArtist: g.correct_artist ?? false,
-        correctAlbum: g.correct_album ?? false,
-        attemptNumber: g.attempt_number,
-      })),
+      guesses: mappedGuesses,
       phase: score.correct ? ("won" as const) : ("lost" as const),
       correctAttempt: score.correct ? score.guesses_used : undefined,
     };

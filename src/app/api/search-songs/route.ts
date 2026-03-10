@@ -8,7 +8,8 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim();
-  const limit = Math.min(Number(searchParams.get("limit")) || 10, 20);
+  const requestedLimit = searchParams.get("limit");
+  const limit = requestedLimit ? Math.min(Number(requestedLimit), 200) : 100;
 
   if (!q || q.length < 2) {
     return NextResponse.json({ data: [] });

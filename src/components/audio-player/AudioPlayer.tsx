@@ -132,7 +132,7 @@ export function AudioPlayer({
           stopAndReset();
           onEnded?.();
         }
-      }, 100);
+      }, 50);
       return;
     }
 
@@ -158,7 +158,7 @@ export function AudioPlayer({
           stopAndReset();
           onEnded?.();
         }
-      }, 100);
+      }, 50);
     }
   }, [isPlaying, isLoaded, maxDuration, stopAndReset, onEnded]);
 
@@ -178,10 +178,9 @@ export function AudioPlayer({
     <div className={cn("flex flex-col items-center gap-4", className)}>
       <div className="w-full space-y-1">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <motion.div
-            className="h-full rounded-full bg-brand"
+          <div
+            className="h-full rounded-full bg-brand transition-[width] duration-75 ease-linear"
             style={{ width: `${progress}%` }}
-            transition={{ ease: "linear", duration: 0.1 }}
           />
         </div>
         <div className="flex justify-between text-xs text-muted-foreground">

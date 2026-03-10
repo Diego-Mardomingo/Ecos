@@ -12,7 +12,7 @@ export interface GameProgress {
   artist_name?: string;
   cover_url?: string;
   guesses: GuessEntry[];
-  phase: "won" | "lost";
+  phase: "won" | "lost" | "playing";
   correctAttempt?: number;
 }
 

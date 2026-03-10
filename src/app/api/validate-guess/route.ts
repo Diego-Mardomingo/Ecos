@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { calculateScore } from "@/lib/scoring";
+import { artistsMatch } from "@/lib/artist-match";
 import { z } from "zod";
 
 const GuessSchema = z.object({
@@ -55,9 +56,10 @@ export async function POST(request: NextRequest) {
       guessText.toLowerCase().includes(song.title.toLowerCase());
 
     const normalize = (s: string) => s.toLowerCase().trim();
-    const correctArtist = guessArtistName != null
-      ? normalize(guessArtistName) === normalize(song.artist_name)
-      : false;
+    const correctArtist =
+      guessArtistName != null && guessArtistName.trim()
+        ? artistsMatch(guessArtistName, song.artist_name)
+        : false;
     const correctAlbum = guessAlbumTitle != null && song.album_title != null
       ? normalize(guessAlbumTitle) === normalize(song.album_title)
       : false;
