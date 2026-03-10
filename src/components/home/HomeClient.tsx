@@ -182,17 +182,24 @@ function formatCountdown(ms: number): string {
 }
 
 function Countdown({ t }: { t: (key: string) => string }) {
-  const [ms, setMs] = useState(() => getMsUntilNext16hMadrid());
+  const [mounted, setMounted] = useState(false);
+  const [ms, setMs] = useState(0);
 
   useEffect(() => {
+    setMounted(true);
+    setMs(getMsUntilNext16hMadrid());
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const tick = () => setMs(getMsUntilNext16hMadrid());
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [mounted]);
 
   return (
     <span className="text-xs font-medium text-muted-foreground tabular-nums">
-      {t("nextSongIn")} {formatCountdown(ms)}
+      {t("nextSongIn")} {mounted ? formatCountdown(ms) : "—"}
     </span>
   );
 }
@@ -202,9 +209,9 @@ function WaveformBars() {
     () =>
       Array.from({ length: 40 }, (_, i) => ({
         key: i,
-        heightA: 8 + Math.random() * 24,
-        heightB: 8 + Math.random() * 24,
-        duration: 0.6 + Math.random() * 0.8,
+        heightA: 8 + ((i * 7) % 25),
+        heightB: 8 + ((i * 11 + 13) % 25),
+        duration: 0.6 + (i % 10) * 0.08,
         delay: i * 0.03,
       })),
     []
