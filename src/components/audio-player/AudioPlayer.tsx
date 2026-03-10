@@ -74,16 +74,18 @@ export function AudioPlayer({
     if (source === "preview" && previewUrl) {
       const audio = new Audio(previewUrl);
       audioRef.current = audio;
-      audio
-        .load()
-        .then(() => {
-          setIsLoaded(true);
-        })
-        .catch(() => {
-          audioRef.current = null;
-        });
+
+      const onLoaded = () => setIsLoaded(true);
+      const onError = () => {
+        audioRef.current = null;
+      };
+      audio.addEventListener("loadeddata", onLoaded, { once: true });
+      audio.addEventListener("error", onError, { once: true });
+      audio.load();
 
       return () => {
+        audio.removeEventListener("loadeddata", onLoaded);
+        audio.removeEventListener("error", onError);
         if (timerRef.current) clearInterval(timerRef.current);
         audio.pause();
         audio.src = "";
