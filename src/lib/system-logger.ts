@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type JobType =
   | "ingestion"
   | "weekly_games"
-  | "cron_daily"
+  | "daily_game"
   | "verify_youtube"
   | "report_auto_deactivate";
 
@@ -20,7 +20,7 @@ export interface LogSystemJobParams {
 
 /**
  * Registra un job automático en ecos_system_logs.
- * Usar desde API routes (cron-daily, report) o scripts (ingest, verify-youtube).
+ * Usar desde API routes (report) o scripts (ingest, verify-youtube).
  * El caller debe pasar el cliente Supabase (createServiceClient en server, createClient con service key en scripts).
  */
 export async function logSystemJob(

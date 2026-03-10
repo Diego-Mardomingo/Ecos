@@ -1,15 +1,15 @@
-# Ingesta semanal: scrape 25 canciones/playlist.
-# Ejecuta cada domingo a las 16:00 hora española.
-# Nota: GitHub Actions solo usa UTC. 15:00 UTC = 16:00 CET (oct-mar) / 17:00 CEST (abr-sep).
-name: Weekly Ingest
+# Selección diaria: 1 canción para el juego de hoy (visible a las 16:00 Madrid).
+# Ejecuta cada día a las 14:00 hora española.
+# Nota: GitHub Actions solo usa UTC. 13:00 UTC = 14:00 CET (oct-mar) / 15:00 CEST (abr-sep).
+name: Daily Game
 
 on:
   schedule:
-    - cron: "0 15 * * 0"
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 jobs:
-  ingest:
+  select:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,9 +22,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements-ingest.txt
 
-      - name: Run weekly ingest
+      - name: Run daily game selection
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-        run: python scripts/ingest-weekly.py
+        run: python scripts/select-daily-game.py

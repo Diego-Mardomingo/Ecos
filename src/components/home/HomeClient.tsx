@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import Image from "next/image";
@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
+import { getMsUntilNext16hMadrid } from "@/lib/date-utils";
 import type { GameWithSong, PreviousDayGame } from "@/lib/queries/games";
 import type { UserStats } from "@/lib/queries/users";
 import { cn } from "@/lib/utils";
@@ -50,12 +51,15 @@ export function HomeClient({ todaysGame, userStats, userId, previousDays }: Prop
 
       {/* Today's Challenge Hero */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">{t("todaysChallenge")}</h2>
-          <span className="flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold text-brand">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />
-            {tc("liveNow")}
-          </span>
+          <div className="flex items-center gap-3">
+            <Countdown t={t} />
+            <span className="flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold text-brand">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />
+              {tc("liveNow")}
+            </span>
+          </div>
         </div>
 
         <motion.div
@@ -162,6 +166,34 @@ export function HomeClient({ todaysGame, userStats, userId, previousDays }: Prop
       {/* Días anteriores */}
       <PreviousDaysSection previousDays={previousDays} />
     </div>
+  );
+}
+
+function formatCountdown(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0 || h > 0) parts.push(`${m}m`);
+  parts.push(`${s}s`);
+  return parts.join(" ");
+}
+
+function Countdown({ t }: { t: (key: string) => string }) {
+  const [ms, setMs] = useState(() => getMsUntilNext16hMadrid());
+
+  useEffect(() => {
+    const tick = () => setMs(getMsUntilNext16hMadrid());
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span className="text-xs font-medium text-muted-foreground tabular-nums">
+      {t("nextSongIn")} {formatCountdown(ms)}
+    </span>
   );
 }
 

@@ -29,6 +29,7 @@
     "continueAsGuest": "Continue as guest"
   },
   "home": {
+    "nextSongIn": "Next song in",
     "todaysChallenge": "Today's Challenge",
     "playNow": "Play Now",
     "playing": "playing",

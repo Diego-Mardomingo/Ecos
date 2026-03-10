@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { format } from "date-fns";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 
 export async function GET() {
   const supabase = await createClient();
-  const today = format(new Date(), "yyyy-MM-dd");
+  const effectiveDate = getEffectiveGameDate();
 
   const { data, error } = await supabase
     .from("ecos_games")
@@ -17,7 +17,7 @@ export async function GET() {
       )
     `
     )
-    .eq("date", today)
+    .eq("date", effectiveDate)
     .single();
 
   if (error || !data) {

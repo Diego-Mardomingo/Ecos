@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { format } from "date-fns";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 
 export interface GameWithSong {
   id: string;
@@ -31,7 +31,7 @@ export interface PreviousDayGame {
 
 export async function getTodaysGame(): Promise<GameWithSong | null> {
   const supabase = await createClient();
-  const today = format(new Date(), "yyyy-MM-dd");
+  const effectiveDate = getEffectiveGameDate();
 
   const { data, error } = await supabase
     .from("ecos_games")
@@ -44,7 +44,7 @@ export async function getTodaysGame(): Promise<GameWithSong | null> {
       )
     `
     )
-    .eq("date", today)
+    .eq("date", effectiveDate)
     .single();
 
   if (error || !data) return null;
@@ -56,7 +56,7 @@ export async function getPreviousDays(
   limit = 10
 ): Promise<PreviousDayGame[]> {
   const supabase = await createClient();
-  const today = format(new Date(), "yyyy-MM-dd");
+  const effectiveDate = getEffectiveGameDate();
 
   const { data: games, error } = await supabase
     .from("ecos_games")
@@ -66,7 +66,7 @@ export async function getPreviousDays(
       ecos_songs ( cover_url, title, artist_name )
     `
     )
-    .lt("date", today)
+    .lt("date", effectiveDate)
     .order("date", { ascending: false })
     .limit(limit);
 

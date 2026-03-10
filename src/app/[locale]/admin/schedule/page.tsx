@@ -1,11 +1,12 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { getMadridDate } from "@/lib/date-utils";
 
 export default async function AdminSchedulePage() {
   const supabase = await createServiceClient();
 
-  const today = format(new Date(), "yyyy-MM-dd");
+  const today = getMadridDate();
   const { data: games } = await supabase
     .from("ecos_games")
     .select(

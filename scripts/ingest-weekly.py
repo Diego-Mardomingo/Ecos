@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Ingesta semanal: SpotifyScraper + YouTube + Supabase + generación de 7 juegos.
+Ingesta semanal: SpotifyScraper + YouTube + Supabase.
 Ejecutar 1x/semana (GitHub Action).
-1. Scrape: 5 primeras por playlist (si duplicadas, 5 siguientes; máx 10). Playlist personal: todas.
-   Guarda todos los datos en raw_spotify_data.
-2. Selección: elige 7 canciones aleatorias y crea ecos_games para los 7 próximos días.
-Logs separados: ingestion (por playlist) y weekly_games (selección random).
+Scrape por playlist: bloques de 5; solo salta al siguiente bloque si las 5 están duplicadas.
+Sin límite de canciones. Playlist personal: todas.
+La selección diaria de juegos corre en workflow separado (daily-game.yml).
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
 from __future__ import annotations
@@ -13,13 +12,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
 import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 # Cargar .env.local
@@ -42,7 +40,7 @@ except ImportError as e:
 
 # --- Config ---
 # (playlist_id, nombre, modo)
-# modo: "default" = 5 primeras, si duplicadas -> 5 siguientes (máx 10)
+# modo: "default" = bloques de 5; salta bloque solo si las 5 duplicadas; sin límite
 #       "all"     = todas las canciones (playlist personal)
 PLAYLISTS: list[tuple[str, str, str]] = [
     ("37i9dQZEVXbNFJfN1Vw8d9", "Top 50 Spain", "default"),
@@ -61,7 +59,7 @@ PLAYLISTS: list[tuple[str, str, str]] = [
     ("37i9dQZF1DWU4xtX4v6Z9l", "Los 80 Espana", "default"),
     ("5xeQJDbA4L6LNyVeFz3MHF", "Playlist Personal", "all"),
 ]
-CHUNK_SIZE = 5  # Por defecto: 5 primeras, luego 5 siguientes si las primeras duplicadas
+CHUNK_SIZE = 5  # Bloque de 5; saltar al siguiente solo si las 5 duplicadas
 ALBUM_PATTERNS = [
     r"open\.spotify\.com/album/([a-zA-Z0-9]{20,25})",
     r"spotify:album:([a-zA-Z0-9]{20,25})",
@@ -239,15 +237,34 @@ def main() -> None:
                 continue
 
             pl_total_in_playlist = len(all_tracks)
-            chunk1 = all_tracks[:CHUNK_SIZE]
-            chunk2 = all_tracks[CHUNK_SIZE : CHUNK_SIZE * 2] if len(all_tracks) > CHUNK_SIZE else []
             if mode == "all":
-                batches: list[list] = [all_tracks]
+                blocks: list[list] = [all_tracks]
             else:
-                batches = [chunk1] if chunk1 else []
+                blocks = [
+                    all_tracks[i : i + CHUNK_SIZE]
+                    for i in range(0, len(all_tracks), CHUNK_SIZE)
+                    if all_tracks[i : i + CHUNK_SIZE]
+                ]
 
-            for batch in batches:
-                for i, tr in enumerate(batch):
+            pl_found = 0
+            for block in blocks:
+                if mode == "default" and len(block) == CHUNK_SIZE:
+                    # Quick check: ¿las 5 duplicadas? Si sí, saltar bloque sin enriquecer
+                    sids = [get_spotify_id(tr) or "" for tr in block]
+                    all_block_dup = all(
+                        sid and (sid in existing or sid in seen_this_run) for sid in sids
+                    )
+                    if all_block_dup:
+                        for sid in sids:
+                            if sid:
+                                seen_this_run.add(sid)
+                        pl_duplicates += len(block)
+                        total_duplicates += len(block)
+                        pl_found += len(block)
+                        continue
+
+                for tr in block:
+                    pl_found += 1
                     full = enrich_track(client, tr, log)
                     if not full:
                         continue
@@ -310,10 +327,6 @@ def main() -> None:
                         else:
                             errors.append(f"{title} / {artist}: {err_msg}")
                             log.warning("  Insert error: %s", err_msg)
-                if mode == "default" and batch == chunk1 and pl_inserted == 0 and chunk2:
-                    batches.append(chunk2)
-
-            pl_found = sum(len(b) for b in batches)
             total_found += pl_found
             log.info("[%d/%d] %s: procesadas %d tracks (total playlist: %d, modo: %s)", pl_idx + 1, len(PLAYLISTS), pl_name, pl_found, pl_total_in_playlist, mode)
 
@@ -363,107 +376,6 @@ def main() -> None:
 
     if status == "failure":
         sys.exit(1)
-
-    # === 2. SELECCIÓN DE 7 JUEGOS PARA LA SEMANA ===
-    log.info("=== Selección semanal de juegos ===")
-    games_start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    used_song_ids: set[str] = set()
-    games_log: list[dict] = []
-    games_errors: list[str] = []
-    games_created = 0
-
-    r_used = supabase.table("ecos_games").select("song_id").execute()
-    for row in (r_used.data or []):
-        if row.get("song_id"):
-            used_song_ids.add(str(row["song_id"]))
-
-    r_songs = supabase.table("ecos_songs").select("id, title, artist_name, youtube_id, preview_url, cover_url").eq("is_active", True).execute()
-    all_songs = [s for s in (r_songs.data or []) if s.get("youtube_id") or s.get("preview_url")]
-    pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]
-    total_pool = len(pool)
-
-    r_count = supabase.table("ecos_games").select("*", count="exact", head=True).execute()
-    next_game_number = (r_count.count or 0) + 1
-
-    log.info("Pool disponible: %d canciones (total con youtube: %d, ya usadas: %d)", total_pool, len(all_songs), len(used_song_ids))
-
-    for i in range(1, 8):
-        day = datetime.now(timezone.utc).date() + timedelta(days=i)
-        date_str = day.isoformat()
-        available = [s for s in pool if str(s["id"]) not in used_song_ids]
-        if not available:
-            log.warning("Día %s: Sin canciones disponibles en pool", date_str)
-            games_log.append({"date": date_str, "status": "error", "error": "pool_vacio"})
-            games_errors.append(f"{date_str}: pool vacío")
-            continue
-
-        r_existing = supabase.table("ecos_games").select("id").eq("date", date_str).execute()
-        if r_existing.data and len(r_existing.data) > 0:
-            log.info("Día %s: ya existe juego, skip", date_str)
-            games_log.append({"date": date_str, "status": "skipped", "reason": "ya_existe"})
-            continue
-
-        song = random.choice(available)
-        missing = []
-        if not song.get("title"):
-            missing.append("title")
-        if not song.get("artist_name"):
-            missing.append("artist_name")
-        if not song.get("youtube_id") and not song.get("preview_url"):
-            missing.append("youtube_id/preview_url")
-        if missing:
-            log.warning("Día %s: canción sin campos requeridos %s - %s", date_str, missing, song.get("title", "?"))
-            games_log.append({"date": date_str, "status": "error", "error": "missing_fields", "missing": missing, "song_id": str(song.get("id"))})
-            games_errors.append(f"{date_str}: falta {', '.join(missing)}")
-            continue
-
-        try:
-            supabase.table("ecos_games").insert({
-                "song_id": song["id"],
-                "date": date_str,
-                "game_number": next_game_number,
-            }).execute()
-            used_song_ids.add(str(song["id"]))
-            next_game_number += 1
-            games_created += 1
-            log.info("Día %s: Ecos #%d - %s / %s", date_str, next_game_number - 1, song.get("title", "")[:35], song.get("artist_name", "")[:25])
-            games_log.append({
-                "date": date_str,
-                "status": "ok",
-                "game_number": next_game_number - 1,
-                "song_id": str(song["id"]),
-                "title": song.get("title"),
-                "artist": song.get("artist_name"),
-            })
-        except Exception as e:
-            err_msg = str(e)
-            log.warning("Día %s: error insertando juego: %s", date_str, err_msg)
-            games_log.append({"date": date_str, "status": "error", "error": err_msg, "song_id": str(song.get("id"))})
-            games_errors.append(f"{date_str}: {err_msg[:80]}")
-
-    games_duration = int(datetime.now(timezone.utc).timestamp() * 1000) - games_start_ms
-    games_status = "failure" if games_created == 0 and games_errors else ("partial" if games_errors else "success")
-    games_summary = f"{games_created} juegos creados para 7 días" if games_created > 0 else ("Errores: " + "; ".join(games_errors[:3]) if games_errors else "Sin juegos que crear")
-
-    log.info("=== Resumen juegos ===")
-    log.info("Creados: %d | Errores: %d | Pool inicial: %d | Duracion: %d ms", games_created, len(games_errors), total_pool, games_duration)
-
-    try:
-        supabase.table("ecos_system_logs").insert({
-            "job_type": "weekly_games",
-            "status": games_status,
-            "summary": games_summary,
-            "duration_ms": games_duration,
-            "errors": games_errors[:20] if games_errors else None,
-            "details": {
-                "pool_total": total_pool,
-                "games_created": games_created,
-                "games_per_day": games_log,
-            },
-        }).execute()
-        log.info("Log weekly_games guardado en ecos_system_logs")
-    except Exception as log_err:
-        log.error("No se pudo guardar log weekly_games: %s", log_err)
 
 
 if __name__ == "__main__":
