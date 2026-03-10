@@ -13,7 +13,7 @@ export async function GET() {
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, genre
+        cover_url, youtube_id, preview_url, genre
       )
     `
     )
@@ -33,7 +33,8 @@ export async function GET() {
     artist_name: string;
     album_title: string;
     cover_url: string;
-    youtube_id: string;
+    youtube_id: string | null;
+    preview_url: string | null;
     genre: string;
   };
 
@@ -43,6 +44,7 @@ export async function GET() {
       id: song.id,
       cover_url: song.cover_url,
       youtube_id: song.youtube_id,
+      preview_url: song.preview_url ?? null,
       // Título y artista se revelan solo al acertar o perder
     },
   });

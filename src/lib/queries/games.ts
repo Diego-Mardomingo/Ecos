@@ -11,7 +11,8 @@ export interface GameWithSong {
     artist_name: string;
     album_title: string;
     cover_url: string;
-    youtube_id: string;
+    youtube_id: string | null;
+    preview_url: string | null;
     genre: string;
   };
 }
@@ -39,7 +40,7 @@ export async function getTodaysGame(): Promise<GameWithSong | null> {
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, genre
+        cover_url, youtube_id, preview_url, genre
       )
     `
     )

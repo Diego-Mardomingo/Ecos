@@ -23,8 +23,7 @@ export async function POST(request: NextRequest) {
     .from("ecos_songs")
     .select("id, title, artist_name")
     .eq("is_active", true)
-    .eq("youtube_verified", true)
-    .not("youtube_id", "is", null);
+    .or("youtube_id.not.is.null,preview_url.not.is.null");
 
   if (songsError || !availableSongs?.length) {
     const summary = songsError

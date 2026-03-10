@@ -24,8 +24,7 @@ export async function GET(request: NextRequest) {
     .from("ecos_songs")
     .select("id, title, artist_name, cover_url, spotify_id")
     .eq("is_active", true)
-    .eq("youtube_verified", true)
-    .not("youtube_id", "is", null)
+    .or("youtube_id.not.is.null,preview_url.not.is.null")
     .or(`title.ilike."${pattern}",artist_name.ilike."${pattern}"`)
     .limit(limit);
 

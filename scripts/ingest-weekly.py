@@ -269,12 +269,14 @@ def main() -> None:
                     cover = images[0].get("url") if images else None
 
                     yt_id = search_youtube(title, artist, yt_key)
-                    if not yt_id:
+                    preview_url = full.get("preview_url")
+                    if not yt_id and not preview_url:
                         pl_no_yt += 1
                         total_no_yt += 1
                         continue
 
                     now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    uses_preview = not yt_id and preview_url
                     row = {
                         "spotify_id": sid,
                         "title": title,
@@ -284,12 +286,12 @@ def main() -> None:
                         "duration_ms": full.get("duration_ms"),
                         "explicit": bool(full.get("explicit") or full.get("is_explicit")),
                         "release_date": album.get("release_date") or full.get("release_date"),
-                        "preview_url": full.get("preview_url"),
+                        "preview_url": preview_url,
                         "spotify_playlist_id": pl_id,
                         "spotify_playlist_name": pl_name,
                         "youtube_id": yt_id,
-                        "youtube_verified": True,
-                        "youtube_verified_at": now_iso,
+                        "youtube_verified": bool(yt_id),
+                        "youtube_verified_at": now_iso if yt_id else None,
                         "is_active": True,
                         "raw_spotify_data": _build_raw_spotify_data(full, pl_id, pl_name),
                     }
@@ -298,7 +300,7 @@ def main() -> None:
                         existing.add(sid)
                         pl_inserted += 1
                         total_inserted += 1
-                        log.debug("  + %s - %s", title[:40], artist[:30])
+                        log.debug("  + %s - %s%s", title[:40], artist[:30], " (preview)" if uses_preview else "")
                     except Exception as ins_err:
                         err_msg = str(ins_err)
                         if "23505" in err_msg or "duplicate" in err_msg.lower():
@@ -375,8 +377,8 @@ def main() -> None:
         if row.get("song_id"):
             used_song_ids.add(str(row["song_id"]))
 
-    r_songs = supabase.table("ecos_songs").select("id, title, artist_name, youtube_id, cover_url").eq("is_active", True).eq("youtube_verified", True).not_.is_("youtube_id", "null").execute()
-    all_songs = r_songs.data or []
+    r_songs = supabase.table("ecos_songs").select("id, title, artist_name, youtube_id, preview_url, cover_url").eq("is_active", True).execute()
+    all_songs = [s for s in (r_songs.data or []) if s.get("youtube_id") or s.get("preview_url")]
     pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]
     total_pool = len(pool)
 
@@ -407,8 +409,8 @@ def main() -> None:
             missing.append("title")
         if not song.get("artist_name"):
             missing.append("artist_name")
-        if not song.get("youtube_id"):
-            missing.append("youtube_id")
+        if not song.get("youtube_id") and not song.get("preview_url"):
+            missing.append("youtube_id/preview_url")
         if missing:
             log.warning("Día %s: canción sin campos requeridos %s - %s", date_str, missing, song.get("title", "?"))
             games_log.append({"date": date_str, "status": "error", "error": "missing_fields", "missing": missing, "song_id": str(song.get("id"))})

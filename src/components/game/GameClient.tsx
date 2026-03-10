@@ -288,6 +288,7 @@ export function GameClient({ game, userId }: Props) {
       <div className="rounded-t-[2rem] bg-card px-4 pb-6 pt-5 shadow-[0_-4px_24px_rgba(0,0,0,0.15)]">
         <AudioPlayer
           youtubeId={song.youtube_id ?? ""}
+          previewUrl={song.preview_url ?? undefined}
           maxDuration={audioDuration}
           className="mb-4"
         />
