@@ -50,6 +50,10 @@ next-env.d.ts
 *.access-token
 **/secrets.json
 
+# Serwist
+public/sw*
+public/swe-worker*
+
 # project_overview.md
 project_overview.md
 

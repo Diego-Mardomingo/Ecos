@@ -6,7 +6,7 @@ import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
-import { QueryProvider } from "@/components/providers/QueryProvider";
+import { SerwistProvider } from "../serwist";
 import { Toaster } from "@/components/ui/sonner";
 import "../globals.css";
 
@@ -67,6 +67,8 @@ export default async function LocaleLayout({ children, params }: Props) {
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
@@ -82,12 +84,12 @@ export default async function LocaleLayout({ children, params }: Props) {
           enableSystem
           disableTransitionOnChange={false}
         >
-          <QueryProvider>
+          <SerwistProvider swUrl="/serwist/sw.js">
             <NextIntlClientProvider messages={messages}>
               {children}
             </NextIntlClientProvider>
-          </QueryProvider>
-          <Toaster position="top-center" richColors />
+            <Toaster position="top-center" richColors />
+          </SerwistProvider>
         </ThemeProvider>
       </body>
     </html>

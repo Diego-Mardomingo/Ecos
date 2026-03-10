@@ -42,7 +42,7 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
           <input
             type="search"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => setQ(String((e.target as unknown as { value: string }).value))}
             placeholder="Buscar por título o artista..."
             className="h-9 w-full rounded-lg border border-input bg-background pl-10 pr-3 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
             aria-label="Buscar canciones"

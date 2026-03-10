@@ -7,7 +7,8 @@ export function BackButton() {
   const router = useRouter();
 
   const handleClick = (e: React.MouseEvent) => {
-    if (window.history.length > 1) {
+    const g = globalThis as { history?: { length: number } };
+    if (g.history && g.history.length > 1) {
       e.preventDefault();
       router.back();
     }

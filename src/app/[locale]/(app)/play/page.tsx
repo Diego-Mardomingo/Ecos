@@ -1,6 +1,18 @@
+import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/server";
 import { getTodaysGame } from "@/lib/queries/games";
-import { GameClient } from "@/components/game/GameClient";
+
+const GameClient = dynamic(
+  () => import("@/components/game/GameClient").then((m) => ({ default: m.GameClient })),
+  {
+    loading: () => (
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4">
+        <div className="h-16 w-16 animate-pulse rounded-2xl bg-muted" />
+        <p className="text-sm text-muted-foreground">Cargando juego...</p>
+      </div>
+    ),
+  }
+);
 
 export default async function PlayPage() {
   const supabase = await createClient();
