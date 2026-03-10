@@ -1,7 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const JOB_LABELS: Record<string, string> = {
   ingestion: "Ingesta",
+  weekly_games: "Juegos semanales",
   cron_daily: "Programación diaria",
   verify_youtube: "Verificación YouTube",
   report_auto_deactivate: "Desactivación por reportes",
