@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   const { data } = await supabase
     .from("ecos_songs")
-    .select("id, title, artist_name, cover_url, spotify_id")
+    .select("id, title, artist_name, album_title, cover_url, spotify_id")
     .eq("is_active", true)
     .or("youtube_id.not.is.null,preview_url.not.is.null")
     .or(`title.ilike."${pattern}",artist_name.ilike."${pattern}"`)

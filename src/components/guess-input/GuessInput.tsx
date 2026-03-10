@@ -10,6 +10,7 @@ export interface EcosSong {
   id: string;
   title: string;
   artist_name: string;
+  album_title?: string | null;
   cover_url: string | null;
   spotify_id: string | null;
 }

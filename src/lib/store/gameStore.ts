@@ -6,6 +6,8 @@ export type GamePhase = "idle" | "playing" | "won" | "lost";
 export interface GuessEntry {
   text: string;
   correct: boolean;
+  correctArtist?: boolean;
+  correctAlbum?: boolean;
   attemptNumber: number;
 }
 
@@ -30,6 +32,7 @@ export interface GameState {
 
   // Acciones
   startGame: (gameId: string, gameDate: string) => void;
+  loadProgress: (gameId: string, gameDate: string, guesses: GuessEntry[], currentAttempt: number) => void;
   addGuess: (guess: GuessEntry) => void;
   setPlaying: (playing: boolean) => void;
   useHint: () => void;
@@ -70,12 +73,26 @@ export const useGameStore = create<GameState>()(
           audioDuration: ATTEMPT_DURATIONS[0],
         }),
 
+      loadProgress: (gameId, gameDate, guesses, currentAttempt) =>
+        set({
+          ...initialState,
+          gameId,
+          gameDate,
+          phase: "playing",
+          guesses,
+          currentAttempt,
+          audioDuration: ATTEMPT_DURATIONS[currentAttempt - 1] ?? 30,
+        }),
+
       addGuess: (guess) => {
         const { currentAttempt, maxAttempts, guesses } = get();
         const newGuesses = [...guesses, guess];
         const nextAttempt = currentAttempt + 1;
 
-        if (guess.correct) return; // setWon se llama aparte
+        if (guess.correct) {
+          set({ guesses: newGuesses, isPlaying: false });
+          return; // setWon se llama aparte
+        }
 
         if (nextAttempt > maxAttempts) return; // setLost se llama aparte
 

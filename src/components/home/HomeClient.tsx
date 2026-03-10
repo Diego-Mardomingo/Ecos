@@ -9,9 +9,20 @@ import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
 import { getMsUntilNext16hMadrid } from "@/lib/date-utils";
+import { useGameProgressStore } from "@/lib/store/gameProgressStore";
 import type { GameWithSong, PreviousDayGame } from "@/lib/queries/games";
 import type { UserStats } from "@/lib/queries/users";
 import { cn } from "@/lib/utils";
+
+/** Genera color HSL estable a partir de gameId */
+function placeholderColor(gameId: string): string {
+  let hash = 0;
+  for (let i = 0; i < gameId.length; i++) {
+    hash = gameId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash % 360);
+  return `hsl(${h}, 50%, 35%)`;
+}
 
 interface Props {
   todaysGame: GameWithSong | null;
@@ -164,7 +175,7 @@ export function HomeClient({ todaysGame, userStats, userId, previousDays }: Prop
       )}
 
       {/* Días anteriores */}
-      <PreviousDaysSection previousDays={previousDays} />
+      <PreviousDaysSection previousDays={previousDays} userId={userId} />
     </div>
   );
 }
@@ -262,11 +273,12 @@ function StatCard({
   );
 }
 
-function PreviousDaysSection({ previousDays }: { previousDays: PreviousDayGame[] }) {
+function PreviousDaysSection({ previousDays, userId }: { previousDays: PreviousDayGame[]; userId: string | null }) {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
+  const getProgress = useGameProgressStore((s) => s.getProgress);
 
   return (
     <section>
@@ -281,67 +293,78 @@ function PreviousDaysSection({ previousDays }: { previousDays: PreviousDayGame[]
             Aún no hay días anteriores
           </p>
         ) : (
-          previousDays.map((day) => (
-          <Link key={day.id} href={`/play/${day.id}`}>
-          <motion.div
-            whileTap={{ scale: 0.99 }}
-            className="flex items-center gap-3 rounded-2xl bg-card p-3 transition-colors active:bg-card/70"
-          >
-            {/* Miniatura */}
-            <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
-              {day.cover_url ? (
-                <Image src={day.cover_url} alt={day.title} fill className="object-cover" />
-              ) : (
-                <div
-                  className={cn(
-                    "h-full w-full",
-                    day.played && day.won
-                      ? "bg-gradient-to-br from-brand/40 to-brand/10"
-                      : day.played
-                      ? "bg-gradient-to-br from-red-500/30 to-card"
-                      : "bg-gradient-to-br from-purple-500/30 to-indigo-600/30"
-                  )}
-                />
-              )}
-              {/* Overlay de estado */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span
-                  className={cn(
-                    "material-symbols-outlined text-xl",
-                    day.played && day.won ? "text-brand" : "text-white/80"
-                  )}
-                  style={{ fontVariationSettings: "'FILL' 1" }}
+          previousDays.map((day) => {
+            // Invitados: usar gameProgressStore para saber si jugó y mostrar title/cover
+            const localProgress = !userId ? getProgress(day.id) : null;
+            const played = userId ? day.played : !!localProgress;
+            const displayTitle = played ? (localProgress?.title ?? day.title) : "";
+            const displayCover = played ? (localProgress?.cover_url ?? day.cover_url) : "";
+            const displayScore = played ? (localProgress?.score ?? day.score) : null;
+            const won = played && (localProgress?.won ?? day.won);
+
+            return (
+              <Link key={day.id} href={`/play/${day.id}`}>
+                <motion.div
+                  whileTap={{ scale: 0.99 }}
+                  className="flex items-center gap-3 rounded-2xl bg-card p-3 transition-colors active:bg-card/70"
                 >
-                  {day.played && day.won
-                    ? "check_circle"
-                    : day.played
-                    ? "cancel"
-                    : "play_arrow"}
-                </span>
-              </div>
-            </div>
+                  {/* Miniatura: carátula real si jugado, placeholder con color estable si no */}
+                  <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
+                    {played && displayCover ? (
+                      <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center"
+                        style={{ backgroundColor: placeholderColor(day.id) }}
+                      >
+                        <span
+                          className="material-symbols-outlined text-2xl text-white/90"
+                          style={{ fontVariationSettings: "'FILL' 1" }}
+                        >
+                          play_arrow
+                        </span>
+                      </div>
+                    )}
+                    {played && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <span
+                          className={cn(
+                            "material-symbols-outlined text-xl",
+                            won ? "text-brand" : "text-white/90"
+                          )}
+                          style={{ fontVariationSettings: "'FILL' 1" }}
+                        >
+                          {won ? "check_circle" : "cancel"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
-            {/* Info */}
-            <div className="min-w-0 flex-1">
-              <p className="text-xs text-muted-foreground">
-                {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
-              </p>
-              <p className="truncate font-semibold">{day.title}</p>
-              {day.played && day.score !== null ? (
-                <p className="text-xs font-medium text-brand">
-                  {t("score")}: {day.score.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">{t("notPlayedYet")}</p>
-              )}
-            </div>
+                  {/* Info */}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted-foreground">
+                      {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
+                    </p>
+                    <p className="truncate font-semibold">
+                      {played ? displayTitle || "—" : t("guessTheHit")}
+                    </p>
+                    {played && displayScore !== null ? (
+                      <p className="text-xs font-medium text-brand">
+                        {t("score")}: {displayScore.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{t("notPlayedYet")}</p>
+                    )}
+                  </div>
 
-            <span className="material-symbols-outlined text-muted-foreground">
-              {day.played ? "chevron_right" : "play_circle"}
-            </span>
-          </motion.div>
-          </Link>
-        )))}
+                  <span className="material-symbols-outlined text-muted-foreground">
+                    {played ? "chevron_right" : "play_circle"}
+                  </span>
+                </motion.div>
+              </Link>
+            );
+          })
+        )}
       </div>
     </section>
   );

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { calculateScore } from "@/lib/scoring";
 import { z } from "zod";
@@ -9,6 +10,8 @@ const GuessSchema = z.object({
   attemptNumber: z.number().int().min(1).max(6),
   guessText: z.string().min(1).max(500),
   songId: z.string().uuid(),
+  guessArtistName: z.string().optional(),
+  guessAlbumTitle: z.string().optional(),
   finalize: z.boolean().optional(),
 });
 
@@ -21,14 +24,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const { gameId, userId, attemptNumber, guessText, songId, finalize } =
+    const { gameId, userId, attemptNumber, guessText, songId, guessArtistName, guessAlbumTitle, finalize } =
       parsed.data;
 
     const supabase = await createServiceClient();
 
     const { data: game, error: gameError } = await supabase
       .from("ecos_games")
-      .select("id, ecos_songs(id, title, artist_name)")
+      .select("id, ecos_songs(id, title, artist_name, album_title)")
       .eq("id", gameId)
       .single();
 
@@ -40,6 +43,7 @@ export async function POST(request: NextRequest) {
       id: string;
       title: string;
       artist_name: string;
+      album_title: string | null;
     } | null;
 
     if (!song) {
@@ -50,16 +54,30 @@ export async function POST(request: NextRequest) {
       songId === song.id ||
       guessText.toLowerCase().includes(song.title.toLowerCase());
 
+    const normalize = (s: string) => s.toLowerCase().trim();
+    const correctArtist = guessArtistName != null
+      ? normalize(guessArtistName) === normalize(song.artist_name)
+      : false;
+    const correctAlbum = guessAlbumTitle != null && song.album_title != null
+      ? normalize(guessAlbumTitle) === normalize(song.album_title)
+      : false;
+
     await supabase.from("ecos_guesses").upsert({
       user_id: userId,
       game_id: gameId,
       attempt_number: attemptNumber,
       guess_text: guessText,
       correct: isCorrect,
+      correct_artist: correctArtist,
+      correct_album: correctAlbum,
     });
 
     if (!finalize) {
-      return NextResponse.json({ correct: isCorrect });
+      return NextResponse.json({
+        correct: isCorrect,
+        correctArtist,
+        correctAlbum,
+      });
     }
 
     if (!isCorrect && attemptNumber < 6) {
@@ -92,8 +110,12 @@ export async function POST(request: NextRequest) {
       p_streak: isCorrect ? streak : 0,
     });
 
+    revalidateTag("games", "max");
+
     return NextResponse.json({
       correct: isCorrect,
+      correctArtist,
+      correctAlbum,
       ...scoreResult,
     });
   } catch (err) {

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { HomeClient } from "@/components/home/HomeClient";
-import { getTodaysGame, getPreviousDays } from "@/lib/queries/games";
+import { getTodaysGameCached, getPreviousDaysCached } from "@/lib/queries/games";
 import { getUserStats } from "@/lib/queries/users";
 
 export default async function HomePage() {
@@ -10,9 +10,9 @@ export default async function HomePage() {
   } = await supabase.auth.getUser();
 
   const [todaysGame, userStats, previousDays] = await Promise.all([
-    getTodaysGame(),
+    getTodaysGameCached(),
     user ? getUserStats(user.id) : null,
-    getPreviousDays(user?.id ?? null, 10),
+    getPreviousDaysCached(user?.id ?? null),
   ]);
 
   return (

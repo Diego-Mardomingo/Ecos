@@ -16,7 +16,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useGameStore, ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
+import { useGameStore } from "@/lib/store/gameStore";
+import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ export function GameClient({ game, userId }: Props) {
     finalScore,
     correctAttempt,
     startGame,
+    loadProgress,
     addGuess,
     useHint,
     setWon,
@@ -49,12 +51,44 @@ export function GameClient({ game, userId }: Props) {
     gameId,
   } = useGameStore();
 
-  // Iniciar partida si no estaba en curso para este juego
+  const { getProgress, saveProgress } = useGameProgressStore();
+  const [loadedProgress, setLoadedProgress] = useState<GameProgress | null | "loading">("loading");
+
+  // Cargar progreso guardado o iniciar partida nueva
   useEffect(() => {
-    if (gameId !== game.id && phase === "idle") {
-      startGame(game.id, game.date);
-    }
-  }, [game.id, game.date, gameId, phase, startGame]);
+    if (loadedProgress !== "loading") return;
+
+    const load = async () => {
+      if (isGuest) {
+        const progress = getProgress(game.id);
+        if (progress && (progress.phase === "won" || progress.phase === "lost")) {
+          setLoadedProgress(progress);
+          return;
+        }
+        if (gameId !== game.id || phase === "idle") {
+          startGame(game.id, game.date);
+        }
+        setLoadedProgress(null);
+      } else {
+        try {
+          const res = await fetch(`/api/game-progress/${game.id}`);
+          const data = (await res.json()) as { progress: GameProgress | null };
+          if (data.progress && (data.progress.phase === "won" || data.progress.phase === "lost")) {
+            setLoadedProgress(data.progress);
+            return;
+          }
+        } catch {
+          // continuar
+        }
+        if (gameId !== game.id || phase === "idle") {
+          startGame(game.id, game.date);
+        }
+        setLoadedProgress(null);
+      }
+    };
+
+    load();
+  }, [game.id, game.date, gameId, phase, isGuest, getProgress, startGame, loadedProgress]);
 
   const handleGuess = useCallback(
     async (song: EcosSong) => {
@@ -66,8 +100,14 @@ export function GameClient({ game, userId }: Props) {
         song.title.toLowerCase().trim() ===
           game.ecos_songs.title.toLowerCase().trim();
 
+      const normalize = (s: string) => s.toLowerCase().trim();
+      const correctArtist = normalize(song.artist_name) === normalize(game.ecos_songs.artist_name);
+      const correctAlbum =
+        song.album_title != null &&
+        game.ecos_songs.album_title != null &&
+        normalize(song.album_title) === normalize(game.ecos_songs.album_title);
+
       if (isCorrect) {
-        // Lanzar confetti
         confetti({
           particleCount: 120,
           spread: 80,
@@ -75,13 +115,30 @@ export function GameClient({ game, userId }: Props) {
           colors: ["#2bee79", "#ffffff", "#0a2015"],
         });
 
+        const guessEntry = {
+          text: guessText,
+          correct: true,
+          attemptNumber: currentAttempt,
+        };
+        addGuess(guessEntry);
+
         if (isGuest) {
-          // Invitado: calcular puntuación localmente, no persistir en servidor
           const { totalPoints } = calculateScore(currentAttempt, 0);
-          addGuess({ text: guessText, correct: true, attemptNumber: currentAttempt });
           setWon(currentAttempt, totalPoints);
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: true,
+            won: true,
+            score: totalPoints,
+            title: game.ecos_songs.title,
+            artist_name: game.ecos_songs.artist_name,
+            cover_url: game.ecos_songs.cover_url ?? undefined,
+            guesses: useGameStore.getState().guesses,
+            phase: "won",
+            correctAttempt: currentAttempt,
+          });
         } else {
-          // Usuario autenticado: registrar y puntuar en el servidor
           try {
             const res = await fetch("/api/validate-guess", {
               method: "POST",
@@ -92,25 +149,25 @@ export function GameClient({ game, userId }: Props) {
                 attemptNumber: currentAttempt,
                 guessText,
                 songId: song.id,
+                guessArtistName: song.artist_name,
+                guessAlbumTitle: song.album_title ?? undefined,
                 finalize: true,
               }),
             });
             const data = await res.json();
-            addGuess({ text: guessText, correct: true, attemptNumber: currentAttempt });
             setWon(currentAttempt, data.totalPoints ?? 1000);
           } catch {
             const { totalPoints } = calculateScore(currentAttempt, 0);
-            addGuess({ text: guessText, correct: true, attemptNumber: currentAttempt });
             setWon(currentAttempt, totalPoints);
           }
         }
       } else {
-        addGuess({ text: guessText, correct: false, attemptNumber: currentAttempt });
+        let serverCorrectArtist = correctArtist;
+        let serverCorrectAlbum = correctAlbum;
 
         if (!isGuest) {
-          // Registrar intento fallido en el servidor
           try {
-            await fetch("/api/validate-guess", {
+            const res = await fetch("/api/validate-guess", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -119,41 +176,78 @@ export function GameClient({ game, userId }: Props) {
                 attemptNumber: currentAttempt,
                 guessText,
                 songId: song.id,
+                guessArtistName: song.artist_name,
+                guessAlbumTitle: song.album_title ?? undefined,
+                finalize: currentAttempt >= maxAttempts,
               }),
             });
+            const data = await res.json();
+            serverCorrectArtist = data.correctArtist ?? correctArtist;
+            serverCorrectAlbum = data.correctAlbum ?? correctAlbum;
           } catch {
-            // Continuar aunque falle el registro
+            // continuar
           }
         }
 
+        const guessEntry = {
+          text: guessText,
+          correct: false,
+          correctArtist: serverCorrectArtist,
+          correctAlbum: serverCorrectAlbum,
+          attemptNumber: currentAttempt,
+        };
+        addGuess(guessEntry);
+
         if (currentAttempt >= maxAttempts) {
-          if (!isGuest) {
-            // Registrar derrota en el servidor
-            try {
-              await fetch("/api/validate-guess", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  gameId: game.id,
-                  userId,
-                  attemptNumber: currentAttempt,
-                  guessText,
-                  songId: song.id,
-                  finalize: true,
-                }),
-              });
-            } catch {
-              // continuar
-            }
-          }
           setLost();
+          const finalGuesses = [...useGameStore.getState().guesses, guessEntry];
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: true,
+            won: false,
+            score: null,
+            title: game.ecos_songs.title,
+            artist_name: game.ecos_songs.artist_name,
+            cover_url: game.ecos_songs.cover_url ?? undefined,
+            guesses: finalGuesses,
+            phase: "lost",
+          });
         }
       }
     },
-    [phase, game, userId, isGuest, currentAttempt, maxAttempts, addGuess, setWon, setLost]
+    [phase, game, userId, isGuest, currentAttempt, maxAttempts, addGuess, setWon, setLost, saveProgress]
   );
 
   const song = game.ecos_songs;
+
+  // Mostrar resumen guardado al reentrar a un juego completado
+  if (loadedProgress === "loading") {
+    return (
+      <div className="flex min-h-full items-center justify-center">
+        <span className="material-symbols-outlined animate-spin text-4xl text-brand">
+          progress_activity
+        </span>
+      </div>
+    );
+  }
+
+  if (loadedProgress) {
+    return (
+      <ResultScreen
+        phase={loadedProgress.phase}
+        song={song}
+        gameId={game.id}
+        correctAttempt={loadedProgress.correctAttempt ?? null}
+        finalScore={loadedProgress.score}
+        maxAttempts={maxAttempts}
+        gameNumber={game.game_number}
+        isGuest={isGuest}
+        guesses={loadedProgress.guesses}
+        readOnly
+      />
+    );
+  }
 
   if (phase === "won" || phase === "lost") {
     return (
@@ -166,6 +260,7 @@ export function GameClient({ game, userId }: Props) {
         maxAttempts={maxAttempts}
         gameNumber={game.game_number}
         isGuest={isGuest}
+        guesses={guesses}
       />
     );
   }
@@ -293,6 +388,69 @@ export function GameClient({ game, userId }: Props) {
           className="mb-4"
         />
         <GuessInput onGuess={handleGuess} disabled={phase !== "playing"} />
+        {guesses.length > 0 && (
+          <PreviousAttempts guesses={guesses} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+const GUESS_LABELS: Record<string, string> = {
+  CORRECT: "¡Correcto!",
+  WRONG_SONG: "Canción incorrecta",
+  CORRECT_ARTIST: "Artista correcto",
+  CORRECT_ALBUM: "Álbum correcto",
+  CORRECT_ARTIST_ALBUM: "Artista y álbum correctos",
+  WRONG: "Incorrecto",
+};
+
+function PreviousAttempts({
+  guesses,
+}: {
+  guesses: Array<{ text: string; correct?: boolean; correctArtist?: boolean; correctAlbum?: boolean }>;
+}) {
+  return (
+    <div className="mt-4">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-brand">
+        Intentos anteriores
+      </h3>
+      <div className="flex flex-col gap-2">
+        {guesses.map((g, i) => {
+          let labelKey = "WRONG";
+          let bgClass = "bg-destructive/20 border-destructive/40";
+          let textClass = "text-destructive";
+          if (g.correct) {
+            labelKey = "CORRECT";
+            bgClass = "bg-brand/20 border-brand/40";
+            textClass = "text-brand";
+          } else if (g.correctArtist && g.correctAlbum) {
+            labelKey = "CORRECT_ARTIST_ALBUM";
+            bgClass = "bg-amber-500/20 border-amber-500/40";
+            textClass = "text-amber-600 dark:text-amber-400";
+          } else if (g.correctArtist) {
+            labelKey = "CORRECT_ARTIST";
+            bgClass = "bg-amber-500/20 border-amber-500/40";
+            textClass = "text-amber-600 dark:text-amber-400";
+          } else if (g.correctAlbum) {
+            labelKey = "CORRECT_ALBUM";
+            bgClass = "bg-amber-500/20 border-amber-500/40";
+            textClass = "text-amber-600 dark:text-amber-400";
+          } else {
+            labelKey = "WRONG_SONG";
+          }
+          return (
+            <div
+              key={i}
+              className={cn("flex items-center justify-between gap-2 rounded-xl border px-3 py-2", bgClass)}
+            >
+              <span className="truncate text-sm font-medium">{g.text}</span>
+              <span className={cn("shrink-0 text-xs font-semibold", textClass)}>
+                {GUESS_LABELS[labelKey]}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -315,6 +473,8 @@ function ResultScreen({
   maxAttempts,
   gameNumber,
   isGuest,
+  guesses = [],
+  readOnly = false,
 }: {
   phase: "won" | "lost";
   song: GameWithSong["ecos_songs"];
@@ -324,6 +484,8 @@ function ResultScreen({
   maxAttempts: number;
   gameNumber: number;
   isGuest: boolean;
+  guesses?: Array<{ text: string; correct?: boolean; correctArtist?: boolean; correctAlbum?: boolean }>;
+  readOnly?: boolean;
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
@@ -424,6 +586,11 @@ function ResultScreen({
           <p className="text-base font-semibold text-muted-foreground">
             {t("playAgainTomorrow")}
           </p>
+        )}
+        {guesses.length > 0 && (
+          <div className="mt-4 w-full">
+            <PreviousAttempts guesses={guesses} />
+          </div>
         )}
       </motion.div>
 

@@ -1,4 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 
 export interface GameWithSong {
@@ -9,7 +11,7 @@ export interface GameWithSong {
     id: string;
     title: string;
     artist_name: string;
-    album_title: string;
+    album_title: string | null;
     cover_url: string;
     youtube_id: string | null;
     preview_url: string | null;
@@ -29,8 +31,7 @@ export interface PreviousDayGame {
   artist_name: string;
 }
 
-export async function getTodaysGame(): Promise<GameWithSong | null> {
-  const supabase = await createClient();
+async function getTodaysGameWithClient(supabase: SupabaseClient) {
   const effectiveDate = getEffectiveGameDate();
 
   const { data, error } = await supabase
@@ -49,6 +50,11 @@ export async function getTodaysGame(): Promise<GameWithSong | null> {
 
   if (error || !data) return null;
   return data as unknown as GameWithSong;
+}
+
+export async function getTodaysGame(): Promise<GameWithSong | null> {
+  const supabase = await createClient();
+  return getTodaysGameWithClient(supabase);
 }
 
 export async function getGameById(gameId: string): Promise<GameWithSong | null> {
@@ -71,11 +77,11 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
   return data as unknown as GameWithSong;
 }
 
-export async function getPreviousDays(
+async function getPreviousDaysWithClient(
+  supabase: SupabaseClient,
   userId: string | null,
-  limit = 10
+  limit: number
 ): Promise<PreviousDayGame[]> {
-  const supabase = await createClient();
   const effectiveDate = getEffectiveGameDate();
 
   const { data: games, error } = await supabase
@@ -94,24 +100,22 @@ export async function getPreviousDays(
 
   type SongRef = { cover_url: string; title: string; artist_name: string };
 
+  // Invitados: no enviar spoilers (title, cover, artist). El cliente usará gameProgressStore local.
   if (!userId) {
-    return games.map((g) => {
-      const song = (g.ecos_songs as unknown) as SongRef | null;
-      return {
-        id: g.id,
-        date: g.date,
-        game_number: g.game_number,
-        played: false,
-        won: false,
-        score: null,
-        cover_url: song?.cover_url ?? "",
-        title: song?.title ?? "",
-        artist_name: song?.artist_name ?? "",
-      };
-    });
+    return games.map((g) => ({
+      id: g.id,
+      date: g.date,
+      game_number: g.game_number,
+      played: false,
+      won: false,
+      score: null,
+      cover_url: "",
+      title: "",
+      artist_name: "",
+    }));
   }
 
-  // Obtener resultados del usuario para estos juegos
+  // Usuarios autenticados: solo enviar title/cover/artist para juegos ya jugados
   const gameIds = games.map((g) => g.id);
   const { data: scores } = await supabase
     .from("ecos_scores")
@@ -124,16 +128,43 @@ export async function getPreviousDays(
   return games.map((g) => {
     const score = scoreMap.get(g.id);
     const song = (g.ecos_songs as unknown) as SongRef | null;
+    const played = !!score;
     return {
       id: g.id,
       date: g.date,
       game_number: g.game_number,
-      played: !!score,
+      played,
       won: score ? score.guesses_used <= 6 && score.points > 0 : false,
       score: score?.points ?? null,
-      cover_url: song?.cover_url ?? "",
-      title: song?.title ?? "",
-      artist_name: song?.artist_name ?? "",
+      cover_url: played ? (song?.cover_url ?? "") : "",
+      title: played ? (song?.title ?? "") : "",
+      artist_name: played ? (song?.artist_name ?? "") : "",
     };
   });
+}
+
+export async function getPreviousDays(
+  userId: string | null,
+  limit = 10
+): Promise<PreviousDayGame[]> {
+  const supabase = await createClient();
+  return getPreviousDaysWithClient(supabase, userId, limit);
+}
+
+/** Versión cacheada usando createServiceClient (no cookies). */
+export function getTodaysGameCached() {
+  return unstable_cache(
+    async () => getTodaysGameWithClient(createServiceClient()),
+    ["todays-game"],
+    { revalidate: 300, tags: ["games"] }
+  )();
+}
+
+/** Versión cacheada usando createServiceClient (no cookies). */
+export function getPreviousDaysCached(userId: string | null, limit = 10) {
+  return unstable_cache(
+    async () => getPreviousDaysWithClient(createServiceClient(), userId, limit),
+    ["previous-days", userId ?? "guest"],
+    { revalidate: 300, tags: ["games"] }
+  )();
 }
