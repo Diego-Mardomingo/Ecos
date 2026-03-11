@@ -6,18 +6,30 @@ import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/hooks/queries";
 
 /**
- * Suscripción a cambios en ecos_leaderboard para invalidar el ranking en tiempo real.
- * Requiere que ecos_leaderboard esté en la publicación supabase_realtime.
- * Si ecos_leaderboard es una vista, usar ecos_scores (INSERT) en su lugar.
+ * Suscripción a cambios para actualizar el ranking en tiempo real.
+ * Escucha INSERT en ecos_scores (nueva puntuación) — más fiable porque ecos_scores es tabla.
+ * Si ecos_leaderboard es tabla (no vista), también escucha UPDATE.
+ * Migración: ALTER PUBLICATION supabase_realtime ADD TABLE ecos_scores;
  */
 export function useLeaderboardRealtime() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     const supabase = createClient();
+    const invalidate = () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard });
 
     const channel = supabase
       .channel("leaderboard-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "ecos_scores",
+        },
+        invalidate
+      )
       .on(
         "postgres_changes",
         {
@@ -25,9 +37,7 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_leaderboard",
         },
-        () => {
-          queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard });
-        }
+        invalidate
       )
       .subscribe();
 

@@ -151,6 +151,70 @@ export async function getPreviousDays(
   return getPreviousDaysWithClient(supabase, userId, limit);
 }
 
+export interface InProgressProgress {
+  gameId: string;
+  gameDate: string;
+  guesses: Array<{ text: string; correct: boolean; correctArtist?: boolean; correctAlbum?: boolean; attemptNumber: number }>;
+  phase: "playing";
+}
+
+/** Obtiene el progreso en curso para hoy y días anteriores (usuarios autenticados). */
+export async function getInProgressGames(
+  userId: string,
+  todaysGameId: string | null,
+  previousDayIds: string[]
+): Promise<Record<string, InProgressProgress>> {
+  const supabase = await createClient();
+  const gameIds = [todaysGameId, ...previousDayIds].filter(Boolean) as string[];
+  if (gameIds.length === 0) return {};
+
+  const { data: scores } = await supabase
+    .from("ecos_scores")
+    .select("game_id")
+    .eq("user_id", userId)
+    .in("game_id", gameIds);
+  const completedGameIds = new Set((scores ?? []).map((s) => s.game_id));
+  const inProgressIds = gameIds.filter((id) => !completedGameIds.has(id));
+  if (inProgressIds.length === 0) return {};
+
+  const { data: guesses } = await supabase
+    .from("ecos_guesses")
+    .select("game_id, guess_text, correct, correct_artist, correct_album, attempt_number")
+    .eq("user_id", userId)
+    .in("game_id", inProgressIds)
+    .order("attempt_number", { ascending: true });
+
+  const { data: games } = await supabase
+    .from("ecos_games")
+    .select("id, date")
+    .in("id", inProgressIds);
+
+  const gameDateMap = new Map((games ?? []).map((g) => [g.id, g.date ?? ""]));
+
+  const byGameId: Record<string, InProgressProgress> = {};
+  const byGame = new Map<string, typeof guesses>();
+  for (const g of guesses ?? []) {
+    if (!byGame.has(g.game_id)) byGame.set(g.game_id, []);
+    byGame.get(g.game_id)!.push(g);
+  }
+  for (const [gameId, list] of byGame) {
+    if (list.length === 0) continue;
+    byGameId[gameId] = {
+      gameId,
+      gameDate: gameDateMap.get(gameId) ?? "",
+      guesses: list.map((g) => ({
+        text: g.guess_text,
+        correct: g.correct ?? false,
+        correctArtist: g.correct_artist ?? false,
+        correctAlbum: g.correct_album ?? false,
+        attemptNumber: g.attempt_number,
+      })),
+      phase: "playing",
+    };
+  }
+  return byGameId;
+}
+
 /** Versión cacheada usando createServiceClient (no cookies). */
 export function getTodaysGameCached() {
   const effectiveDate = getEffectiveGameDate();

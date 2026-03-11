@@ -54,7 +54,11 @@
     "notPlayedYet": "Not played yet",
     "score": "Score",
     "guessTheHit": "Guess the Hit",
-    "guessTheSong": "Guess the song"
+    "guessTheSong": "Guess today's song",
+    "badgeNotPlayed": "Today's challenge available",
+    "badgeInProgress": "In progress",
+    "badgeWon": "Correct!",
+    "badgeLost": "Failed"
   },
   "game": {
     "dailyChallenge": "Daily Challenge",

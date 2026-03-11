@@ -1,6 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { HomeClient } from "@/components/home/HomeClient";
-import { getTodaysGameCached, getPreviousDaysCached } from "@/lib/queries/games";
+import {
+  getTodaysGameCached,
+  getPreviousDaysCached,
+  getInProgressGames,
+} from "@/lib/queries/games";
 import { getUserStats } from "@/lib/queries/users";
 
 export default async function HomePage() {
@@ -15,13 +19,23 @@ export default async function HomePage() {
     getPreviousDaysCached(user?.id ?? null),
   ]);
 
+  const inProgressByGameId =
+    user && (todaysGame || (previousDays?.length ?? 0) > 0)
+      ? await getInProgressGames(
+          user.id,
+          todaysGame?.id ?? null,
+          (previousDays ?? []).map((d) => d.id)
+        )
+      : {};
+
   return (
     <HomeClient
       initialData={{
         todaysGame,
         userStats: userStats ?? null,
         userId: user?.id ?? null,
-        previousDays,
+        previousDays: previousDays ?? [],
+        inProgressByGameId,
       }}
     />
   );

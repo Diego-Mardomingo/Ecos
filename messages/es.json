@@ -54,7 +54,11 @@
     "notPlayedYet": "Sin jugar aún",
     "score": "Puntuación",
     "guessTheHit": "Adivina el éxito",
-    "guessTheSong": "Adivina la canción"
+    "guessTheSong": "Adivina la canción de hoy",
+    "badgeNotPlayed": "Reto de hoy disponible",
+    "badgeInProgress": "En proceso",
+    "badgeWon": "¡Acertado!",
+    "badgeLost": "Fallido"
   },
   "game": {
     "dailyChallenge": "Reto diario",

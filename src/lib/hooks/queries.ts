@@ -1,7 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { GameWithSong, PreviousDayGame } from "@/lib/queries/games";
+import type {
+  GameWithSong,
+  PreviousDayGame,
+  InProgressProgress,
+} from "@/lib/queries/games";
+
+export type { InProgressProgress };
 import type { UserStats } from "@/lib/queries/users";
 
 export const queryKeys = {
@@ -18,6 +24,7 @@ interface HomeData {
   previousDays: PreviousDayGame[];
   userStats: UserStats | null;
   userId: string | null;
+  inProgressByGameId?: Record<string, InProgressProgress>;
 }
 
 interface RankingData {

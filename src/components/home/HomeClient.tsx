@@ -10,7 +10,7 @@ import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
 import { getMsUntilNext16hMadrid } from "@/lib/date-utils";
-import { useGameProgressStore } from "@/lib/store/gameProgressStore";
+import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import { useHomeData } from "@/lib/hooks/queries";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,7 @@ interface Props {
     userStats: import("@/lib/queries/users").UserStats | null;
     userId: string | null;
     previousDays: PreviousDayGame[];
+    inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
   };
 }
 
@@ -49,14 +50,35 @@ export function HomeClient({ initialData }: Props) {
   const userStats = data?.userStats ?? null;
   const userId = data?.userId ?? null;
   const previousDays = data?.previousDays ?? [];
+  const inProgressByGameId = data?.inProgressByGameId ?? {};
 
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
-  const byGameId = useGameProgressStore((s) => s.byGameId);
+  const { byGameId, saveProgress } = useGameProgressStore();
 
-  const todaysProgress = todaysGame ? byGameId[todaysGame.id] : undefined;
+  // Sincronizar progreso en curso del servidor al store (usuarios autenticados)
+  useEffect(() => {
+    if (!userId || Object.keys(inProgressByGameId).length === 0) return;
+    for (const prog of Object.values(inProgressByGameId)) {
+      const full: GameProgress = {
+        ...prog,
+        played: false,
+        won: false,
+        score: null,
+      };
+      saveProgress(full);
+    }
+  }, [userId, inProgressByGameId, saveProgress]);
+
+  // Hoy: servidor (inProgressByGameId) tiene prioridad para usuarios autenticados
+  const todaysLocalOrServer = todaysGame
+    ? (userId && inProgressByGameId[todaysGame.id]
+        ? inProgressByGameId[todaysGame.id]
+        : byGameId[todaysGame.id])
+    : undefined;
+  const todaysProgress = todaysLocalOrServer;
   const todaysCompleted = todaysProgress && (todaysProgress.phase === "won" || todaysProgress.phase === "lost");
   const todaysDisplayCover = todaysCompleted ? (todaysProgress?.cover_url ?? todaysGame?.ecos_songs.cover_url) : "";
   const todaysInProgress = todaysProgress?.phase === "playing" && (todaysProgress?.guesses?.length ?? 0) > 0;
@@ -167,11 +189,13 @@ export function HomeClient({ initialData }: Props) {
           {/* Overlay gradiente */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
 
-          {/* Badge "disponible" - dot animado + texto */}
-          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1.5 text-xs font-semibold text-brand backdrop-blur-md">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />
-            {t("challengeAvailable")}
-          </div>
+          {/* Badge de estado: sin jugar | en proceso | acertado | fallido */}
+          <TodaysCardBadge
+            todaysCompleted={todaysCompleted}
+            todaysInProgress={todaysInProgress}
+            todaysWon={todaysProgress?.phase === "won"}
+            t={t}
+          />
 
           {/* Badge jugadores */}
           <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-md">
@@ -275,7 +299,66 @@ export function HomeClient({ initialData }: Props) {
       )}
 
       {/* Días anteriores */}
-      <PreviousDaysSection previousDays={previousDays} userId={userId} />
+      <PreviousDaysSection
+        previousDays={previousDays}
+        userId={userId}
+        inProgressByGameId={inProgressByGameId}
+      />
+    </div>
+  );
+}
+
+function TodaysCardBadge({
+  todaysCompleted,
+  todaysInProgress,
+  todaysWon,
+  t,
+}: {
+  todaysCompleted: boolean;
+  todaysInProgress: boolean;
+  todaysWon?: boolean;
+  t: (key: string) => string;
+}) {
+  const baseClass = "absolute left-3 top-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-md";
+
+  if (todaysCompleted) {
+    const isWon = todaysWon === true;
+    return (
+      <div
+        className={cn(
+          baseClass,
+          isWon
+            ? "bg-brand/15 text-brand"
+            : "bg-destructive/15 text-destructive"
+        )}
+      >
+        <span
+          className={cn(
+            "material-symbols-outlined text-sm",
+            isWon ? "text-brand" : "text-destructive"
+          )}
+          style={{ fontVariationSettings: "'FILL' 1" }}
+        >
+          {isWon ? "check_circle" : "cancel"}
+        </span>
+        {isWon ? t("badgeWon") : t("badgeLost")}
+      </div>
+    );
+  }
+
+  if (todaysInProgress) {
+    return (
+      <div className={cn(baseClass, "bg-teal-500/15 text-teal-600 dark:text-teal-400")}>
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-500" />
+        {t("badgeInProgress")}
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(baseClass, "bg-blue-500/15 text-blue-600 dark:text-blue-400")}>
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+      {t("badgeNotPlayed")}
     </div>
   );
 }
@@ -373,7 +456,15 @@ function StatCard({
   );
 }
 
-function PreviousDaysSection({ previousDays, userId }: { previousDays: PreviousDayGame[]; userId: string | null }) {
+function PreviousDaysSection({
+  previousDays,
+  userId,
+  inProgressByGameId = {},
+}: {
+  previousDays: PreviousDayGame[];
+  userId: string | null;
+  inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
+}) {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
@@ -552,9 +643,10 @@ function PreviousDaysSection({ previousDays, userId }: { previousDays: PreviousD
           </p>
         ) : (
           sortedDays.map((day) => {
-            // Usuarios autenticados: servidor (day) es fuente de verdad para completado/won.
-            // Invitados y partidas en curso: gameProgressStore.
-            const localProgress = byGameId[day.id];
+            // Usuarios autenticados: servidor (day, inProgressByGameId) es fuente de verdad.
+            // Invitados: gameProgressStore.
+            const serverInProgress = userId ? inProgressByGameId[day.id] : undefined;
+            const localProgress = serverInProgress ?? byGameId[day.id];
             const played = userId ? day.played : !!localProgress;
             const serverHasResult = userId && day.played && day.score != null;
             const displayTitle = played ? (localProgress?.title ?? day.title) : "";
