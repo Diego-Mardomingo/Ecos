@@ -17,10 +17,12 @@ export default async function HomePage() {
 
   return (
     <HomeClient
-      todaysGame={todaysGame}
-      userStats={userStats}
-      userId={user?.id ?? null}
-      previousDays={previousDays}
+      initialData={{
+        todaysGame,
+        userStats: userStats ?? null,
+        userId: user?.id ?? null,
+        previousDays,
+      }}
     />
   );
 }

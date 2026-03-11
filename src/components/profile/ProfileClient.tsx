@@ -10,6 +10,7 @@ import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useProfile } from "@/lib/hooks/queries";
 import type { UserStats } from "@/lib/queries/users";
 import { cn } from "@/lib/utils";
 
@@ -23,8 +24,10 @@ interface Profile {
 }
 
 interface Props {
-  profile: Profile;
-  stats: UserStats | null;
+  initialData?: {
+    profile: Profile;
+    stats: UserStats | null;
+  };
 }
 
 const ACHIEVEMENTS = [
@@ -34,11 +37,34 @@ const ACHIEVEMENTS = [
   { id: "top_10", title: "Top 10 Global", icon: "emoji_events", gradient: "from-brand/80 to-green-900", earned: false },
 ];
 
-export function ProfileClient({ profile, stats }: Props) {
+export function ProfileClient({ initialData }: Props) {
+  const { data, isLoading } = useProfile(initialData);
+  const profile = data?.profile ?? {
+    id: "",
+    display_name: "",
+    avatar_url: "",
+    created_at: "",
+    email: "",
+    role: null,
+  };
+  const stats = data?.stats ?? null;
+
   const t = useTranslations("profile");
   const { theme, setTheme } = useTheme();
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
+
+  if (isLoading && !data) {
+    return (
+      <div className="flex min-h-full flex-col gap-5 px-4 pb-28 pt-safe">
+        <div className="h-8 animate-pulse rounded bg-muted" />
+        <div className="flex flex-col items-center gap-3 py-4">
+          <div className="h-24 w-24 animate-pulse rounded-full bg-muted" />
+          <div className="h-6 w-32 animate-pulse rounded bg-muted" />
+        </div>
+      </div>
+    );
+  }
 
   const handleSignOut = async () => {
     const supabase = createClient();

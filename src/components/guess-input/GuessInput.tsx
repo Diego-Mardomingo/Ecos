@@ -3,68 +3,52 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSearchSongs } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 
-export interface EcosSong {
-  id: string;
-  title: string;
-  artist_name: string;
-  album_title?: string | null;
-  cover_url: string | null;
-  spotify_id: string | null;
-}
+export type { EcosSong } from "@/lib/hooks/queries";
 
 interface GuessInputProps {
-  onGuess: (song: EcosSong) => void;
+  onGuess: (song: import("@/lib/hooks/queries").EcosSong) => void;
   disabled?: boolean;
   className?: string;
   /** Textos de canciones ya elegidas (ej. "Title - Artist") para resaltarlas en el listado */
   alreadyGuessedTexts?: string[];
 }
 
+const DEBOUNCE_MS = 350;
+
 export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts = [] }: GuessInputProps) {
   const t = useTranslations("game");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<EcosSong[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const { data: results = [], isLoading } = useSearchSongs(debouncedQuery);
 
   const handleSearch = useCallback((value: string) => {
     setQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (value.trim().length < 2) {
-      setResults([]);
+      setDebouncedQuery("");
       setOpen(false);
       return;
     }
 
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(
-          `/api/search-songs?q=${encodeURIComponent(value.trim())}`
-        );
-        const json = (await res.json()) as { data: EcosSong[] };
-        const songs = json.data ?? [];
-        setResults(songs);
-        setOpen(songs.length > 0);
-      } catch {
-        setResults([]);
-        setOpen(false);
-      } finally {
-        setLoading(false);
-      }
-    }, 350);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(value.trim());
+      setOpen(true);
+    }, DEBOUNCE_MS);
   }, []);
 
   const handleSelect = useCallback(
-    (song: EcosSong) => {
+    (song: import("@/lib/hooks/queries").EcosSong) => {
       setQuery("");
-      setResults([]);
+      setDebouncedQuery("");
       setOpen(false);
       onGuess(song);
     },
@@ -104,7 +88,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             disabled && "cursor-not-allowed opacity-50"
           )}
         />
-        {loading && (
+        {isLoading && (
           <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-xl text-brand">
             progress_activity
           </span>

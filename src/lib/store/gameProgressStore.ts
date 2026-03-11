@@ -19,6 +19,7 @@ export interface GameProgress {
 interface GameProgressState {
   byGameId: Record<string, GameProgress>;
   saveProgress: (progress: GameProgress) => void;
+  removeProgress: (gameId: string) => void;
   getProgress: (gameId: string) => GameProgress | undefined;
 }
 
@@ -34,6 +35,12 @@ export const useGameProgressStore = create<GameProgressState>()(
             [progress.gameId]: progress,
           },
         })),
+
+      removeProgress: (gameId) =>
+        set((state) => {
+          const { [gameId]: _, ...rest } = state.byGameId;
+          return { byGameId: rest };
+        }),
 
       getProgress: (gameId) => get().byGameId[gameId],
     }),

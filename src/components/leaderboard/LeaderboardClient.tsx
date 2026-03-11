@@ -5,6 +5,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
+import { useLeaderboard } from "@/lib/hooks/queries";
+import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
 import { cn } from "@/lib/utils";
 
 interface LeaderboardEntry {
@@ -19,8 +21,10 @@ interface LeaderboardEntry {
 }
 
 interface Props {
-  entries: LeaderboardEntry[];
-  currentUserId: string | null;
+  initialData?: {
+    entries: LeaderboardEntry[];
+    currentUserId: string | null;
+  };
 }
 
 type Tab = "global" | "friends";
@@ -36,7 +40,12 @@ const MOCK_ENTRIES: LeaderboardEntry[] = [
   { user_id: "8", total_points: 1500, streak: 15, global_rank: 8, profiles: { display_name: "LoFiPop", avatar_url: "" } },
 ];
 
-export function LeaderboardClient({ entries, currentUserId }: Props) {
+export function LeaderboardClient({ initialData }: Props) {
+  const { data, isLoading } = useLeaderboard(initialData);
+  useLeaderboardRealtime();
+  const entries = data?.entries ?? [];
+  const currentUserId = data?.currentUserId ?? null;
+
   const t = useTranslations("ranking");
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState<Tab>("global");

@@ -39,5 +39,12 @@ export default async function ProfilePage() {
     role: (dbProfile as { display_name?: string; avatar_url?: string; role?: string } | null)?.role ?? null,
   };
 
-  return <ProfileClient profile={profile} stats={stats} />;
+  return (
+    <ProfileClient
+      initialData={{
+        profile,
+        stats: stats ?? null,
+      }}
+    />
+  );
 }

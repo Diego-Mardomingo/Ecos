@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import confetti from "canvas-confetti";
 import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
+import { queryKeys } from "@/lib/hooks/queries";
 import {
   Dialog,
   DialogContent,
@@ -29,9 +31,18 @@ interface Props {
 }
 
 export function GameClient({ game, userId }: Props) {
+  const queryClient = useQueryClient();
   const t = useTranslations("game");
   const tc = useTranslations("common");
   const isGuest = !userId;
+
+  const invalidateOnGameComplete = useCallback(() => {
+    if (!isGuest) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+    }
+  }, [isGuest, queryClient]);
 
   const {
     phase,
@@ -49,7 +60,7 @@ export function GameClient({ game, userId }: Props) {
     gameId,
   } = useGameStore();
 
-  const { getProgress, saveProgress } = useGameProgressStore();
+  const { getProgress, saveProgress, removeProgress } = useGameProgressStore();
   const [loadedProgress, setLoadedProgress] = useState<GameProgress | null | "loading">("loading");
 
   // Cargar progreso guardado o iniciar partida nueva
@@ -77,14 +88,19 @@ export function GameClient({ game, userId }: Props) {
           const res = await fetch(`/api/game-progress/${game.id}`);
           const data = (await res.json()) as { progress: GameProgress | null };
           const p = data.progress;
-          if (p?.phase === "playing" && p.guesses.length > 0) {
-            loadProgress(game.id, game.date, p.guesses, p.guesses.length + 1);
-            setLoadedProgress(null);
-            return;
-          }
-          if (p && (p.phase === "won" || p.phase === "lost")) {
-            setLoadedProgress(p);
-            return;
+          if (p) {
+            saveProgress(p);
+            if (p.phase === "playing" && p.guesses.length > 0) {
+              loadProgress(game.id, game.date, p.guesses, p.guesses.length + 1);
+              setLoadedProgress(null);
+              return;
+            }
+            if (p.phase === "won" || p.phase === "lost") {
+              setLoadedProgress(p);
+              return;
+            }
+          } else {
+            removeProgress(game.id);
           }
         } catch {
           // continuar
@@ -97,7 +113,7 @@ export function GameClient({ game, userId }: Props) {
     };
 
     load();
-  }, [game.id, game.date, gameId, phase, isGuest, getProgress, startGame, loadProgress, loadedProgress]);
+  }, [game.id, game.date, gameId, phase, isGuest, getProgress, saveProgress, removeProgress, startGame, loadProgress, loadedProgress]);
 
   const handleGuess = useCallback(
     async (song: EcosSong) => {
@@ -164,10 +180,39 @@ export function GameClient({ game, userId }: Props) {
               }),
             });
             const data = await res.json();
-            setWon(currentAttempt, data.totalPoints ?? 1000);
+            const totalPoints = data.totalPoints ?? 1000;
+            setWon(currentAttempt, totalPoints);
+            invalidateOnGameComplete();
+            saveProgress({
+              gameId: game.id,
+              gameDate: game.date,
+              played: true,
+              won: true,
+              score: totalPoints,
+              title: game.ecos_songs.title,
+              artist_name: game.ecos_songs.artist_name,
+              cover_url: game.ecos_songs.cover_url ?? undefined,
+              guesses: useGameStore.getState().guesses,
+              phase: "won",
+              correctAttempt: currentAttempt,
+            });
           } catch {
             const { totalPoints } = calculateScore(currentAttempt, 0);
             setWon(currentAttempt, totalPoints);
+            invalidateOnGameComplete();
+            saveProgress({
+              gameId: game.id,
+              gameDate: game.date,
+              played: true,
+              won: true,
+              score: totalPoints,
+              title: game.ecos_songs.title,
+              artist_name: game.ecos_songs.artist_name,
+              cover_url: game.ecos_songs.cover_url ?? undefined,
+              guesses: useGameStore.getState().guesses,
+              phase: "won",
+              correctAttempt: currentAttempt,
+            });
           }
         }
       } else {
@@ -209,6 +254,7 @@ export function GameClient({ game, userId }: Props) {
 
         if (currentAttempt >= maxAttempts) {
           setLost();
+          invalidateOnGameComplete();
           const finalGuesses = [...useGameStore.getState().guesses, guessEntry];
           saveProgress({
             gameId: game.id,
@@ -222,7 +268,7 @@ export function GameClient({ game, userId }: Props) {
             guesses: finalGuesses,
             phase: "lost",
           });
-        } else if (isGuest) {
+        } else {
           const updatedGuesses = [...useGameStore.getState().guesses, guessEntry];
           saveProgress({
             gameId: game.id,
@@ -236,7 +282,7 @@ export function GameClient({ game, userId }: Props) {
         }
       }
     },
-    [phase, game, userId, isGuest, currentAttempt, maxAttempts, addGuess, setWon, setLost, saveProgress]
+    [phase, game, userId, isGuest, currentAttempt, maxAttempts, addGuess, setWon, setLost, saveProgress, invalidateOnGameComplete]
   );
 
   const song = game.ecos_songs;
@@ -311,22 +357,21 @@ export function GameClient({ game, userId }: Props) {
             }
             if (currentAttempt >= maxAttempts) {
               setLost();
-              if (isGuest) {
-                const finalGuesses = useGameStore.getState().guesses;
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: true,
-                  won: false,
-                  score: null,
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url ?? undefined,
-                  guesses: finalGuesses,
-                  phase: "lost",
-                });
-              }
-            } else if (isGuest) {
+              invalidateOnGameComplete();
+              const finalGuesses = useGameStore.getState().guesses;
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: true,
+                won: false,
+                score: null,
+                title: game.ecos_songs.title,
+                artist_name: game.ecos_songs.artist_name,
+                cover_url: game.ecos_songs.cover_url ?? undefined,
+                guesses: finalGuesses,
+                phase: "lost",
+              });
+            } else {
               const updatedGuesses = useGameStore.getState().guesses;
               saveProgress({
                 gameId: game.id,

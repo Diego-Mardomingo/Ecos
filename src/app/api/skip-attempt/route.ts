@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { revalidateTag } from "next/cache";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
 const SkipSchema = z.object({
@@ -57,6 +58,36 @@ export async function POST(request: NextRequest) {
         if (insertError.code === "23505") return NextResponse.json({ ok: true });
         console.error("skip-attempt error:", insertError);
         return NextResponse.json({ error: "Failed to save skip" }, { status: 500 });
+      }
+    }
+
+    // Si es el último intento (6), registrar la partida como perdida en ecos_scores
+    if (attemptNumber === 6) {
+      const serviceSupabase = createServiceClient();
+      const { data: existingScore } = await serviceSupabase
+        .from("ecos_scores")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("game_id", gameId)
+        .single();
+
+      if (!existingScore) {
+        await serviceSupabase.from("ecos_scores").upsert({
+          user_id: user.id,
+          game_id: gameId,
+          points: 0,
+          guesses_used: 6,
+          correct: false,
+        });
+
+        await serviceSupabase.rpc("ecos_update_leaderboard", {
+          p_user_id: user.id,
+          p_points: 0,
+          p_won: false,
+          p_streak: 0,
+        });
+
+        revalidateTag("games", "max");
       }
     }
 

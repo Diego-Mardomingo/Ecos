@@ -119,7 +119,7 @@ async function getPreviousDaysWithClient(
   const gameIds = games.map((g) => g.id);
   const { data: scores } = await supabase
     .from("ecos_scores")
-    .select("game_id, points, guesses_used")
+    .select("game_id, points, guesses_used, correct")
     .eq("user_id", userId)
     .in("game_id", gameIds);
 
@@ -134,7 +134,7 @@ async function getPreviousDaysWithClient(
       date: g.date,
       game_number: g.game_number,
       played,
-      won: score ? score.guesses_used <= 6 && score.points > 0 : false,
+      won: score ? (score.correct === true) : false,
       score: score?.points ?? null,
       cover_url: played ? (song?.cover_url ?? "") : "",
       title: played ? (song?.title ?? "") : "",
@@ -153,18 +153,20 @@ export async function getPreviousDays(
 
 /** Versión cacheada usando createServiceClient (no cookies). */
 export function getTodaysGameCached() {
+  const effectiveDate = getEffectiveGameDate();
   return unstable_cache(
     async () => getTodaysGameWithClient(createServiceClient()),
-    ["todays-game"],
+    ["todays-game", effectiveDate],
     { revalidate: 300, tags: ["games"] }
   )();
 }
 
 /** Versión cacheada usando createServiceClient (no cookies). */
 export function getPreviousDaysCached(userId: string | null, limit = 10) {
+  const effectiveDate = getEffectiveGameDate();
   return unstable_cache(
     async () => getPreviousDaysWithClient(createServiceClient(), userId, limit),
-    ["previous-days", userId ?? "guest"],
+    ["previous-days", effectiveDate, userId ?? "guest"],
     { revalidate: 300, tags: ["games"] }
   )();
 }

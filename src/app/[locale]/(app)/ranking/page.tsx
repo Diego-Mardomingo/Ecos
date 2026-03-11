@@ -10,6 +10,12 @@ export default async function RankingPage() {
 
   const leaderboard = await getLeaderboard(50);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return <LeaderboardClient entries={leaderboard as any} currentUserId={user?.id ?? null} />;
+  return (
+    <LeaderboardClient
+      initialData={{
+        entries: leaderboard,
+        currentUserId: user?.id ?? null,
+      }}
+    />
+  );
 }
