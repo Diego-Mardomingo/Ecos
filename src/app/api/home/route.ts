@@ -4,6 +4,7 @@ import {
   getTodaysGame,
   getPreviousDays,
   getInProgressGames,
+  getTodaysCompletedResult,
 } from "@/lib/queries/games";
 import { getUserStats } from "@/lib/queries/users";
 
@@ -20,14 +21,16 @@ export async function GET() {
       user ? getUserStats(user.id) : null,
     ]);
 
-    const inProgressByGameId =
+    const [inProgressByGameId, todaysCompletedResult] = await Promise.all([
       user && (todaysGame || previousDays.length > 0)
-        ? await getInProgressGames(
+        ? getInProgressGames(
             user.id,
             todaysGame?.id ?? null,
             previousDays.map((d) => d.id)
           )
-        : {};
+        : {},
+      user && todaysGame ? getTodaysCompletedResult(user.id, todaysGame.id) : null,
+    ]);
 
     return NextResponse.json({
       todaysGame,
@@ -35,6 +38,7 @@ export async function GET() {
       userStats,
       userId: user?.id ?? null,
       inProgressByGameId,
+      todaysCompletedResult,
     });
   } catch (err) {
     console.error("api/home error:", err);

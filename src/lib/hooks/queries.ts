@@ -5,9 +5,10 @@ import type {
   GameWithSong,
   PreviousDayGame,
   InProgressProgress,
+  TodaysCompletedResult,
 } from "@/lib/queries/games";
 
-export type { InProgressProgress };
+export type { InProgressProgress, TodaysCompletedResult };
 import type { UserStats } from "@/lib/queries/users";
 
 export const queryKeys = {
@@ -25,6 +26,7 @@ interface HomeData {
   userStats: UserStats | null;
   userId: string | null;
   inProgressByGameId?: Record<string, InProgressProgress>;
+  todaysCompletedResult?: TodaysCompletedResult | null;
 }
 
 interface RankingData {

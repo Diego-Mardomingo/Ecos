@@ -12,6 +12,7 @@ import { useLocale } from "next-intl";
 import { getMsUntilNext16hMadrid } from "@/lib/date-utils";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import { useHomeData } from "@/lib/hooks/queries";
+import { useTodaysWinRate } from "@/lib/realtime/useTodaysWinRate";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import {
@@ -40,6 +41,7 @@ interface Props {
     userId: string | null;
     previousDays: PreviousDayGame[];
     inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
+    todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
   };
 }
 
@@ -51,6 +53,7 @@ export function HomeClient({ initialData }: Props) {
   const userId = data?.userId ?? null;
   const previousDays = data?.previousDays ?? [];
   const inProgressByGameId = data?.inProgressByGameId ?? {};
+  const todaysCompletedResult = data?.todaysCompletedResult ?? null;
 
   const t = useTranslations("home");
   const tc = useTranslations("common");
@@ -79,10 +82,24 @@ export function HomeClient({ initialData }: Props) {
         : byGameId[todaysGame.id])
     : undefined;
   const todaysProgress = todaysLocalOrServer;
-  const todaysCompleted = todaysProgress && (todaysProgress.phase === "won" || todaysProgress.phase === "lost");
-  const todaysDisplayCover = todaysCompleted ? (todaysProgress?.cover_url ?? todaysGame?.ecos_songs.cover_url) : "";
+  const todaysCompleted =
+    (todaysProgress && (todaysProgress.phase === "won" || todaysProgress.phase === "lost")) || !!todaysCompletedResult;
+  const todaysDisplayCover = todaysCompleted
+    ? (todaysCompletedResult?.cover_url ?? todaysProgress?.cover_url ?? todaysGame?.ecos_songs.cover_url ?? "")
+    : "";
+  const todaysDisplayTitle = todaysCompleted
+    ? (todaysCompletedResult?.title ?? todaysProgress?.title ?? todaysGame?.ecos_songs?.title ?? "")
+    : "";
+  const todaysDisplayArtist = todaysCompleted
+    ? (todaysCompletedResult?.artist_name ?? todaysProgress?.artist_name ?? todaysGame?.ecos_songs?.artist_name ?? "")
+    : "";
+  const todaysDisplayScore = todaysCompleted
+    ? (todaysCompletedResult?.score ?? todaysProgress?.score ?? null)
+    : null;
   const todaysInProgress = todaysProgress?.phase === "playing" && (todaysProgress?.guesses?.length ?? 0) > 0;
   const todaysGuesses = todaysProgress?.guesses ?? [];
+  const todaysWon = todaysCompletedResult?.won ?? todaysProgress?.phase === "won";
+  const { winRate, total } = useTodaysWinRate(todaysGame?.id ?? null);
 
   const handleShareHome = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -124,7 +141,8 @@ export function HomeClient({ initialData }: Props) {
 
   return (
     <div className="flex min-h-full flex-col gap-5 px-4 pb-6 pt-safe">
-      {/* Header */}
+      {/* Header + Hero más compactos */}
+      <div className="flex flex-col gap-1">
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
         style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}>
         <div className="flex items-center gap-2">
@@ -175,52 +193,149 @@ export function HomeClient({ initialData }: Props) {
           whileTap={{ scale: 0.99 }}
           onClick={() => router.push("/play")}
           onKeyDown={(e) => e.key === "Enter" && router.push("/play")}
-          className="relative cursor-pointer overflow-hidden rounded-2xl"
+          className="relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08]"
           style={{ aspectRatio: "4/3" }}
         >
-          {/* Fondo fijo de la tarjeta - gradiente verde con profundidad */}
+          {/* Fondo: cover con blur cuando completado, sino oscuro */}
+          {todaysCompleted && todaysDisplayCover ? (
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage: `url(${todaysDisplayCover})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                filter: "blur(7px)",
+              }}
+            />
+          ) : (
+            <div className="absolute inset-0 bg-[#0a0f0c]" />
+          )}
+          {/* Efectos visuales: orbs, stardust y gradiente radial — verde si acertado, rojo si fallido */}
           <div
-            className="h-full w-full"
+            className={cn(
+              "absolute -top-[10%] -left-[10%] h-[60%] w-[60%] rounded-full blur-[80px] opacity-40",
+              todaysCompleted && !todaysWon ? "bg-red-500/20" : "bg-brand/20"
+            )}
+            aria-hidden
+          />
+          <div
+            className={cn(
+              "absolute -bottom-[5%] -right-[5%] h-[50%] w-[50%] rounded-full blur-[80px] opacity-40",
+              todaysCompleted && !todaysWon ? "bg-red-600/10" : "bg-emerald-600/10"
+            )}
+            aria-hidden
+          />
+          <div
+            className="absolute inset-0 opacity-20 pointer-events-none bg-repeat"
+            style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/stardust.png')" }}
+          />
+          <div
+            className="absolute inset-0"
             style={{
-              background: "linear-gradient(165deg, color-mix(in srgb, #2bee79 35%, #0f1412) 0%, color-mix(in srgb, #2bee79 22%, #0a0f0c) 40%, color-mix(in srgb, #2bee79 12%, #050808) 100%)",
+              background:
+                todaysCompleted && !todaysWon
+                  ? "radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.15) 0%, rgba(10, 19, 14, 0.98) 80%)"
+                  : "radial-gradient(circle at 50% 0%, rgba(43, 238, 121, 0.15) 0%, rgba(10, 19, 14, 0.98) 80%)",
             }}
           />
 
-          {/* Overlay gradiente */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-
-          {/* Badge de estado: sin jugar | en proceso | acertado | fallido */}
-          <TodaysCardBadge
-            todaysCompleted={todaysCompleted}
-            todaysInProgress={todaysInProgress}
-            todaysWon={todaysProgress?.phase === "won"}
-            t={t}
-          />
-
-          {/* Badge jugadores */}
-          <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-md">
-            <span className="material-symbols-outlined text-sm text-brand"
-              style={{ fontVariationSettings: "'FILL' 1" }}>
-              whatshot
-            </span>
-            12k {t("playing")}
+          {/* Esquina superior izquierda: #N sutil + badge */}
+          <div className="absolute left-5 top-5 flex flex-col gap-1.5">
+            {todaysGame?.game_number != null && (
+              <span
+                className="text-[10px] font-bold uppercase tracking-widest text-white/40"
+                style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
+              >
+                #{todaysGame.game_number}
+              </span>
+            )}
+            <TodaysCardBadge
+              todaysCompleted={todaysCompleted}
+              todaysInProgress={todaysInProgress}
+              todaysWon={todaysWon}
+              t={t}
+            />
           </div>
 
-          {/* Waveform decorativa animada (valores estables para evitar re-renders) */}
-          <WaveformBars />
-
-          {/* Info y acciones */}
-          <div className="absolute bottom-0 left-0 right-0 p-4">
-            <p className="mb-1 text-xs font-medium text-white/70">
-              {format(new Date(), "d MMM", { locale: dateFnsLocale })}
-              {todaysGame?.game_number != null && (
-                <> <span className="text-white/50">|</span> <span className="tabular-nums text-white/50">#{todaysGame.game_number}</span></>
-              )}
+          {/* Fecha formato OCTOBER 24 — esquina superior derecha */}
+          <div className="absolute right-5 top-5 text-right">
+            <p
+              className="text-[10px] font-bold uppercase tracking-widest text-white/40"
+              style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
+            >
+              {format(new Date(), "MMMM d", { locale: dateFnsLocale })}
             </p>
-            <h3 className="mb-2 text-2xl font-bold text-white">{t("guessTheSong")}</h3>
+            {/* Porcentaje de aciertos en tiempo real */}
+            <div className="mt-1.5 flex items-center justify-end gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium text-white/90 backdrop-blur-md">
+              <span
+                className="material-symbols-outlined text-brand"
+                style={{ fontVariationSettings: "'FILL' 1", fontSize: "1.05rem" }}
+              >
+                groups
+              </span>
+              {winRate != null ? t("winRateGuessed", { percent: winRate }) : "—"}
+            </div>
+          </div>
+
+          {/* Waveform decorativa (oculta cuando completado) */}
+          {!todaysCompleted && <WaveformBars />}
+
+          {/* Zona central: texto y progreso (entre waveform y botones) */}
+          <div
+            className="absolute left-0 right-0 flex flex-col items-center justify-center px-4"
+            style={{ top: "50%", bottom: "5.5rem" }}
+          >
+            {todaysCompleted ? (
+              <>
+                <p
+                  className="mb-2 text-center text-[1.35rem] font-bold tracking-tight leading-tight bg-clip-text text-transparent sm:text-[1.5rem]"
+                  style={{
+                    backgroundImage:
+                      todaysWon
+                        ? "linear-gradient(to right, #2bee79 0%, #34d399 50%, #2bee79 100%)"
+                        : "linear-gradient(to right, #ef4444 0%, #dc2626 50%, #ef4444 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.6))",
+                  }}
+                >
+                  {t("todaysSongWas")}
+                </p>
+                <h3
+                  className="text-center text-[1.35rem] font-bold tracking-tight leading-tight text-white sm:text-[1.5rem]"
+                  style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
+                >
+                  {todaysDisplayTitle || "—"}
+                </h3>
+                {todaysDisplayArtist && (
+                  <p
+                    className="mt-1 text-center text-sm text-white/70"
+                    style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
+                  >
+                    {todaysDisplayArtist}
+                  </p>
+                )}
+              </>
+            ) : (
+              <h3
+                className="text-center text-[1.35rem] font-bold tracking-tight leading-tight bg-clip-text text-transparent sm:text-[1.5rem]"
+                style={{
+                  backgroundImage: "linear-gradient(to right, #2bee79 0%, #34d399 50%, #2bee79 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.6))",
+                }}
+              >
+                {t("guessTheSong")}
+              </h3>
+            )}
             {todaysInProgress && (
-              <div className="mb-3 flex items-center gap-1.5">
-                {Array.from({ length: 6 }).map((_, i) => (
+              <div className="mt-3 flex flex-col items-center gap-2">
+                <p className="text-[10px] font-medium uppercase tracking-widest text-white/50">
+                  {t("progress")}
+                </p>
+                <div className="flex items-center justify-center gap-1.5">
+                  {Array.from({ length: 6 }).map((_, i) => (
                     <div
                       key={i}
                       className={cn(
@@ -228,32 +343,55 @@ export function HomeClient({ initialData }: Props) {
                         i < todaysGuesses.length
                           ? "bg-destructive"
                           : i === todaysGuesses.length
-                          ? "bg-white/80"
-                          : "bg-white/40"
+                            ? "bg-white/80"
+                            : "bg-white/40"
                       )}
                     />
-                ))}
+                  ))}
+                </div>
               </div>
             )}
-            <div className="flex items-center gap-3">
-              <div className="flex flex-1 items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-[#0a2015]">
-                <span className="material-symbols-outlined text-lg"
-                  style={{ fontVariationSettings: "'FILL' 1" }}>
-                  play_arrow
-                </span>
-                {t("playNow")}
-              </div>
+          </div>
+
+          {/* Botones o puntuación */}
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <div className="flex items-center justify-between gap-3">
+              {todaysCompleted ? (
+                <div className="flex w-fit items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md">
+                  <span className="text-brand">{t("score")}:</span>
+                  <span className="text-brand">
+                    {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
+                    {tc("points")}
+                  </span>
+                </div>
+              ) : (
+                <div
+                  className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_rgba(43,238,121,0.4)]"
+                  style={{
+                    background: "linear-gradient(135deg, #2bee79 0%, #1abc62 50%, #2bee79 100%)",
+                  }}
+                >
+                  <span
+                    className="material-symbols-outlined text-lg text-primary-foreground"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    play_arrow
+                  </span>
+                  {t("playNow")}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleShareHome}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur-sm transition-all active:scale-95"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-white/50 transition-all hover:bg-[#383838] hover:text-white/70 active:scale-95"
               >
-                <span className="material-symbols-outlined text-xl">share</span>
+                <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0" }}>share</span>
               </button>
             </div>
           </div>
         </motion.div>
       </section>
+      </div>
 
       {/* Stats rápidas */}
       {userId ? (
@@ -319,45 +457,49 @@ function TodaysCardBadge({
   todaysWon?: boolean;
   t: (key: string) => string;
 }) {
-  const baseClass = "absolute left-3 top-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-md";
+  const baseClass = "inline-flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md";
+
+  const dotColor = todaysCompleted
+    ? todaysWon
+      ? "bg-brand"
+      : "bg-destructive"
+    : todaysInProgress
+      ? "bg-orange-500"
+      : "bg-blue-500";
 
   if (todaysCompleted) {
     const isWon = todaysWon === true;
     return (
-      <div
-        className={cn(
-          baseClass,
-          isWon
-            ? "bg-brand/15 text-brand"
-            : "bg-destructive/15 text-destructive"
-        )}
-      >
+      <div className={baseClass}>
         <span
-          className={cn(
-            "material-symbols-outlined text-sm",
-            isWon ? "text-brand" : "text-destructive"
-          )}
-          style={{ fontVariationSettings: "'FILL' 1" }}
-        >
-          {isWon ? "check_circle" : "cancel"}
+          className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
+          style={{ animationDuration: "2s" }}
+        />
+        <span className={isWon ? "text-brand" : "text-destructive"}>
+          {isWon ? t("badgeWon") : t("badgeLost")}
         </span>
-        {isWon ? t("badgeWon") : t("badgeLost")}
       </div>
     );
   }
 
   if (todaysInProgress) {
     return (
-      <div className={cn(baseClass, "bg-teal-500/15 text-teal-600 dark:text-teal-400")}>
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-500" />
+      <div className={baseClass}>
+        <span
+          className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
+          style={{ animationDuration: "2s" }}
+        />
         {t("badgeInProgress")}
       </div>
     );
   }
 
   return (
-    <div className={cn(baseClass, "bg-blue-500/15 text-blue-600 dark:text-blue-400")}>
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+    <div className={baseClass}>
+      <span
+        className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
+        style={{ animationDuration: "2s" }}
+      />
       {t("badgeNotPlayed")}
     </div>
   );
@@ -398,24 +540,50 @@ function Countdown({ t }: { t: (key: string) => string }) {
   );
 }
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    setMatches(m.matches);
+    const handler = () => setMatches(m.matches);
+    m.addEventListener("change", handler);
+    return () => m.removeEventListener("change", handler);
+  }, [query]);
+  return matches;
+}
+
 function WaveformBars() {
+  const isSm = useMediaQuery("(min-width: 640px)");
+  const isMd = useMediaQuery("(min-width: 768px)");
+
+  const { barCount, barWidth, heightBase, heightRange, gap } = useMemo(() => {
+    if (isMd) return { barCount: 52, barWidth: 4, heightBase: 12, heightRange: 32, gap: 3 };
+    if (isSm) return { barCount: 44, barWidth: 3, heightBase: 10, heightRange: 28, gap: 2.5 };
+    return { barCount: 36, barWidth: 2.5, heightBase: 8, heightRange: 24, gap: 2 };
+  }, [isSm, isMd]);
+
   const bars = useMemo(
     () =>
-      Array.from({ length: 40 }, (_, i) => ({
+      Array.from({ length: barCount }, (_, i) => ({
         key: i,
-        heightA: 8 + ((i * 7) % 25),
-        heightB: 8 + ((i * 11 + 13) % 25),
+        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
+        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
         duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.03,
+        delay: i * 0.02,
       })),
-    []
+    [barCount, heightBase, heightRange]
   );
+
   return (
-    <div className="absolute left-0 right-0 top-1/3 flex items-center justify-center gap-[3px] px-8 opacity-60">
+    <div
+      className="absolute left-0 right-0 top-1/3 flex items-center justify-center opacity-60"
+      style={{ gap: `${gap}px`, paddingLeft: "1rem", paddingRight: "1rem" }}
+    >
       {bars.map(({ key, heightA, heightB, duration, delay }) => (
         <motion.div
           key={key}
-          className="w-[3px] rounded-full bg-brand"
+          className="rounded-full bg-brand shrink-0"
+          style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
           animate={{ height: [`${heightA}px`, `${heightB}px`] }}
           transition={{
             duration,
@@ -636,9 +804,9 @@ function PreviousDaysSection({
         </div>
       </div>
 
-      <div className={cn("gap-2", viewMode === "list" ? "flex flex-col" : "grid grid-cols-5 gap-2")}>
+      <div className={cn("gap-2", viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2")}>
         {sortedDays.length === 0 ? (
-          <p className={cn("rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground", viewMode === "grid" && "col-span-5")}>
+          <p className={cn("rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground", viewMode === "grid" && "col-span-4")}>
             {previousDays.length === 0 ? "Aún no hay días anteriores" : t("noGamesInPeriod")}
           </p>
         ) : (
@@ -669,38 +837,50 @@ function PreviousDaysSection({
                     "border-0 transition-colors active:opacity-90",
                     viewMode === "list"
                       ? "flex items-center gap-3 rounded-2xl bg-card p-3 active:bg-card/70"
-                      : "relative aspect-square overflow-hidden rounded-xl bg-card"
+                      : "flex flex-col rounded-2xl bg-card active:bg-card/70"
                   )}
                 >
                   {viewMode === "grid" ? (
-                    <>
-                      <div className="absolute inset-0">
+                    /* Grid: misma estructura que lista pero vertical — thumbnail arriba, info abajo, mismos estilos */
+                    <div className="flex h-full flex-col rounded-2xl p-3">
+                      <div className="relative mb-2 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
                         {played && displayCover ? (
                           <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" />
                         ) : (
                           <div
-                            className="h-full w-full"
+                            className="flex h-full w-full items-center justify-center"
                             style={{ backgroundColor: previousDayColor(day.game_number) }}
-                          />
+                          >
+                            <span
+                              className="material-symbols-outlined text-2xl text-white/90"
+                              style={{ fontVariationSettings: "'FILL' 1" }}
+                            >
+                              play_arrow
+                            </span>
+                          </div>
+                        )}
+                        {played && completed && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span
+                              className={cn(
+                                "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
+                                won ? "text-brand" : "text-destructive"
+                              )}
+                              style={{ fontVariationSettings: "'FILL' 1" }}
+                            >
+                              {won ? "check_circle" : "cancel"}
+                            </span>
+                          </div>
                         )}
                       </div>
-                      {played && completed && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span
-                            className={cn(
-                              "material-symbols-outlined text-2xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
-                              won ? "text-brand" : "text-destructive"
-                            )}
-                            style={{ fontVariationSettings: "'FILL' 1" }}
-                          >
-                            {won ? "check_circle" : "cancel"}
-                          </span>
-                        </div>
-                      )}
-                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5">
-                        <span className="text-[10px] font-medium text-white">#{day.game_number}</span>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <p className="text-xs text-muted-foreground">
+                          {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
+                          <span className="text-muted-foreground/60"> | </span>
+                          <span className="tabular-nums text-muted-foreground/70">#{day.game_number}</span>
+                        </p>
                       </div>
-                    </>
+                    </div>
                   ) : (
                     <>
                   {/* Miniatura: carátula real si jugado, placeholder con color estable si no */}

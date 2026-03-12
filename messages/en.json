@@ -57,8 +57,11 @@
     "guessTheSong": "Guess today's song",
     "badgeNotPlayed": "Today's challenge available",
     "badgeInProgress": "In progress",
+    "progress": "Progress",
     "badgeWon": "Correct!",
-    "badgeLost": "Failed"
+    "badgeLost": "Failed",
+    "winRateGuessed": "{percent}% guessed",
+    "todaysSongWas": "Today's song was:"
   },
   "game": {
     "dailyChallenge": "Daily Challenge",

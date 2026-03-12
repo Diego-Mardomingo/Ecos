@@ -57,8 +57,11 @@
     "guessTheSong": "Adivina la canción de hoy",
     "badgeNotPlayed": "Reto de hoy disponible",
     "badgeInProgress": "En proceso",
+    "progress": "Progreso",
     "badgeWon": "¡Acertado!",
-    "badgeLost": "Fallido"
+    "badgeLost": "Fallido",
+    "winRateGuessed": "{percent}% aciertos",
+    "todaysSongWas": "La canción del día de hoy era:"
   },
   "game": {
     "dailyChallenge": "Reto diario",

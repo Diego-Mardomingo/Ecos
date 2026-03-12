@@ -151,6 +151,43 @@ export async function getPreviousDays(
   return getPreviousDaysWithClient(supabase, userId, limit);
 }
 
+export interface TodaysCompletedResult {
+  title: string;
+  artist_name: string;
+  cover_url: string;
+  score: number;
+  won: boolean;
+}
+
+export async function getTodaysCompletedResult(
+  userId: string,
+  todaysGameId: string | null
+): Promise<TodaysCompletedResult | null> {
+  if (!todaysGameId) return null;
+  const supabase = await createClient();
+  const { data: scoreRow } = await supabase
+    .from("ecos_scores")
+    .select("points, correct")
+    .eq("user_id", userId)
+    .eq("game_id", todaysGameId)
+    .single();
+  if (!scoreRow) return null;
+  const { data: game } = await supabase
+    .from("ecos_games")
+    .select("ecos_songs(cover_url, title, artist_name)")
+    .eq("id", todaysGameId)
+    .single();
+  const song = game?.ecos_songs as { cover_url: string; title: string; artist_name: string } | null;
+  if (!song) return null;
+  return {
+    title: song.title ?? "",
+    artist_name: song.artist_name ?? "",
+    cover_url: song.cover_url ?? "",
+    score: scoreRow.points ?? 0,
+    won: scoreRow.correct === true,
+  };
+}
+
 export interface InProgressProgress {
   gameId: string;
   gameDate: string;
