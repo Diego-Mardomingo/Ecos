@@ -204,7 +204,7 @@ export function HomeClient({ initialData }: Props) {
                 backgroundImage: `url(${todaysDisplayCover})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
-                filter: "blur(7px)",
+                filter: "blur(1px)",
               }}
             />
           ) : (
@@ -240,36 +240,39 @@ export function HomeClient({ initialData }: Props) {
           />
 
           {/* Esquina superior izquierda: #N sutil + badge */}
-          <div className="absolute left-5 top-5 flex flex-col gap-1.5">
-            {todaysGame?.game_number != null && (
-              <span
-                className="text-[10px] font-bold uppercase tracking-widest text-white/40"
-                style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
-              >
-                #{todaysGame.game_number}
-              </span>
-            )}
-            <TodaysCardBadge
-              todaysCompleted={todaysCompleted}
-              todaysInProgress={todaysInProgress}
-              todaysWon={todaysWon}
-              t={t}
-            />
+          <div className="absolute left-3 top-3 rounded-lg bg-white/5 px-2.5 py-2 backdrop-blur-xl sm:left-4 sm:top-4 sm:rounded-xl sm:px-3 sm:py-2.5 md:left-5 md:top-5">
+            <div className="flex flex-col gap-1 sm:gap-1.5">
+              {todaysGame?.game_number != null && (
+                <span
+                  className="text-[9px] font-bold uppercase tracking-widest text-white/60 sm:text-[10px]"
+                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
+                >
+                  #{todaysGame.game_number}
+                </span>
+              )}
+              <TodaysCardBadge
+                todaysCompleted={todaysCompleted}
+                todaysInProgress={todaysInProgress}
+                todaysWon={todaysWon}
+                t={t}
+              />
+            </div>
           </div>
 
-          {/* Fecha formato OCTOBER 24 — esquina superior derecha */}
-          <div className="absolute right-5 top-5 text-right">
+          {/* Fecha formato 14 MARZO — esquina superior derecha */}
+          <div className="absolute right-3 top-3 rounded-lg bg-white/5 px-2.5 py-2 text-right backdrop-blur-xl sm:right-4 sm:top-4 sm:rounded-xl sm:px-3 sm:py-2.5 md:right-5 md:top-5">
             <p
-              className="text-[10px] font-bold uppercase tracking-widest text-white/40"
-              style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
+              className="text-[9px] font-bold uppercase tracking-widest text-white/60 sm:text-[10px]"
+              style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
             >
-              {format(new Date(), "MMMM d", { locale: dateFnsLocale })}
+              {format(new Date(), "d", { locale: dateFnsLocale })}{" "}
+              {format(new Date(), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
             </p>
             {/* Porcentaje de aciertos en tiempo real */}
-            <div className="mt-1.5 flex items-center justify-end gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium text-white/90 backdrop-blur-md">
+            <div className="mt-1 flex items-center justify-end gap-1 rounded-full bg-black/30 px-2 py-0.5 text-[9px] font-medium text-white/90 backdrop-blur-md sm:mt-1.5 sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-[10px]">
               <span
                 className="material-symbols-outlined text-brand"
-                style={{ fontVariationSettings: "'FILL' 1", fontSize: "1.05rem" }}
+                style={{ fontVariationSettings: "'FILL' 1", fontSize: "clamp(0.7rem, 2.5vw, 1.05rem)" }}
               >
                 groups
               </span>
@@ -282,13 +285,13 @@ export function HomeClient({ initialData }: Props) {
 
           {/* Zona central: texto y progreso (entre waveform y botones) */}
           <div
-            className="absolute left-0 right-0 flex flex-col items-center justify-center px-4"
-            style={{ top: "50%", bottom: "5.5rem" }}
+            className="absolute left-0 right-0 bottom-[4.5rem] flex flex-col items-center justify-center px-3 sm:bottom-[5.5rem] sm:px-4"
+            style={{ top: "50%" }}
           >
             {todaysCompleted ? (
-              <>
+              <div className="flex flex-col items-center rounded-lg bg-white/5 px-3 py-2.5 backdrop-blur-xl sm:rounded-xl sm:px-4 sm:py-3">
                 <p
-                  className="mb-2 text-center text-[1.35rem] font-bold tracking-tight leading-tight bg-clip-text text-transparent sm:text-[1.5rem]"
+                  className="mb-1.5 text-center text-[1.1rem] font-bold tracking-tight leading-tight bg-clip-text text-transparent sm:mb-2 sm:text-[1.35rem] md:text-[1.5rem]"
                   style={{
                     backgroundImage:
                       todaysWon
@@ -302,44 +305,47 @@ export function HomeClient({ initialData }: Props) {
                   {t("todaysSongWas")}
                 </p>
                 <h3
-                  className="text-center text-[1.35rem] font-bold tracking-tight leading-tight text-white sm:text-[1.5rem]"
+                  className="max-w-full text-center text-[1.1rem] font-bold tracking-tight leading-tight text-white line-clamp-2 sm:text-[1.35rem] md:text-[1.5rem]"
                   style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
+                  title={todaysDisplayTitle || undefined}
                 >
                   {todaysDisplayTitle || "—"}
                 </h3>
                 {todaysDisplayArtist && (
                   <p
-                    className="mt-1 text-center text-sm text-white/70"
+                    className="mt-0.5 max-w-full text-center text-xs text-white/70 line-clamp-2 sm:mt-1 sm:text-sm"
                     style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
                   >
                     {todaysDisplayArtist}
                   </p>
                 )}
-              </>
+              </div>
             ) : (
-              <h3
-                className="text-center text-[1.35rem] font-bold tracking-tight leading-tight bg-clip-text text-transparent sm:text-[1.5rem]"
-                style={{
-                  backgroundImage: "linear-gradient(to right, #2bee79 0%, #34d399 50%, #2bee79 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.6))",
-                }}
-              >
-                {t("guessTheSong")}
-              </h3>
+              <div className="rounded-lg bg-white/5 px-3 py-2.5 backdrop-blur-xl sm:rounded-xl sm:px-4 sm:py-3">
+                <h3
+                  className="text-center text-[1.1rem] font-bold tracking-tight leading-tight bg-clip-text text-transparent sm:text-[1.35rem] md:text-[1.5rem]"
+                  style={{
+                    backgroundImage: "linear-gradient(to right, #2bee79 0%, #34d399 50%, #2bee79 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.6))",
+                  }}
+                >
+                  {t("guessTheSong")}
+                </h3>
+              </div>
             )}
             {todaysInProgress && (
-              <div className="mt-3 flex flex-col items-center gap-2">
-                <p className="text-[10px] font-medium uppercase tracking-widest text-white/50">
+              <div className="mt-2 flex flex-col items-center gap-1.5 sm:mt-3 sm:gap-2">
+                <p className="text-[9px] font-medium uppercase tracking-widest text-white/50 sm:text-[10px]">
                   {t("progress")}
                 </p>
-                <div className="flex items-center justify-center gap-1.5">
+                <div className="flex items-center justify-center gap-1 sm:gap-1.5">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div
                       key={i}
                       className={cn(
-                        "h-2 w-2 shrink-0 rounded-full",
+                        "h-1.5 w-1.5 shrink-0 rounded-full sm:h-2 sm:w-2",
                         i < todaysGuesses.length
                           ? "bg-destructive"
                           : i === todaysGuesses.length
@@ -354,10 +360,10 @@ export function HomeClient({ initialData }: Props) {
           </div>
 
           {/* Botones o puntuación */}
-          <div className="absolute bottom-0 left-0 right-0 p-4">
-            <div className="flex items-center justify-between gap-3">
+          <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
               {todaysCompleted ? (
-                <div className="flex w-fit items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md">
+                <div className="flex w-fit items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-semibold text-white/90 backdrop-blur-md sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs">
                   <span className="text-brand">{t("score")}:</span>
                   <span className="text-brand">
                     {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
@@ -366,13 +372,13 @@ export function HomeClient({ initialData }: Props) {
                 </div>
               ) : (
                 <div
-                  className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_rgba(43,238,121,0.4)]"
+                  className="flex w-fit items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-bold text-primary-foreground shadow-[0_0_20px_-4px_rgba(43,238,121,0.4)] sm:gap-2 sm:rounded-xl sm:px-5 sm:py-2 sm:text-base"
                   style={{
                     background: "linear-gradient(135deg, #2bee79 0%, #1abc62 50%, #2bee79 100%)",
                   }}
                 >
                   <span
-                    className="material-symbols-outlined text-lg text-primary-foreground"
+                    className="material-symbols-outlined text-base text-primary-foreground sm:text-lg"
                     style={{ fontVariationSettings: "'FILL' 1" }}
                   >
                     play_arrow
@@ -383,9 +389,9 @@ export function HomeClient({ initialData }: Props) {
               <button
                 type="button"
                 onClick={handleShareHome}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-white/50 transition-all hover:bg-[#383838] hover:text-white/70 active:scale-95"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#282828] text-white/50 transition-all hover:bg-[#383838] hover:text-white/70 active:scale-95 sm:h-9 sm:w-9 sm:rounded-xl"
               >
-                <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0" }}>share</span>
+                <span className="material-symbols-outlined text-base sm:text-lg" style={{ fontVariationSettings: "'FILL' 0" }}>share</span>
               </button>
             </div>
           </div>
@@ -457,7 +463,7 @@ function TodaysCardBadge({
   todaysWon?: boolean;
   t: (key: string) => string;
 }) {
-  const baseClass = "inline-flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md";
+  const baseClass = "inline-flex items-center gap-1 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-semibold text-white/90 backdrop-blur-md sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs";
 
   const dotColor = todaysCompleted
     ? todaysWon
@@ -472,7 +478,7 @@ function TodaysCardBadge({
     return (
       <div className={baseClass}>
         <span
-          className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
+          className={cn("h-1 w-1 shrink-0 rounded-full animate-pulse sm:h-1.5 sm:w-1.5", dotColor)}
           style={{ animationDuration: "2s" }}
         />
         <span className={isWon ? "text-brand" : "text-destructive"}>
@@ -486,7 +492,7 @@ function TodaysCardBadge({
     return (
       <div className={baseClass}>
         <span
-          className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
+          className={cn("h-1 w-1 shrink-0 rounded-full animate-pulse sm:h-1.5 sm:w-1.5", dotColor)}
           style={{ animationDuration: "2s" }}
         />
         {t("badgeInProgress")}
@@ -497,7 +503,7 @@ function TodaysCardBadge({
   return (
     <div className={baseClass}>
       <span
-        className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
+        className={cn("h-1 w-1 shrink-0 rounded-full animate-pulse sm:h-1.5 sm:w-1.5", dotColor)}
         style={{ animationDuration: "2s" }}
       />
       {t("badgeNotPlayed")}
