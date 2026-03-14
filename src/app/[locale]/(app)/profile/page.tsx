@@ -1,7 +1,12 @@
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getUserStats } from "@/lib/queries/users";
 import { ProfileClient } from "@/components/profile/ProfileClient";
 import { redirect } from "next/navigation";
+
+export const metadata: Metadata = {
+  title: "Perfil",
+};
 
 export default async function ProfilePage() {
   const supabase = await createClient();

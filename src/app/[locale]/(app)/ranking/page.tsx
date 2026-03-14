@@ -1,6 +1,11 @@
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getLeaderboard } from "@/lib/queries/users";
 import { LeaderboardClient } from "@/components/leaderboard/LeaderboardClient";
+
+export const metadata: Metadata = {
+  title: "Ranking",
+};
 
 export default async function RankingPage() {
   const supabase = await createClient();

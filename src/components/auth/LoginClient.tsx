@@ -1,18 +1,82 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
+import Script from "next/script";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+            use_fedcm_for_prompt?: boolean;
+          }) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
 
 export function LoginClient() {
   const t = useTranslations("auth");
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [oneTapReady, setOneTapReady] = useState(false);
+  const supabase = useMemo(() => createClient(), []);
+
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
+  const initializeOneTap = useCallback(async () => {
+    if (!googleClientId || !window.google?.accounts?.id) return;
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session) {
+      router.push("/");
+      return;
+    }
+
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: async (response: { credential: string }) => {
+        setLoading(true);
+        try {
+          const { error } = await supabase.auth.signInWithIdToken({
+            provider: "google",
+            token: response.credential,
+          });
+          if (!error) {
+            router.push("/");
+            router.refresh();
+          } else {
+            throw error;
+          }
+        } catch {
+          setLoading(false);
+        }
+      },
+      use_fedcm_for_prompt: true,
+    });
+    window.google.accounts.id.prompt();
+  }, [googleClientId, supabase, router]);
+
+  useEffect(() => {
+    if (oneTapReady && googleClientId) {
+      initializeOneTap();
+    }
+  }, [oneTapReady, googleClientId, initializeOneTap]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
-    const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -23,6 +87,11 @@ export function LoginClient() {
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-6">
+      <Script
+        src="https://accounts.google.com/gsi/client"
+        strategy="afterInteractive"
+        onLoad={() => setOneTapReady(true)}
+      />
       {/* Blobs decorativos */}
       <div className="pointer-events-none absolute left-1/4 top-1/4 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/10 blur-[100px]" />
       <div className="pointer-events-none absolute right-1/4 bottom-1/3 h-48 w-48 translate-x-1/2 rounded-full bg-blue-500/10 blur-[80px]" />
@@ -69,7 +138,7 @@ export function LoginClient() {
           ))}
         </div>
 
-        {/* Botón Google */}
+        {/* Botón Google (fallback cuando One Tap no se muestra) */}
         <div className="w-full space-y-3">
           <motion.button
             onClick={handleGoogleSignIn}

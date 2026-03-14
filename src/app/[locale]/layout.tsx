@@ -19,8 +19,8 @@ const dmSans = DM_Sans({
 
 export const metadata: Metadata = {
   title: {
-    default: "ECOS — Adivina la canción del día",
-    template: "%s | ECOS",
+    default: "ECOS",
+    template: "ECOS - %s",
   },
   description:
     "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global y mantén tu racha.",

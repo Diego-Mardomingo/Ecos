@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import Image from "next/image";
@@ -47,7 +47,7 @@ interface Props {
 
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
-  const { data, isLoading } = useHomeData(initialData);
+  const { data, isLoading, refetch } = useHomeData(initialData);
   const todaysGame = data?.todaysGame ?? null;
   const userStats = data?.userStats ?? null;
   const userId = data?.userId ?? null;
@@ -61,9 +61,9 @@ export function HomeClient({ initialData }: Props) {
   const dateFnsLocale = locale === "es" ? es : enUS;
   const { byGameId, saveProgress } = useGameProgressStore();
 
-  // Sincronizar progreso en curso del servidor al store (usuarios autenticados)
+  // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
   useEffect(() => {
-    if (!userId || Object.keys(inProgressByGameId).length === 0) return;
+    if (userId || Object.keys(inProgressByGameId).length === 0) return;
     for (const prog of Object.values(inProgressByGameId)) {
       const full: GameProgress = {
         ...prog,
@@ -184,7 +184,7 @@ export function HomeClient({ initialData }: Props) {
       {/* Today's Challenge Hero */}
       <section>
         <div className="mb-3 flex justify-center">
-          <Countdown t={t} />
+          <Countdown t={t} onCountdownZero={() => refetch()} />
         </div>
 
         <motion.div
@@ -380,12 +380,14 @@ export function HomeClient({ initialData }: Props) {
             suffix={tc("days")}
             icon="local_fire_department"
             iconColor="text-orange-400"
+            iconBg="bg-orange-500/15"
           />
           <StatCard
             label={t("globalRank")}
             value={userStats?.global_rank ? `#${userStats.global_rank}` : "—"}
             icon="emoji_events"
             iconColor="text-brand"
+            iconBg="bg-brand/15"
           />
         </section>
       ) : (
@@ -495,9 +497,19 @@ function formatCountdown(ms: number): string {
   return parts.join(" ");
 }
 
-function Countdown({ t }: { t: (key: string) => string }) {
+const MS_PER_HOUR = 3600 * 1000;
+
+function Countdown({
+  t,
+  onCountdownZero,
+}: {
+  t: (key: string) => string;
+  onCountdownZero?: () => void;
+}) {
   const [mounted, setMounted] = useState(false);
   const [ms, setMs] = useState(0);
+  const prevMsRef = useRef<number | null>(null);
+  const hasTriggeredRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -510,6 +522,16 @@ function Countdown({ t }: { t: (key: string) => string }) {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || !onCountdownZero || hasTriggeredRef.current) return;
+    const prev = prevMsRef.current;
+    prevMsRef.current = ms;
+    if (prev !== null && prev < 60000 && ms > MS_PER_HOUR) {
+      hasTriggeredRef.current = true;
+      onCountdownZero();
+    }
+  }, [mounted, ms, onCountdownZero]);
 
   return (
     <span className="text-xs font-medium text-muted-foreground tabular-nums">
@@ -587,17 +609,34 @@ function StatCard({
   suffix,
   icon,
   iconColor,
+  iconBg,
 }: {
   label: string;
   value: string;
   suffix?: string;
   icon: string;
   iconColor: string;
+  iconBg?: string;
 }) {
   return (
-    <div className="rounded-2xl bg-card p-4">
-      <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="flex items-end gap-1">
+    <div className="rounded-2xl bg-card p-4 flex flex-col">
+      <div className="mb-3 flex items-center gap-2">
+        <div
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+            iconBg ?? "bg-muted"
+          )}
+        >
+          <span
+            className={cn("material-symbols-outlined text-base", iconColor)}
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            {icon}
+          </span>
+        </div>
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      </div>
+      <div className="flex items-end justify-end gap-1">
         <span className="text-2xl font-bold">{value}</span>
         {suffix && (
           <span className="mb-0.5 text-sm text-muted-foreground">{suffix}</span>

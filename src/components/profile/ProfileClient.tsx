@@ -69,6 +69,8 @@ export function ProfileClient({ initialData }: Props) {
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    localStorage.removeItem("ecos-game-progress");
+    localStorage.removeItem("ecos-game-state");
     window.location.href = "/";
   };
 
