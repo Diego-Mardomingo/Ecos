@@ -54,6 +54,8 @@
     "filterYear": "Year",
     "filterAll": "All",
     "noGamesInPeriod": "No games in this period",
+    "gamesCount": "{count} games",
+    "noPreviousDays": "No previous days yet",
     "resetFilter": "Reset",
     "notPlayedYet": "Not played yet",
     "score": "Score",

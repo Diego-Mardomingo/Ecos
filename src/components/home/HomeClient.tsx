@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
-import { getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
+import { getMadridDate, getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
 import { getNextStreakBonusPoints } from "@/lib/scoring";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import { useHomeData } from "@/lib/hooks/queries";
@@ -17,12 +17,26 @@ import { useTodaysWinRate } from "@/lib/realtime/useTodaysWinRate";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
 
 /** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
 const PREVIOUS_DAY_COLORS = [
@@ -718,50 +732,82 @@ function PreviousDaysSection({
   const dateFnsLocale = locale === "es" ? es : enUS;
   const byGameId = useGameProgressStore((s) => s.byGameId);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [filterMonth, setFilterMonth] = useState<number | null>(null);
-  const [filterYear, setFilterYear] = useState<number | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
-  const filteredDays = useMemo(() => {
-    if (filterMonth === null && filterYear === null) return previousDays;
-    return previousDays.filter((day) => {
-      const [y, m] = day.date.split("-").map(Number);
-      if (filterMonth !== null && m !== filterMonth + 1) return false;
-      if (filterYear !== null && y !== filterYear) return false;
-      return true;
-    });
-  }, [previousDays, filterMonth, filterYear]);
+  const [filterYear, setFilterYear] = useState<number | null>(null);
+  const [filterMonth, setFilterMonth] = useState<number | null>(null);
 
-  const sortedDays = useMemo(() => {
-    const sorted = [...filteredDays].sort((a, b) => {
-      const cmp = a.date.localeCompare(b.date);
-      return sortOrder === "asc" ? cmp : -cmp;
-    });
-    return sorted;
-  }, [filteredDays, sortOrder]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const s = localStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
+      if (s) {
+        const p = JSON.parse(s) as { filterYear?: number | null; filterMonth?: number | null };
+        if (typeof p.filterYear === "number") setFilterYear(p.filterYear);
+        if (typeof p.filterMonth === "number") setFilterMonth(p.filterMonth);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        PREVIOUS_DAYS_FILTER_STORAGE_KEY,
+        JSON.stringify({ filterYear, filterMonth })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [filterYear, filterMonth]);
+
+  const monthNamesFull =
+    locale === "es"
+      ? ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+      : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  const groupsByMonth = useMemo(() => {
+    const map = new Map<string, PreviousDayGame[]>();
+    for (const day of previousDays) {
+      const [y, m] = day.date.split("-").map(Number);
+      const key = `${y}-${String(m).padStart(2, "0")}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(day);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => (sortOrder === "asc" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
+    }
+    return [...map.entries()].sort(([ka], [kb]) => kb.localeCompare(ka));
+  }, [previousDays, sortOrder]);
 
   const availableMonthYearPairs = useMemo(() => {
-    const seen = new Set<string>();
-    return previousDays
-      .map((d) => {
-        const [y, m] = d.date.split("-").map(Number);
-        return { month: m - 1, year: y, key: `${y}-${m}` };
-      })
-      .filter(({ key }) => {
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .sort((a, b) => (a.year !== b.year ? b.year - a.year : b.month - a.month));
-  }, [previousDays]);
+    return groupsByMonth.map(([key]) => {
+      const [y, m] = key.split("-").map(Number);
+      return { year: y, month: m - 1 };
+    });
+  }, [groupsByMonth]);
+
+  const filteredGroupsByMonth = useMemo(() => {
+    if (filterYear === null && filterMonth === null) return groupsByMonth;
+    return groupsByMonth.filter(([key]) => {
+      const [y, m] = key.split("-").map(Number);
+      if (filterYear !== null && y !== filterYear) return false;
+      if (filterMonth !== null && m !== filterMonth + 1) return false;
+      return true;
+    });
+  }, [groupsByMonth, filterYear, filterMonth]);
+
+  const [nowY, nowM] = getMadridDate().split("-").map(Number);
+  const currentMonthKey = `${nowY}-${String(nowM).padStart(2, "0")}`;
 
   const availableYears = useMemo(
     () => [...new Set(availableMonthYearPairs.map((p) => p.year))].sort((a, b) => b - a),
     [availableMonthYearPairs]
   );
 
-  const availableMonthsForFilter = useMemo(() => {
+  const availableMonthsForYear = useMemo(() => {
     if (filterYear !== null) {
       return availableMonthYearPairs
         .filter((p) => p.year === filterYear)
@@ -771,129 +817,11 @@ function PreviousDaysSection({
     return [...new Set(availableMonthYearPairs.map((p) => p.month))].sort((a, b) => a - b);
   }, [availableMonthYearPairs, filterYear]);
 
-  const monthNamesFull =
-    locale === "es"
-      ? ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-      : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-  return (
-    <section>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">{t("previousDays")}</h2>
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 items-center rounded-lg border border-border bg-muted/30 p-0.5">
-            <button
-              onClick={() => setViewMode("list")}
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors",
-                viewMode === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-              aria-label={t("viewList")}
-            >
-              <span className="material-symbols-outlined text-lg">format_list_bulleted</span>
-            </button>
-            <button
-              onClick={() => setViewMode("grid")}
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors",
-                viewMode === "grid" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-              aria-label={t("viewGrid")}
-            >
-              <span className="material-symbols-outlined text-lg">grid_view</span>
-            </button>
-          </div>
-          <Dialog open={filterOpen} onOpenChange={setFilterOpen}>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
-              <button
-                onClick={() => setFilterOpen(true)}
-                className={cn(
-                  "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50",
-                  filterMonth !== null || filterYear !== null ? "text-brand" : ""
-                )}
-                aria-label={t("filterByDate")}
-              >
-                <span className="material-symbols-outlined text-lg">filter_list</span>
-              </button>
-            </div>
-          <DialogContent className="max-w-xs">
-              <DialogHeader>
-                <DialogTitle>{t("filterByDate")}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">{t("filterYear")}</label>
-                  <select
-                    value={filterYear ?? ""}
-                    onChange={(e) => {
-                      const val = e.target.value === "" ? null : Number(e.target.value);
-                      setFilterYear(val);
-                      if (val !== null && filterMonth !== null) {
-                        const valid = availableMonthYearPairs.some((p) => p.year === val && p.month === filterMonth);
-                        if (!valid) setFilterMonth(null);
-                      }
-                    }}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">{t("filterAll")}</option>
-                    {availableYears.map((y) => (
-                      <option key={y} value={y}>{y}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">{t("filterMonth")}</label>
-                  <select
-                    value={filterMonth ?? ""}
-                    onChange={(e) => setFilterMonth(e.target.value === "" ? null : Number(e.target.value))}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">{t("filterAll")}</option>
-                    {availableMonthsForFilter.map((i) => (
-                      <option key={i} value={i}>{monthNamesFull[i]}</option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  onClick={() => {
-                    setFilterMonth(null);
-                    setFilterYear(null);
-                    setFilterOpen(false);
-                  }}
-                  className="w-full rounded-lg border border-border bg-muted/50 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
-                >
-                  {t("resetFilter")}
-                </button>
-              </div>
-            </DialogContent>
-          </Dialog>
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
-            <button
-              onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-              aria-label={sortOrder === "desc" ? t("sortDesc") : t("sortAsc")}
-            >
-              <span
-                className={cn("material-symbols-outlined text-lg", sortOrder === "asc" && "rotate-180")}
-              >
-                arrow_downward
-              </span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className={cn("gap-2", viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2")}>
-        {sortedDays.length === 0 ? (
-          <p className={cn("rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground", viewMode === "grid" && "col-span-4")}>
-            {previousDays.length === 0 ? "Aún no hay días anteriores" : t("noGamesInPeriod")}
-          </p>
-        ) : (
-          sortedDays.map((day) => {
+  const renderDayCard = (day: PreviousDayGame) => {
             // Usuarios autenticados: servidor (day, inProgressByGameId) es fuente de verdad.
             // Invitados: gameProgressStore.
             const serverInProgress = userId ? inProgressByGameId[day.id] : undefined;
-            const localProgress = serverInProgress ?? byGameId[day.id];
+            const localProgress = (serverInProgress ?? byGameId[day.id]) as GameProgress | undefined;
             const played = userId ? day.played : !!localProgress;
             const serverHasResult = userId && day.played && day.score != null;
             const displayTitle = played ? (localProgress?.title ?? day.title) : "";
@@ -1037,9 +965,176 @@ function PreviousDaysSection({
                 </motion.div>
               </Link>
             );
-          })
-        )}
+  };
+
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">{t("previousDays")}</h2>
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 items-center rounded-lg border border-border bg-muted/30 p-0.5">
+            <button
+              onClick={() => setViewMode("list")}
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors",
+                viewMode === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+              aria-label={t("viewList")}
+            >
+              <span className="material-symbols-outlined text-lg">format_list_bulleted</span>
+            </button>
+            <button
+              onClick={() => setViewMode("grid")}
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors",
+                viewMode === "grid" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+              aria-label={t("viewGrid")}
+            >
+              <span className="material-symbols-outlined text-lg">grid_view</span>
+            </button>
+          </div>
+          <Dialog>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
+              <DialogTrigger asChild>
+                <button
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50",
+                    filterMonth !== null || filterYear !== null ? "text-brand" : ""
+                  )}
+                  aria-label={t("filterByDate")}
+                >
+                  <span className="material-symbols-outlined text-lg">filter_list</span>
+                </button>
+              </DialogTrigger>
+            </div>
+            <DialogContent className="max-w-xs">
+              <DialogHeader>
+                <DialogTitle>{t("filterByDate")}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">{t("filterYear")}</label>
+                  <Select
+                    value={filterYear != null ? String(filterYear) : "all"}
+                    onValueChange={(v) => {
+                      const newYear = v === "all" ? null : Number(v);
+                      setFilterYear(newYear);
+                      if (newYear !== null && filterMonth !== null) {
+                        const valid = availableMonthYearPairs.some(
+                          (p) => p.year === newYear && p.month === filterMonth
+                        );
+                        if (!valid) setFilterMonth(null);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={t("filterAll")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t("filterAll")}</SelectItem>
+                      {availableYears.map((y) => (
+                        <SelectItem key={y} value={String(y)}>
+                          {y}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">{t("filterMonth")}</label>
+                  <Select
+                    value={filterMonth != null ? String(filterMonth) : "all"}
+                    onValueChange={(v) => setFilterMonth(v === "all" ? null : Number(v))}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={t("filterAll")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t("filterAll")}</SelectItem>
+                      {availableMonthsForYear.map((i) => (
+                        <SelectItem key={i} value={String(i)}>
+                          {monthNamesFull[i]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <button
+                  onClick={() => {
+                    setFilterMonth(null);
+                    setFilterYear(null);
+                  }}
+                  className="w-full rounded-lg border border-border bg-muted/50 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+                >
+                  {t("resetFilter")}
+                </button>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
+            <button
+              onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={sortOrder === "desc" ? t("sortDesc") : t("sortAsc")}
+            >
+              <span
+                className={cn("material-symbols-outlined text-lg", sortOrder === "asc" && "rotate-180")}
+              >
+                arrow_downward
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      {previousDays.length === 0 ? (
+        <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+          {t("noPreviousDays")}
+        </p>
+      ) : filteredGroupsByMonth.length === 0 ? (
+        <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+          {t("noGamesInPeriod")}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {filteredGroupsByMonth.map(([key, days]) => {
+            const [y, m] = key.split("-").map(Number);
+            const monthLabel = `${monthNamesFull[m - 1]} ${y}`;
+            const isCurrentMonth = key === currentMonthKey;
+            return (
+              <Collapsible key={key} defaultOpen={isCurrentMonth} className="group">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left font-medium transition-colors hover:bg-muted/50"
+                  >
+                    <span>{monthLabel}</span>
+                    <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {t("gamesCount", { count: days.length })}
+                      <span className="material-symbols-outlined text-lg transition-transform group-data-[state=open]:rotate-180">
+                        expand_more
+                      </span>
+                    </span>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div
+                    className={cn(
+                      "mt-2 gap-2",
+                      viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
+                    )}
+                  >
+                    {days.map((day) => (
+                      <div key={day.id}>{renderDayCard(day)}</div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

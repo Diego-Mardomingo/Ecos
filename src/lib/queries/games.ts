@@ -80,11 +80,11 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
 async function getPreviousDaysWithClient(
   supabase: SupabaseClient,
   userId: string | null,
-  limit: number
+  limit?: number
 ): Promise<PreviousDayGame[]> {
   const effectiveDate = getEffectiveGameDate();
 
-  const { data: games, error } = await supabase
+  const baseQuery = supabase
     .from("ecos_games")
     .select(
       `
@@ -93,8 +93,10 @@ async function getPreviousDaysWithClient(
     `
     )
     .lt("date", effectiveDate)
-    .order("date", { ascending: false })
-    .limit(limit);
+    .order("date", { ascending: false });
+
+  const { data: games, error } =
+    limit != null ? await baseQuery.limit(limit) : await baseQuery;
 
   if (error || !games) return [];
 
@@ -145,7 +147,7 @@ async function getPreviousDaysWithClient(
 
 export async function getPreviousDays(
   userId: string | null,
-  limit = 10
+  limit?: number
 ): Promise<PreviousDayGame[]> {
   const supabase = await createClient();
   return getPreviousDaysWithClient(supabase, userId, limit);
@@ -263,11 +265,12 @@ export function getTodaysGameCached() {
 }
 
 /** Versión cacheada usando createServiceClient (no cookies). */
-export function getPreviousDaysCached(userId: string | null, limit = 10) {
+export function getPreviousDaysCached(userId: string | null, limit?: number) {
   const effectiveDate = getEffectiveGameDate();
+  const cacheKey = limit != null ? String(limit) : "all";
   return unstable_cache(
     async () => getPreviousDaysWithClient(createServiceClient(), userId, limit),
-    ["previous-days", effectiveDate, userId ?? "guest"],
+    ["previous-days", effectiveDate, userId ?? "guest", cacheKey],
     { revalidate: 300, tags: ["games"] }
   )();
 }

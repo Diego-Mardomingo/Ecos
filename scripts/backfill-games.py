@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Backfill: genera juegos para fechas pasadas (1 mar - 9 mar 2025).
+Backfill: genera juegos para fechas pasadas.
 Usa la misma lógica y reglas que select-daily-game.py.
 Solo inserta en Supabase, sin archivos de salida.
+Uso: python backfill-games.py --start 2026-01-01 --end 2026-03-14
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import random
@@ -138,8 +140,17 @@ def main() -> None:
         log.error("No hay canciones en el catálogo")
         sys.exit(1)
 
-    start_date = date(2025, 3, 1)
-    end_date = date(2025, 3, 9)
+    parser = argparse.ArgumentParser(description="Backfill juegos diarios para rango de fechas")
+    parser.add_argument("--start", required=True, help="Fecha inicio (YYYY-MM-DD)")
+    parser.add_argument("--end", required=True, help="Fecha fin (YYYY-MM-DD)")
+    args = parser.parse_args()
+
+    start_date = date.fromisoformat(args.start)
+    end_date = date.fromisoformat(args.end)
+    if start_date > end_date:
+        log.error("--start debe ser anterior o igual a --end")
+        sys.exit(1)
+
     dates_to_fill = [
         (start_date + timedelta(days=i)).isoformat()
         for i in range((end_date - start_date).days + 1)
@@ -182,7 +193,7 @@ def main() -> None:
         except Exception as e:
             log.error("%s: error insertando: %s", target_date, e)
 
-    log.info("Backfill completado (1 mar - 9 mar 2025)")
+    log.info("Backfill completado (%s - %s)", args.start, args.end)
 
 
 if __name__ == "__main__":
