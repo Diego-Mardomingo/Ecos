@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 import { z } from "zod";
 
 const SkipSchema = z.object({
@@ -28,13 +29,13 @@ export async function POST(request: NextRequest) {
 
     const { gameId, attemptNumber } = parsed.data;
 
-    const { error: gameError } = await supabase
+    const { data: gameData, error: gameError } = await supabase
       .from("ecos_games")
-      .select("id")
+      .select("id, date")
       .eq("id", gameId)
       .single();
 
-    if (gameError) {
+    if (gameError || !gameData) {
       return NextResponse.json({ error: "Game not found" }, { status: 404 });
     }
 
@@ -72,6 +73,20 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (!existingScore) {
+        const gameDate = (gameData as { date?: string }).date ?? "";
+        const todayMadrid = getEffectiveGameDate();
+        const isTodaysGame = gameDate === todayMadrid;
+
+        let currentStreak = 0;
+        if (!isTodaysGame) {
+          const { data: lb } = await serviceSupabase
+            .from("ecos_leaderboard")
+            .select("streak")
+            .eq("user_id", user.id)
+            .single();
+          currentStreak = lb?.streak ?? 0;
+        }
+
         await serviceSupabase.from("ecos_scores").upsert({
           user_id: user.id,
           game_id: gameId,
@@ -84,7 +99,8 @@ export async function POST(request: NextRequest) {
           p_user_id: user.id,
           p_points: 0,
           p_won: false,
-          p_streak: 0,
+          p_streak: isTodaysGame ? 0 : currentStreak,
+          p_update_streak: isTodaysGame,
         });
 
         revalidateTag("games", "max");

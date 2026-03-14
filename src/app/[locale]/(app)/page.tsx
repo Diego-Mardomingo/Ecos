@@ -6,7 +6,7 @@ import {
   getInProgressGames,
   getTodaysCompletedResult,
 } from "@/lib/queries/games";
-import { getUserStats } from "@/lib/queries/users";
+import { getUserStats, getLeaderboardByPeriod } from "@/lib/queries/users";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -19,6 +19,21 @@ export default async function HomePage() {
     user ? getUserStats(user.id) : null,
     getPreviousDaysCached(user?.id ?? null),
   ]);
+
+  let rankingRanks: { global: number | null; weekly: number | null; monthly: number | null } | undefined;
+  if (user?.id) {
+    const [weeklyEntries, monthlyEntries] = await Promise.all([
+      getLeaderboardByPeriod("weekly", 150),
+      getLeaderboardByPeriod("monthly", 150),
+    ]);
+    const weeklyEntry = weeklyEntries.find((e) => e.user_id === user.id);
+    const monthlyEntry = monthlyEntries.find((e) => e.user_id === user.id);
+    rankingRanks = {
+      global: userStats?.global_rank ?? null,
+      weekly: weeklyEntry?.global_rank ?? null,
+      monthly: monthlyEntry?.global_rank ?? null,
+    };
+  }
 
   const [inProgressByGameId, todaysCompletedResult] = await Promise.all([
     user && (todaysGame || (previousDays?.length ?? 0) > 0)
@@ -40,6 +55,7 @@ export default async function HomePage() {
         previousDays: previousDays ?? [],
         inProgressByGameId,
         todaysCompletedResult: todaysCompletedResult ?? null,
+        rankingRanks,
       }}
     />
   );

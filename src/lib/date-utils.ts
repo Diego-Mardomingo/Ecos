@@ -1,12 +1,12 @@
 /**
  * Utilidades de fecha para el juego diario.
- * Rollover a las 16:00 hora España (Europe/Madrid) con cambio de horario.
+ * Rollover a las 00:00 hora España (Europe/Madrid).
  */
 
 const MADRID = "Europe/Madrid";
 
 /**
- * Fecha de hoy en Madrid (solo fecha, sin rollover).
+ * Fecha de hoy en Madrid (formato YYYY-MM-DD).
  */
 export function getMadridDate(now: Date = new Date()): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -32,23 +32,16 @@ export function getMadridHour(now: Date = new Date()): number {
 
 /**
  * Fecha del juego actualmente jugable.
- * Antes de las 16:00 Madrid: juego de ayer.
- * A las 16:00 y después: juego de hoy.
+ * Coincide con el día natural en Madrid (nueva canción a las 00:00).
  */
 export function getEffectiveGameDate(now: Date = new Date()): string {
-  const hour = getMadridHour(now);
-  const today = getMadridDate(now);
-  if (hour >= 16) return today;
-  const [y, m, d] = today.split("-").map(Number);
-  const prev = new Date(Date.UTC(y, m - 1, d - 1));
-  return prev.toISOString().slice(0, 10);
+  return getMadridDate(now);
 }
 
 /**
- * Milisegundos hasta la próxima 16:00 en Madrid.
- * Si ya pasaron las 16:00 hoy, devuelve ms hasta mañana 16:00.
+ * Milisegundos hasta la próxima medianoche (00:00) en Madrid.
  */
-export function getMsUntilNext16hMadrid(now: Date = new Date()): number {
+export function getMsUntilNextMidnightMadrid(now: Date = new Date()): number {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: MADRID,
     year: "numeric",
@@ -66,7 +59,13 @@ export function getMsUntilNext16hMadrid(now: Date = new Date()): number {
   const m = parseInt(get("minute"), 10);
   const s = parseInt(get("second"), 10);
   const msFromMidnight = (h * 3600 + m * 60 + s) * 1000;
-  const msUntil16h = 16 * 3600 * 1000 - msFromMidnight;
-  if (msUntil16h <= 0) return msUntil16h + 24 * 3600 * 1000;
-  return msUntil16h;
+  const msInDay = 24 * 3600 * 1000;
+  return msInDay - msFromMidnight;
+}
+
+/**
+ * @deprecated Usar getMsUntilNextMidnightMadrid. Mantenido por compatibilidad.
+ */
+export function getMsUntilNext16hMadrid(now: Date = new Date()): number {
+  return getMsUntilNextMidnightMadrid(now);
 }

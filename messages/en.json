@@ -39,7 +39,11 @@
     "howToPlaySteps": "You have 6 attempts. In each attempt you'll hear more seconds of the song. Search for the correct title or artist. The sooner you guess, the more points you get. You can skip an attempt if you don't know it.",
     "playing": "playing",
     "currentStreak": "Current Streak",
-    "globalRank": "Global Rank",
+    "streakBonusNextSuffix": "pts on next correct guess",
+    "globalRank": "Global",
+    "rankingsLabel": "Rankings",
+    "weeklyRank": "Weekly",
+    "monthlyRank": "Monthly",
     "previousDays": "Previous Days",
     "viewList": "List",
     "viewGrid": "Grid",
@@ -92,16 +96,22 @@
   },
   "ranking": {
     "title": "Leaderboard",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
     "global": "Global",
-    "friends": "Friends",
     "rank": "Rank",
     "user": "User",
     "streak": "Streak",
     "totalPoints": "Points",
     "youLabel": "You",
     "topPercent": "Top {percent}%",
-    "noFriends": "You're not following anyone yet",
-    "loadMore": "Load more"
+    "searchPlaceholder": "Search user...",
+    "clearSearch": "Clear search",
+    "loading": "Loading...",
+    "emptyPeriod": "No players in this period.",
+    "noResultsSearch": "No users found.",
+    "playerFallback": "Player",
+    "earlySupporterBadge": "Early supporter"
   },
   "profile": {
     "title": "Profile",
@@ -110,8 +120,11 @@
     "stats": {
       "guessed": "Guessed",
       "streak": "Streak",
+      "maxStreak": "Max streak",
       "points": "Points"
     },
+    "earlySupporterBadge": "Early supporter",
+    "earlySupporterExplanation": "You have this badge for being among the first to support ECOS. Thank you for your support!",
     "achievements": "Achievements",
     "settings": {
       "appSettings": "App Settings",
@@ -128,6 +141,28 @@
       "light": "Light",
       "dark": "Dark",
       "system": "System"
+    },
+    "editProfilePage": {
+      "title": "Edit profile",
+      "username": "Username",
+      "usernamePlaceholder": "Choose a unique name",
+      "avatar": "Profile photo",
+      "changeAvatar": "Change photo",
+      "language": "Language",
+      "save": "Save",
+      "saving": "Saving...",
+      "usernameRequired": "Username is required",
+      "usernameInvalid": "3-30 characters, letters, numbers and underscores only",
+      "usernameTaken": "This username is already taken"
+    },
+    "completeProfile": {
+      "title": "Complete your profile",
+      "subtitle": "Choose a unique username to continue",
+      "username": "Username",
+      "placeholder": "Username",
+      "continue": "Continue",
+      "usernameTaken": "This username is already taken",
+      "usernameInvalid": "3-30 characters: letters, numbers and _"
     }
   },
   "scoring": {

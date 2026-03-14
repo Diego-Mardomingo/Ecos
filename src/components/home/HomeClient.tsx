@@ -9,7 +9,8 @@ import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
-import { getMsUntilNext16hMadrid } from "@/lib/date-utils";
+import { getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
+import { getNextStreakBonusPoints } from "@/lib/scoring";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import { useHomeData } from "@/lib/hooks/queries";
 import { useTodaysWinRate } from "@/lib/realtime/useTodaysWinRate";
@@ -42,6 +43,7 @@ interface Props {
     previousDays: PreviousDayGame[];
     inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
     todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
+    rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
   };
 }
 
@@ -54,6 +56,7 @@ export function HomeClient({ initialData }: Props) {
   const previousDays = data?.previousDays ?? [];
   const inProgressByGameId = data?.inProgressByGameId ?? {};
   const todaysCompletedResult = data?.todaysCompletedResult ?? null;
+  const rankingRanks = data?.rankingRanks;
 
   const t = useTranslations("home");
   const tc = useTranslations("common");
@@ -128,7 +131,7 @@ export function HomeClient({ initialData }: Props) {
 
   if (isLoading && !data) {
     return (
-      <div className="flex min-h-full flex-col gap-5 px-4 pb-6 pt-safe">
+      <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
         <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
         <div className="aspect-[4/3] animate-pulse rounded-2xl bg-muted" />
         <div className="grid grid-cols-2 gap-3">
@@ -140,7 +143,7 @@ export function HomeClient({ initialData }: Props) {
   }
 
   return (
-    <div className="flex min-h-full flex-col gap-5 px-4 pb-6 pt-safe">
+    <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
       {/* Header + Hero más compactos */}
       <div className="flex flex-col gap-1">
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
@@ -381,14 +384,10 @@ export function HomeClient({ initialData }: Props) {
             icon="local_fire_department"
             iconColor="text-orange-400"
             iconBg="bg-orange-500/15"
+            nextBonus={getNextStreakBonusPoints(userStats?.streak ?? 0)}
+            nextBonusSuffix={t("streakBonusNextSuffix")}
           />
-          <StatCard
-            label={t("globalRank")}
-            value={userStats?.global_rank ? `#${userStats.global_rank}` : "—"}
-            icon="emoji_events"
-            iconColor="text-brand"
-            iconBg="bg-brand/15"
-          />
+          <RankingCard rankingRanks={rankingRanks} t={t} />
         </section>
       ) : (
         /* Invitado: CTA motivacional para registrarse */
@@ -513,12 +512,12 @@ function Countdown({
 
   useEffect(() => {
     setMounted(true);
-    setMs(getMsUntilNext16hMadrid());
+    setMs(getMsUntilNextMidnightMadrid());
   }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    const tick = () => setMs(getMsUntilNext16hMadrid());
+    const tick = () => setMs(getMsUntilNextMidnightMadrid());
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [mounted]);
@@ -603,6 +602,52 @@ function WaveformBars() {
   );
 }
 
+function RankingCard({
+  rankingRanks,
+  t,
+}: {
+  rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
+  t: (key: string) => string;
+}) {
+  const fmt = (r: number | null) => (r != null ? `#${r}` : "—");
+  const global = fmt(rankingRanks?.global ?? null);
+  const weekly = fmt(rankingRanks?.weekly ?? null);
+  const monthly = fmt(rankingRanks?.monthly ?? null);
+
+  return (
+    <Link
+      href="/ranking"
+      className="flex flex-col rounded-2xl bg-card p-4 transition-colors active:bg-card/70"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/15">
+          <span
+            className="material-symbols-outlined text-base text-brand"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            emoji_events
+          </span>
+        </div>
+        <p className="text-xs font-medium text-muted-foreground">{t("rankingsLabel")}</p>
+      </div>
+      <div className="flex flex-1 flex-wrap items-end gap-x-3 gap-y-1.5 text-xs sm:gap-x-4">
+        <div className="flex min-w-0 flex-col">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{t("globalRank")}</span>
+          <span className="font-bold tabular-nums">{global}</span>
+        </div>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{t("weeklyRank")}</span>
+          <span className="font-bold tabular-nums">{weekly}</span>
+        </div>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{t("monthlyRank")}</span>
+          <span className="font-bold tabular-nums">{monthly}</span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 function StatCard({
   label,
   value,
@@ -610,6 +655,8 @@ function StatCard({
   icon,
   iconColor,
   iconBg,
+  nextBonus,
+  nextBonusSuffix,
 }: {
   label: string;
   value: string;
@@ -617,6 +664,8 @@ function StatCard({
   icon: string;
   iconColor: string;
   iconBg?: string;
+  nextBonus?: number;
+  nextBonusSuffix?: string;
 }) {
   return (
     <div className="rounded-2xl bg-card p-4 flex flex-col">
@@ -636,11 +685,19 @@ function StatCard({
         </div>
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
       </div>
-      <div className="flex items-end justify-end gap-1">
-        <span className="text-2xl font-bold">{value}</span>
-        {suffix && (
-          <span className="mb-0.5 text-sm text-muted-foreground">{suffix}</span>
+      <div className="flex items-end justify-between gap-2">
+        {nextBonus != null && nextBonus > 0 && nextBonusSuffix && (
+          <p className="text-[10px] text-muted-foreground min-w-0">
+            <span className="font-semibold text-brand">+{nextBonus}</span>
+            {` ${nextBonusSuffix}`}
+          </p>
         )}
+        <div className="flex items-end gap-1 shrink-0">
+          <span className="text-2xl font-bold">{value}</span>
+          {suffix && (
+            <span className="mb-0.5 text-sm text-muted-foreground">{suffix}</span>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -37,6 +37,11 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "image-cdn-ak.spotifycdn.com",
       },
+      {
+        protocol: "https",
+        hostname: new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co").hostname,
+        pathname: "/storage/v1/object/public/**",
+      },
     ],
   },
 };

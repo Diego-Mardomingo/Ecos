@@ -14,7 +14,7 @@ import type { UserStats } from "@/lib/queries/users";
 export const queryKeys = {
   home: ["home"] as const,
   game: (id: string) => ["game", id] as const,
-  leaderboard: ["leaderboard"] as const,
+  leaderboard: (period: string) => ["leaderboard", period] as const,
   userStats: (userId: string) => ["user-stats", userId] as const,
   profile: ["profile"] as const,
   search: (q: string) => ["search", q] as const,
@@ -27,17 +27,15 @@ interface HomeData {
   userId: string | null;
   inProgressByGameId?: Record<string, InProgressProgress>;
   todaysCompletedResult?: TodaysCompletedResult | null;
+  rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
 }
 
 interface RankingData {
   entries: Array<{
     user_id: string;
     total_points: number;
-    games_played: number;
-    games_won: number;
     streak: number;
     global_rank: number;
-    avg_guesses: number;
     profiles: { display_name: string; avatar_url: string } | null;
   }>;
   currentUserId: string | null;
@@ -84,15 +82,18 @@ export function useGameById(gameId: string, initialData?: GameWithSong | null) {
   });
 }
 
-export function useLeaderboard(initialData?: RankingData) {
+export function useLeaderboard(
+  period: "weekly" | "monthly" | "global",
+  initialData?: RankingData
+) {
   return useQuery({
-    queryKey: queryKeys.leaderboard,
+    queryKey: queryKeys.leaderboard(period),
     queryFn: async (): Promise<RankingData> => {
-      const res = await fetch("/api/ranking");
+      const res = await fetch(`/api/ranking?period=${period}`);
       if (!res.ok) throw new Error("Failed to fetch leaderboard");
       return res.json();
     },
-    initialData,
+    initialData: period === "global" ? initialData : undefined,
   });
 }
 

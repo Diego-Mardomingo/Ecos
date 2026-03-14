@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getLeaderboard } from "@/lib/queries/users";
+import {
+  getLeaderboardByPeriod,
+  type LeaderboardPeriod,
+} from "@/lib/queries/users";
+
+const VALID_PERIODS: LeaderboardPeriod[] = ["weekly", "monthly", "global"];
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,8 +19,14 @@ export async function GET(request: NextRequest) {
       Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10)),
       100
     );
+    const periodParam = searchParams.get("period") ?? "global";
+    const period: LeaderboardPeriod = VALID_PERIODS.includes(
+      periodParam as LeaderboardPeriod
+    )
+      ? (periodParam as LeaderboardPeriod)
+      : "global";
 
-    const entries = await getLeaderboard(limit);
+    const entries = await getLeaderboardByPeriod(period, limit);
 
     return NextResponse.json({
       entries,

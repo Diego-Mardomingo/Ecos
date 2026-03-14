@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { getLeaderboard } from "@/lib/queries/users";
+import { getLeaderboardByPeriod } from "@/lib/queries/users";
 import { LeaderboardClient } from "@/components/leaderboard/LeaderboardClient";
 
 export const metadata: Metadata = {
@@ -13,7 +13,7 @@ export default async function RankingPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const leaderboard = await getLeaderboard(50);
+  const leaderboard = await getLeaderboardByPeriod("global", 50);
 
   return (
     <LeaderboardClient

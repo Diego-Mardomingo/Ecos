@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Selección diaria: elige 1 canción para el juego de hoy (visible a las 16:00 Madrid).
-Ejecutar 1x/día a las 14:00 Madrid (GitHub Action).
+Selección diaria: elige 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
+Ejecutar 1x/día a las 22:00 Madrid (GitHub Action). Crea el juego del día 8 el día 7 a las 22:00.
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
 from __future__ import annotations
@@ -86,9 +86,11 @@ def main() -> None:
 
     supabase: Client = create_client(url_env, key_env)
     now_madrid = datetime.now(MADRID)
-    target_date = now_madrid.date().isoformat()
+    # Juego del día siguiente (el cron corre a las 22:00, crea para mañana)
+    target_date = (now_madrid + timedelta(days=1)).date().isoformat()
     cutoff_14 = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
-    yesterday = (now_madrid - timedelta(days=1)).date().isoformat()
+    # Para reglas de rotación: evitar repetir década/género del juego actual (hoy)
+    today_for_rotation = now_madrid.date().isoformat()
 
     # Usadas en ecos_games
     r_used = supabase.table("ecos_games").select("song_id").execute()
@@ -97,7 +99,7 @@ def main() -> None:
     # ¿Ya existe juego para hoy?
     r_existing = supabase.table("ecos_games").select("id").eq("date", target_date).execute()
     if r_existing.data and len(r_existing.data) > 0:
-        log.info("Ya existe juego para %s (visible a las 16:00), nada que hacer", target_date)
+        log.info("Ya existe juego para %s (visible a las 00:00), nada que hacer", target_date)
         try:
             supabase.table("ecos_system_logs").insert({
                 "job_type": "daily_game",
@@ -142,7 +144,7 @@ def main() -> None:
     for g in recent_games:
         song = g.get("ecos_songs") or {}
         date_str = g.get("date", "")
-        if date_str == yesterday:
+        if date_str == today_for_rotation:
             yesterday_decade = get_decade(song.get("release_date"))
             yesterday_genre = get_special_genre(song.get("genre"), song.get("spotify_playlist_name"))
 

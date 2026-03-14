@@ -1,11 +1,11 @@
-# Selección diaria: 1 canción para el juego de hoy (visible a las 16:00 Madrid).
-# Ejecuta cada día a las 14:00 hora española.
-# Nota: GitHub Actions solo usa UTC. 13:00 UTC = 14:00 CET (oct-mar) / 15:00 CEST (abr-sep).
+# Selección diaria: 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
+# Ejecuta cada día a las 22:00 hora española (crea el juego del día siguiente).
+# Nota: GitHub Actions solo usa UTC. 21:00 UTC = 22:00 CET (oct-mar) / 23:00 CEST (abr-sep).
 name: Daily Game
 
 on:
   schedule:
-    - cron: "0 13 * * *"
+    - cron: "0 21 * * *"
   workflow_dispatch:
 
 jobs:

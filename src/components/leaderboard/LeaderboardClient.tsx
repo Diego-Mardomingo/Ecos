@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -27,36 +27,47 @@ interface Props {
   };
 }
 
-type Tab = "global" | "friends";
+type PeriodTab = "weekly" | "monthly" | "global";
 
-const MOCK_ENTRIES: LeaderboardEntry[] = [
-  { user_id: "1", total_points: 3120, streak: 15, global_rank: 1, profiles: { display_name: "BeatMaster", avatar_url: "" } },
-  { user_id: "2", total_points: 2450, streak: 9, global_rank: 2, profiles: { display_name: "MelodyQ", avatar_url: "" } },
-  { user_id: "3", total_points: 2100, streak: 6, global_rank: 3, profiles: { display_name: "RhythmX", avatar_url: "" } },
-  { user_id: "me", total_points: 1980, streak: 12, global_rank: 4, profiles: { display_name: "Tú", avatar_url: "" } },
-  { user_id: "5", total_points: 1850, streak: 8, global_rank: 5, profiles: { display_name: "JazzHands", avatar_url: "" } },
-  { user_id: "6", total_points: 1720, streak: 5, global_rank: 6, profiles: { display_name: "BassDrop", avatar_url: "" } },
-  { user_id: "7", total_points: 1640, streak: 3, global_rank: 7, profiles: { display_name: "SynthWave", avatar_url: "" } },
-  { user_id: "8", total_points: 1500, streak: 15, global_rank: 8, profiles: { display_name: "LoFiPop", avatar_url: "" } },
-];
+const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 
 export function LeaderboardClient({ initialData }: Props) {
-  const { data, isLoading } = useLeaderboard(initialData);
-  useLeaderboardRealtime();
-  const entries = data?.entries ?? [];
-  const currentUserId = data?.currentUserId ?? null;
-
   const t = useTranslations("ranking");
   const locale = useLocale();
-  const [activeTab, setActiveTab] = useState<Tab>("global");
-  const formatPoints = (n: number) => n.toLocaleString(locale === "es" ? "es-ES" : "en-US");
+  const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
-  const displayEntries = entries.length > 0 ? entries : MOCK_ENTRIES;
-  const top3 = displayEntries.slice(0, 3);
-  const rest = displayEntries.slice(3);
+  const { data, isLoading } = useLeaderboard(activeTab, initialData);
+  useLeaderboardRealtime();
+  const entries = data?.entries ?? [];
 
-  const isCurrentUser = (id: string) =>
-    id === currentUserId || id === "me";
+  const lastUserIdRef = useRef<string | null>(null);
+  if (data?.currentUserId !== undefined) {
+    lastUserIdRef.current = data.currentUserId;
+  }
+  const currentUserId = data?.currentUserId ?? lastUserIdRef.current;
+
+  const formatPoints = useCallback(
+    (n: number) => n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
+    [locale]
+  );
+
+  const top3 = entries.slice(0, 3);
+  const allListEntries = entries;
+
+  const isCurrentUser = (id: string) => id === currentUserId;
+
+  const getDisplayName = (entry: LeaderboardEntry) => {
+    const name = entry.profiles?.display_name?.trim();
+    if (name && name.toLowerCase() !== "admin") return name;
+    return t("playerFallback");
+  };
+
+  const indicatorLeft =
+    activeTab === "weekly"
+      ? "4px"
+      : activeTab === "monthly"
+        ? "calc(33.333% + 2px)"
+        : "calc(66.666% + 2px)";
 
   return (
     <div className="flex min-h-full flex-col">
@@ -65,13 +76,9 @@ export function LeaderboardClient({ initialData }: Props) {
         className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 pt-safe backdrop-blur-md"
         style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}
       >
-        <Link href="/" className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-          <span className="material-symbols-outlined text-xl">arrow_back</span>
-        </Link>
+        <div className="flex h-9 w-9" aria-hidden />
         <h1 className="text-base font-bold">{t("title")}</h1>
-        <button className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-          <span className="material-symbols-outlined text-xl">search</span>
-        </button>
+        <div className="flex h-9 w-9" aria-hidden />
       </header>
 
       {/* Banner de invitado */}
@@ -98,18 +105,22 @@ export function LeaderboardClient({ initialData }: Props) {
         </div>
       )}
 
-      {/* Toggle Global / Amigos */}
+      {/* Toggle Semanal / Mensual / Global */}
       <div className="px-4 py-3">
         <div className="relative flex rounded-full bg-muted p-1">
           <motion.div
             layout
             className="absolute inset-y-1 rounded-full bg-brand"
-            style={{ width: "calc(50% - 4px)", left: activeTab === "global" ? "4px" : "calc(50%)" }}
+            style={{
+              width: "calc(33.333% - 5px)",
+              left: indicatorLeft,
+            }}
             transition={{ type: "spring", stiffness: 400, damping: 35 }}
           />
-          {(["global", "friends"] as Tab[]).map((tab) => (
+          {PERIOD_ORDER.map((tab) => (
             <button
               key={tab}
+              type="button"
               onClick={() => setActiveTab(tab)}
               className={cn(
                 "relative z-10 flex-1 rounded-full py-2 text-sm font-semibold transition-colors",
@@ -123,29 +134,40 @@ export function LeaderboardClient({ initialData }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Podio Top 3 */}
-        <div className="px-4 py-6">
-          <div className="flex items-end justify-center gap-4">
-            {/* 2º puesto */}
-            <PodiumEntry entry={top3[1]} position={2} isCurrentUser={isCurrentUser(top3[1]?.user_id)} formatPoints={formatPoints} />
-            {/* 1º puesto */}
-            <PodiumEntry entry={top3[0]} position={1} isCurrentUser={isCurrentUser(top3[0]?.user_id)} formatPoints={formatPoints} elevated />
-            {/* 3º puesto */}
-            <PodiumEntry entry={top3[2]} position={3} isCurrentUser={isCurrentUser(top3[2]?.user_id)} formatPoints={formatPoints} />
+        {entries.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+            <span
+              className="material-symbols-outlined mb-4 text-4xl text-muted-foreground"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              emoji_events
+            </span>
+            <p className="text-sm font-medium text-muted-foreground">
+              {isLoading ? t("loading") : t("emptyPeriod")}
+            </p>
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Podio Top 3 */}
+            <div className="px-4 py-6">
+              <div className="flex items-end justify-center gap-4">
+                <PodiumEntry entry={top3[1]} position={2} isCurrentUser={isCurrentUser(top3[1]?.user_id ?? "")} formatPoints={formatPoints} getDisplayName={getDisplayName} />
+                <PodiumEntry entry={top3[0]} position={1} isCurrentUser={isCurrentUser(top3[0]?.user_id ?? "")} formatPoints={formatPoints} elevated getDisplayName={getDisplayName} />
+                <PodiumEntry entry={top3[2]} position={3} isCurrentUser={isCurrentUser(top3[2]?.user_id ?? "")} formatPoints={formatPoints} getDisplayName={getDisplayName} />
+              </div>
+            </div>
 
-        {/* Cabecera de tabla */}
-        <div className="flex items-center px-4 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <span className="w-10">{t("rank")}</span>
-          <span className="flex-1">{t("user")}</span>
-          <span className="w-16 text-center">{t("streak")}</span>
-          <span className="w-16 text-right">{t("totalPoints")}</span>
-        </div>
+            {/* Cabecera de tabla */}
+            <div className="flex items-center px-4 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="w-10">{t("rank")}</span>
+              <span className="flex-1">{t("user")}</span>
+              <span className="w-16 text-center">{t("streak")}</span>
+              <span className="w-16 text-right">{t("totalPoints")}</span>
+            </div>
 
-        {/* Lista */}
-        <div className="flex flex-col px-4 pb-28 gap-1">
-          {rest.map((entry, i) => (
+            {/* Lista - todos los entries numerados desde 1 */}
+            <div className="flex flex-col px-4 pb-28 gap-1">
+          {allListEntries.map((entry, i) => (
             <motion.div
               key={entry.user_id}
               initial={{ opacity: 0, x: -20 }}
@@ -162,22 +184,27 @@ export function LeaderboardClient({ initialData }: Props) {
                 <div className="mr-2 h-full w-1 rounded-full bg-brand" />
               )}
               <span className="w-10 text-sm font-bold text-muted-foreground">
-                #{entry.global_rank ?? i + 4}
+                #{entry.global_rank ?? i + 1}
               </span>
               <div className="flex flex-1 items-center gap-2.5">
                 <Avatar className="h-8 w-8">
                   <AvatarImage src={entry.profiles?.avatar_url} />
                   <AvatarFallback className="bg-secondary text-xs font-bold">
-                    {entry.profiles?.display_name?.slice(0, 2).toUpperCase() ?? "?"}
+                    {getDisplayName(entry).slice(0, 2).toUpperCase() || "?"}
                   </AvatarFallback>
                 </Avatar>
-                <div>
+                <div className="flex items-center gap-1.5">
                   <p className={cn("text-sm font-semibold", isCurrentUser(entry.user_id) && "text-brand")}>
-                    {isCurrentUser(entry.user_id) ? t("youLabel") : entry.profiles?.display_name ?? "Unknown"}
+                    {isCurrentUser(entry.user_id) ? t("youLabel") : getDisplayName(entry)}
                   </p>
-                  {isCurrentUser(entry.user_id) && (
-                    <p className="text-xs text-brand/70">Top 5%</p>
-                  )}
+                  <span
+                    className="material-symbols-outlined text-sky-500"
+                    style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}
+                    title={t("earlySupporterBadge")}
+                    aria-hidden
+                  >
+                    volunteer_activism
+                  </span>
                 </div>
               </div>
               <div className="flex w-16 items-center justify-center gap-1">
@@ -192,7 +219,9 @@ export function LeaderboardClient({ initialData }: Props) {
               </span>
             </motion.div>
           ))}
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -204,14 +233,18 @@ function PodiumEntry({
   isCurrentUser,
   formatPoints,
   elevated,
+  getDisplayName,
 }: {
   entry: LeaderboardEntry | undefined;
   position: 1 | 2 | 3;
   isCurrentUser: boolean;
   formatPoints: (n: number) => string;
   elevated?: boolean;
+  getDisplayName: (e: LeaderboardEntry) => string;
 }) {
   if (!entry) return <div className="flex-1" />;
+
+  const displayName = getDisplayName(entry);
 
   const borderColors = {
     1: "ring-brand",
@@ -249,15 +282,24 @@ function PodiumEntry({
         >
           <AvatarImage src={entry.profiles?.avatar_url} />
           <AvatarFallback className="bg-secondary font-bold">
-            {entry.profiles?.display_name?.slice(0, 2).toUpperCase() ?? "?"}
+            {displayName.slice(0, 2).toUpperCase() || "?"}
           </AvatarFallback>
         </Avatar>
         <span className="absolute -bottom-1 -right-1 text-base">{medals[position]}</span>
       </div>
       <div className="text-center">
-        <p className="max-w-[80px] truncate text-xs font-semibold">
-          {entry.profiles?.display_name ?? "Unknown"}
-        </p>
+        <div className="flex items-center justify-center gap-1">
+          <p className="max-w-[80px] truncate text-xs font-semibold">
+            {displayName}
+          </p>
+          <span
+            className="material-symbols-outlined text-sky-500 shrink-0"
+            style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}
+            aria-hidden
+          >
+            volunteer_activism
+          </span>
+        </div>
         <p className="text-xs font-bold text-brand">
           {formatPoints(entry.total_points)}
         </p>

@@ -39,7 +39,11 @@
     "howToPlaySteps": "Tienes 6 intentos. En cada intento escucharás más segundos de la canción. Busca el título o artista correcto. Cuanto antes aciertes, más puntos obtienes. Puedes saltar un intento si no lo sabes.",
     "playing": "jugando",
     "currentStreak": "Racha actual",
-    "globalRank": "Ranking global",
+    "streakBonusNextSuffix": "pts en el próximo acierto",
+    "globalRank": "Global",
+    "rankingsLabel": "Rankings",
+    "weeklyRank": "Semanal",
+    "monthlyRank": "Mensual",
     "previousDays": "Días anteriores",
     "viewList": "Lista",
     "viewGrid": "Cuadrícula",
@@ -92,16 +96,22 @@
   },
   "ranking": {
     "title": "Clasificación",
+    "weekly": "Semanal",
+    "monthly": "Mensual",
     "global": "Global",
-    "friends": "Amigos",
     "rank": "Pos.",
     "user": "Usuario",
     "streak": "Racha",
     "totalPoints": "Puntos",
     "youLabel": "Tú",
     "topPercent": "Top {percent}%",
-    "noFriends": "Aún no sigues a nadie",
-    "loadMore": "Cargar más"
+    "searchPlaceholder": "Buscar usuario...",
+    "clearSearch": "Borrar búsqueda",
+    "loading": "Cargando...",
+    "emptyPeriod": "No hay jugadores en este periodo.",
+    "noResultsSearch": "No se encontraron usuarios.",
+    "playerFallback": "Jugador",
+    "earlySupporterBadge": "Primeros en apoyar"
   },
   "profile": {
     "title": "Perfil",
@@ -110,8 +120,11 @@
     "stats": {
       "guessed": "Adivinadas",
       "streak": "Racha",
+      "maxStreak": "Racha máxima",
       "points": "Puntos"
     },
+    "earlySupporterBadge": "Primeros en apoyar",
+    "earlySupporterExplanation": "Tienes este badge por haber sido de los primeros en apoyar ECOS. ¡Gracias por tu apoyo!",
     "achievements": "Logros",
     "settings": {
       "appSettings": "Ajustes de la app",
@@ -128,6 +141,28 @@
       "light": "Claro",
       "dark": "Oscuro",
       "system": "Sistema"
+    },
+    "editProfilePage": {
+      "title": "Editar perfil",
+      "username": "Nombre de usuario",
+      "usernamePlaceholder": "Elige un nombre único",
+      "avatar": "Foto de perfil",
+      "changeAvatar": "Cambiar foto",
+      "language": "Idioma",
+      "save": "Guardar",
+      "saving": "Guardando...",
+      "usernameRequired": "El nombre de usuario es obligatorio",
+      "usernameInvalid": "3-30 caracteres, solo letras, números y guiones bajos",
+      "usernameTaken": "Este nombre ya está en uso"
+    },
+    "completeProfile": {
+      "title": "Completa tu perfil",
+      "subtitle": "Elige un nombre de usuario único para continuar",
+      "username": "Nombre de usuario",
+      "placeholder": "Nombre de usuario",
+      "continue": "Continuar",
+      "usernameTaken": "Este nombre ya está en uso",
+      "usernameInvalid": "3-30 caracteres: letras, números y _"
     }
   },
   "scoring": {

@@ -22,26 +22,28 @@ export default async function ProfilePage() {
     getUserStats(user.id),
     supabase
       .from("ecos_profiles")
-      .select("display_name, avatar_url, role")
+      .select("display_name, avatar_url, role, username")
       .eq("user_id", user.id)
       .single(),
   ]);
 
+  const db = dbProfile as { display_name?: string; avatar_url?: string; role?: string; username?: string } | null;
   const profile = {
     id: user.id,
     display_name:
-      dbProfile?.display_name ??
+      db?.username ??
+      db?.display_name ??
       user.user_metadata?.full_name ??
       user.user_metadata?.name ??
       "Usuario",
     avatar_url:
-      dbProfile?.avatar_url ??
+      db?.avatar_url ??
       user.user_metadata?.avatar_url ??
       user.user_metadata?.picture ??
       "",
     created_at: user.created_at,
     email: user.email ?? "",
-    role: (dbProfile as { display_name?: string; avatar_url?: string; role?: string } | null)?.role ?? null,
+    role: db?.role ?? null,
   };
 
   return (

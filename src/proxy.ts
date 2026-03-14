@@ -65,6 +65,20 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  const isCompleteProfilePath = pathname.includes("/profile/complete");
+  if (user && isProtected && !isCompleteProfilePath) {
+    const { data: profile } = await supabase
+      .from("ecos_profiles")
+      .select("username")
+      .eq("user_id", user.id)
+      .single();
+    if (!profile?.username?.trim()) {
+      const completeUrl = new URL("/profile/complete", request.url);
+      completeUrl.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(completeUrl);
+    }
+  }
+
   return response;
 }
 

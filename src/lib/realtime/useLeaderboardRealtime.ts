@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { queryKeys } from "@/lib/hooks/queries";
 
 /**
  * Suscripción a cambios para actualizar el ranking en tiempo real.
@@ -17,7 +16,7 @@ export function useLeaderboardRealtime() {
   useEffect(() => {
     const supabase = createClient();
     const invalidate = () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard });
+      queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
 
     const channel = supabase
       .channel("leaderboard-changes")

@@ -3,6 +3,7 @@ import { revalidateTag } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { calculateScore } from "@/lib/scoring";
 import { artistsMatch } from "@/lib/artist-match";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 import { z } from "zod";
 
 const GuessSchema = z.object({
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const { data: game, error: gameError } = await supabase
       .from("ecos_games")
-      .select("id, ecos_songs(id, title, artist_name, album_title)")
+      .select("id, date, ecos_songs(id, title, artist_name, album_title)")
       .eq("id", gameId)
       .single();
 
@@ -86,15 +87,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ correct: false });
     }
 
+    const gameDate = (game as { date?: string }).date ?? "";
+    const todayMadrid = getEffectiveGameDate();
+    const isTodaysGame = gameDate === todayMadrid;
+
     const { data: leaderboard } = await supabase
       .from("ecos_leaderboard")
-      .select("streak")
+      .select("streak, last_played")
       .eq("user_id", userId)
       .single();
 
-    const streak = (leaderboard?.streak ?? 0) + 1;
+    let newStreak: number;
+    let updateStreak = isTodaysGame;
+
+    if (isTodaysGame) {
+      if (isCorrect) {
+        const lastPlayed = leaderboard?.last_played as string | null | undefined;
+        const [y, m, d] = todayMadrid.split("-").map(Number);
+        const yesterdayDate = new Date(Date.UTC(y, m - 1, d - 1));
+        const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
+        const lastPlayedContinuation =
+          lastPlayed && (lastPlayed === yesterdayStr || lastPlayed === todayMadrid);
+        newStreak = lastPlayedContinuation
+          ? (leaderboard?.streak ?? 0) + 1
+          : 1;
+      } else {
+        newStreak = 0;
+      }
+    } else {
+      newStreak = leaderboard?.streak ?? 0;
+    }
+
     const scoreResult = isCorrect
-      ? calculateScore(attemptNumber, streak)
+      ? calculateScore(attemptNumber, newStreak)
       : { basePoints: 0, streakBonus: 0, totalPoints: 0 };
 
     await supabase.from("ecos_scores").upsert({
@@ -109,7 +134,8 @@ export async function POST(request: NextRequest) {
       p_user_id: userId,
       p_points: scoreResult.totalPoints,
       p_won: isCorrect,
-      p_streak: isCorrect ? streak : 0,
+      p_streak: newStreak,
+      p_update_streak: updateStreak,
     });
 
     revalidateTag("games", "max");

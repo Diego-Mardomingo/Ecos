@@ -4,13 +4,29 @@ const BASE_SCORES: Record<number, number> = {
   2: 800,
   3: 600,
   4: 400,
-  5: 200,
-  6: 100,
+  5: 250,
+  6: 150,
 };
 
-// Bonus de racha: +50 puntos por cada día consecutivo (máximo +500)
-const STREAK_BONUS_PER_DAY = 50;
-const MAX_STREAK_BONUS = 500;
+/** Bonus por cada día de racha: +20 pts/día (día 1 = 0, día 2+ = 20 cada uno). */
+const STREAK_BONUS_PER_DAY = 20;
+
+/**
+ * Calcula el bonus total de racha.
+ * streakDays = racha actual incluyendo el día que acaba de acertar.
+ */
+export function calculateStreakBonus(streakDays: number): number {
+  if (streakDays <= 1) return 0;
+  return (streakDays - 1) * STREAK_BONUS_PER_DAY;
+}
+
+/**
+ * Total de puntos de racha que se sumarán en el próximo acierto (para mostrar en la UI).
+ * currentStreak = racha actual antes de acertar. Ej: racha 4 → próximo acierto = streak 5 → +80 pts.
+ */
+export function getNextStreakBonusPoints(currentStreak: number): number {
+  return calculateStreakBonus(currentStreak + 1);
+}
 
 export interface ScoreResult {
   basePoints: number;
@@ -20,18 +36,14 @@ export interface ScoreResult {
 
 /**
  * Calcula la puntuación final.
- * Esta lógica debe replicarse en la Edge Function de Supabase para
- * que la validación en servidor sea la fuente de verdad.
+ * streakDays = racha tras acertar (incluye el día actual).
  */
 export function calculateScore(
   attemptNumber: number,
   streakDays: number
 ): ScoreResult {
   const basePoints = BASE_SCORES[attemptNumber] ?? 0;
-  const streakBonus = Math.min(
-    (streakDays - 1) * STREAK_BONUS_PER_DAY,
-    MAX_STREAK_BONUS
-  );
+  const streakBonus = calculateStreakBonus(streakDays);
 
   return {
     basePoints,
@@ -64,4 +76,4 @@ export function generateShareText(
   return `ECOS #${gameNumber} 🎵\n${boxes}\n¿Puedes superarme?`;
 }
 
-export { BASE_SCORES, STREAK_BONUS_PER_DAY, MAX_STREAK_BONUS };
+export { BASE_SCORES };
