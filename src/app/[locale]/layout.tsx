@@ -65,7 +65,7 @@ export default async function LocaleLayout({ children, params }: Props) {
   const messages = await getMessages();
 
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning data-scroll-behavior="smooth">
       <head>
         {/* Iconos para iOS: Safari ignora el manifest y usa solo apple-touch-icon */}
         <link
