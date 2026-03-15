@@ -39,8 +39,6 @@ const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
 const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
 const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
 const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
-const HOME_SCROLL_STORAGE_KEY = "ecos-home-scroll";
-
 /** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
 const PREVIOUS_DAY_COLORS = [
   "hsl(0, 55%, 40%)",   /* rojo */
@@ -68,60 +66,6 @@ export function HomeClient({ initialData }: Props) {
   const router = useRouter();
   const { data, isLoading, refetch } = useHomeData(initialData);
 
-  // Restaurar posición de scroll al volver a la home (nav o atrás); deferir para que se aplique después del scroll-to-top del router
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let cancelled = false;
-    try {
-      const saved = sessionStorage.getItem(HOME_SCROLL_STORAGE_KEY);
-      if (saved) {
-        const top = parseInt(saved, 10);
-        if (!isNaN(top)) {
-          sessionStorage.removeItem(HOME_SCROLL_STORAGE_KEY);
-          const restore = () => {
-            if (cancelled) return;
-            const main = document.querySelector("main");
-            if (main) main.scrollTo({ top, behavior: "auto" });
-          };
-          // Ejecutar después del paint para ir después del scroll a 0 que hace el router al navegar por el nav
-          const rafId = requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              restore();
-            });
-          });
-          return () => {
-            cancelled = true;
-            cancelAnimationFrame(rafId);
-          };
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  // Guardar posición de scroll al hacer scroll en la home (debounced) para restaurarla al volver
-  useEffect(() => {
-    const main = document.querySelector("main");
-    if (!main) return;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const handleScroll = () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        try {
-          sessionStorage.setItem(HOME_SCROLL_STORAGE_KEY, String(main.scrollTop));
-        } catch {
-          /* ignore */
-        }
-        timeoutId = null;
-      }, 150);
-    };
-    main.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      main.removeEventListener("scroll", handleScroll);
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, []);
   const todaysGame = data?.todaysGame ?? null;
   const userStats = data?.userStats ?? null;
   const userId = data?.userId ?? null;
@@ -477,14 +421,7 @@ export function HomeClient({ initialData }: Props) {
         previousDays={previousDays}
         userId={userId}
         inProgressByGameId={inProgressByGameId}
-        onNavigateToGame={() => {
-          try {
-            const main = document.querySelector("main");
-            if (main) sessionStorage.setItem(HOME_SCROLL_STORAGE_KEY, String(main.scrollTop));
-          } catch {
-            /* ignore */
-          }
-        }}
+        onNavigateToGame={undefined}
       />
     </div>
   );
@@ -979,7 +916,7 @@ function PreviousDaysSection({
                       </p>
                       <div className="relative mb-1.5 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
                         {played && displayCover ? (
-                          <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" />
+                          <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" sizes="160px" />
                         ) : (
                           <div
                             className="flex h-full w-full items-center justify-center"
@@ -1016,7 +953,7 @@ function PreviousDaysSection({
                   {/* Miniatura: carátula real si jugado, placeholder con color estable si no */}
                   <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
                     {played && displayCover ? (
-                      <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" />
+                      <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" sizes="56px" />
                     ) : (
                       <div
                         className="flex h-full w-full items-center justify-center"

@@ -133,7 +133,7 @@ export function LeaderboardClient({ initialData }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex flex-col">
         {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <span

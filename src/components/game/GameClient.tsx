@@ -666,7 +666,7 @@ function ResultScreen({
         className="relative h-44 w-44 overflow-hidden rounded-2xl shadow-2xl"
       >
         {song.cover_url ? (
-          <Image src={song.cover_url} alt={song.title} fill className="object-cover" />
+          <Image src={song.cover_url} alt={song.title} fill className="object-cover" sizes="176px" />
         ) : (
           <div className="h-full w-full bg-gradient-to-br from-brand/20 to-card" />
         )}

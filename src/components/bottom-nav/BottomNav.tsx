@@ -49,7 +49,8 @@ export function BottomNav() {
               onClick={(e) => {
                 if (active) {
                   e.preventDefault();
-                  document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+                  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+                  sessionStorage.setItem(`scroll:${pathname}`, "0");
                 }
               }}
             >
