@@ -46,6 +46,12 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               className="flex min-w-0 flex-1 flex-col items-center gap-1"
+              onClick={(e) => {
+                if (active) {
+                  e.preventDefault();
+                  document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center">
                 <motion.span

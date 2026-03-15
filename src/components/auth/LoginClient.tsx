@@ -27,11 +27,13 @@ declare global {
 
 export function LoginClient() {
   const t = useTranslations("auth");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [oneTapReady, setOneTapReady] = useState(false);
   const supabase = useMemo(() => createClient(), []);
 
+  // Requiere que el origen actual (ej. http://localhost:3000) esté en "Authorized JavaScript origins" del OAuth client en Google Cloud Console
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
   const initializeOneTap = useCallback(async () => {
@@ -86,12 +88,22 @@ export function LoginClient() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-6">
+    <div className="relative flex min-h-dvh flex-col items-center justify-center bg-background px-6">
       <Script
         src="https://accounts.google.com/gsi/client"
         strategy="afterInteractive"
         onLoad={() => setOneTapReady(true)}
       />
+      {/* Botón volver */}
+      <button
+        type="button"
+        onClick={() => router.back()}
+        className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        aria-label={tCommon("back")}
+      >
+        <span className="material-symbols-outlined text-xl">arrow_back</span>
+        {tCommon("back")}
+      </button>
       {/* Blobs decorativos */}
       <div className="pointer-events-none absolute left-1/4 top-1/4 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/10 blur-[100px]" />
       <div className="pointer-events-none absolute right-1/4 bottom-1/3 h-48 w-48 translate-x-1/2 rounded-full bg-blue-500/10 blur-[80px]" />

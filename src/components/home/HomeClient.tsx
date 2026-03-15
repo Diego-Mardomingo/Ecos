@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import Image from "next/image";
@@ -13,7 +13,6 @@ import { getMadridDate, getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
 import { getNextStreakBonusPoints } from "@/lib/scoring";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import { useHomeData } from "@/lib/hooks/queries";
-import { useTodaysWinRate } from "@/lib/realtime/useTodaysWinRate";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import {
@@ -37,6 +36,10 @@ import {
 } from "@/components/ui/select";
 
 const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
+const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
+const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
+const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
+const HOME_SCROLL_STORAGE_KEY = "ecos-home-scroll";
 
 /** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
 const PREVIOUS_DAY_COLORS = [
@@ -64,6 +67,61 @@ interface Props {
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
   const { data, isLoading, refetch } = useHomeData(initialData);
+
+  // Restaurar posición de scroll al volver a la home (nav o atrás); deferir para que se aplique después del scroll-to-top del router
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    try {
+      const saved = sessionStorage.getItem(HOME_SCROLL_STORAGE_KEY);
+      if (saved) {
+        const top = parseInt(saved, 10);
+        if (!isNaN(top)) {
+          sessionStorage.removeItem(HOME_SCROLL_STORAGE_KEY);
+          const restore = () => {
+            if (cancelled) return;
+            const main = document.querySelector("main");
+            if (main) main.scrollTo({ top, behavior: "auto" });
+          };
+          // Ejecutar después del paint para ir después del scroll a 0 que hace el router al navegar por el nav
+          const rafId = requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              restore();
+            });
+          });
+          return () => {
+            cancelled = true;
+            cancelAnimationFrame(rafId);
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Guardar posición de scroll al hacer scroll en la home (debounced) para restaurarla al volver
+  useEffect(() => {
+    const main = document.querySelector("main");
+    if (!main) return;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const handleScroll = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        try {
+          sessionStorage.setItem(HOME_SCROLL_STORAGE_KEY, String(main.scrollTop));
+        } catch {
+          /* ignore */
+        }
+        timeoutId = null;
+      }, 150);
+    };
+    main.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      main.removeEventListener("scroll", handleScroll);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
   const todaysGame = data?.todaysGame ?? null;
   const userStats = data?.userStats ?? null;
   const userId = data?.userId ?? null;
@@ -116,7 +174,6 @@ export function HomeClient({ initialData }: Props) {
   const todaysInProgress = todaysProgress?.phase === "playing" && (todaysProgress?.guesses?.length ?? 0) > 0;
   const todaysGuesses = todaysProgress?.guesses ?? [];
   const todaysWon = todaysCompletedResult?.won ?? todaysProgress?.phase === "won";
-  const { winRate, total } = useTodaysWinRate(todaysGame?.id ?? null);
 
   const handleShareHome = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -256,45 +313,31 @@ export function HomeClient({ initialData }: Props) {
             }}
           />
 
-          {/* Esquina superior izquierda: #N sutil + badge */}
+          {/* Esquina superior izquierda: fecha + id */}
           <div className="absolute left-4 top-4 rounded-xl bg-white/5 px-3 py-2.5 backdrop-blur-xl">
-            <div className="flex flex-col gap-1.5">
-              {todaysGame?.game_number != null && (
-                <span
-                  className="text-[10px] font-bold uppercase tracking-widest text-white/60"
-                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-                >
-                  #{todaysGame.game_number}
-                </span>
-              )}
-              <TodaysCardBadge
-                todaysCompleted={todaysCompleted}
-                todaysInProgress={todaysInProgress}
-                todaysWon={todaysWon}
-                t={t}
-              />
-            </div>
-          </div>
-
-          {/* Fecha formato 14 MARZO — esquina superior derecha */}
-          <div className="absolute right-4 top-4 rounded-xl bg-white/5 px-3 py-2.5 text-right backdrop-blur-xl">
             <p
               className="text-[10px] font-bold uppercase tracking-widest text-white/60"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
             >
               {format(new Date(), "d", { locale: dateFnsLocale })}{" "}
               {format(new Date(), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
+              {todaysGame?.game_number != null && (
+                <>
+                  <span className="text-white/40"> · </span>
+                  <span className="tabular-nums">#{todaysGame.game_number}</span>
+                </>
+              )}
             </p>
-            {/* Porcentaje de aciertos en tiempo real */}
-            <div className="mt-1.5 flex items-center justify-end gap-1.5 rounded-full bg-black/30 px-2.5 py-1 text-[10px] font-medium text-white/90 backdrop-blur-md">
-              <span
-                className="material-symbols-outlined text-brand"
-                style={{ fontVariationSettings: "'FILL' 1", fontSize: "clamp(0.7rem, 2.5vw, 1.05rem)" }}
-              >
-                groups
-              </span>
-              {winRate != null ? t("winRateGuessed", { percent: winRate }) : "—"}
-            </div>
+          </div>
+
+          {/* Esquina superior derecha: badge (acertado / fallado / en curso / no jugado) */}
+          <div className="absolute right-4 top-4 px-3 py-2.5">
+            <TodaysCardBadge
+              todaysCompleted={todaysCompleted}
+              todaysInProgress={todaysInProgress}
+              todaysWon={todaysWon}
+              t={t}
+            />
           </div>
 
           {/* Waveform decorativa (oculta cuando completado) */}
@@ -353,8 +396,8 @@ export function HomeClient({ initialData }: Props) {
             <div className="flex items-center justify-between gap-2 sm:gap-3">
               {todaysCompleted ? (
                 <div className="flex w-fit items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md">
-                  <span className="text-brand">{t("score")}:</span>
-                  <span className="text-brand">
+                  <span className={todaysDisplayScore === 0 ? "text-destructive" : "text-brand"}>{t("score")}:</span>
+                  <span className={todaysDisplayScore === 0 ? "text-destructive" : "text-brand"}>
                     {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
                     {tc("points")}
                   </span>
@@ -434,6 +477,14 @@ export function HomeClient({ initialData }: Props) {
         previousDays={previousDays}
         userId={userId}
         inProgressByGameId={inProgressByGameId}
+        onNavigateToGame={() => {
+          try {
+            const main = document.querySelector("main");
+            if (main) sessionStorage.setItem(HOME_SCROLL_STORAGE_KEY, String(main.scrollTop));
+          } catch {
+            /* ignore */
+          }
+        }}
       />
     </div>
   );
@@ -721,10 +772,12 @@ function PreviousDaysSection({
   previousDays,
   userId,
   inProgressByGameId = {},
+  onNavigateToGame,
 }: {
   previousDays: PreviousDayGame[];
   userId: string | null;
   inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
+  onNavigateToGame?: () => void;
 }) {
   const t = useTranslations("home");
   const tc = useTranslations("common");
@@ -737,24 +790,73 @@ function PreviousDaysSection({
   const [filterYear, setFilterYear] = useState<number | null>(null);
   const [filterMonth, setFilterMonth] = useState<number | null>(null);
 
+  const [nowY, nowM] = getMadridDate().split("-").map(Number);
+  const currentMonthKey = `${nowY}-${String(nowM).padStart(2, "0")}`;
+
+  // Estado inicial igual en servidor y cliente para evitar hydration mismatch; sessionStorage se aplica en useEffect
+  const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([currentMonthKey]));
+  const hasRestoredRef = useRef(false);
+
+  // Restaurar todo desde sessionStorage al montar (solo cliente); marcar restaurado para no pisar en los efectos de persist
   useEffect(() => {
-    if (typeof window === "undefined") return;
     try {
-      const s = localStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
-      if (s) {
-        const p = JSON.parse(s) as { filterYear?: number | null; filterMonth?: number | null };
+      const sOpen = sessionStorage.getItem(HOME_MONTHS_OPEN_STORAGE_KEY);
+      if (sOpen) {
+        const arr = JSON.parse(sOpen) as string[];
+        if (Array.isArray(arr) && arr.length > 0) setOpenMonths(new Set(arr));
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const sFilter = sessionStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
+      if (sFilter) {
+        const p = JSON.parse(sFilter) as { filterYear?: number | null; filterMonth?: number | null };
         if (typeof p.filterYear === "number") setFilterYear(p.filterYear);
         if (typeof p.filterMonth === "number") setFilterMonth(p.filterMonth);
       }
     } catch {
       /* ignore */
     }
+    try {
+      const sView = sessionStorage.getItem(HOME_VIEW_MODE_STORAGE_KEY);
+      if (sView === "list" || sView === "grid") setViewMode(sView);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const sSort = sessionStorage.getItem(HOME_SORT_ORDER_STORAGE_KEY);
+      if (sSort === "asc" || sSort === "desc") setSortOrder(sSort);
+    } catch {
+      /* ignore */
+    }
+    // Marcar como restaurado en el siguiente tick para que los efectos de persist no escriban con estado inicial
+    const id = setTimeout(() => {
+      hasRestoredRef.current = true;
+    }, 0);
+    return () => clearTimeout(id);
   }, []);
 
+  // openMonths: persistir solo cuando el usuario abre/cierra un mes (no al montar, así no pisamos lo restaurado)
+  const handleOpenMonthsChange = useCallback((key: string, open: boolean) => {
+    setOpenMonths((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(key);
+      else next.delete(key);
+      try {
+        sessionStorage.setItem(HOME_MONTHS_OPEN_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  // Filtro año/mes, viewMode y sortOrder: solo persistir después de haber restaurado para no pisar storage al montar
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!hasRestoredRef.current) return;
     try {
-      localStorage.setItem(
+      sessionStorage.setItem(
         PREVIOUS_DAYS_FILTER_STORAGE_KEY,
         JSON.stringify({ filterYear, filterMonth })
       );
@@ -762,6 +864,25 @@ function PreviousDaysSection({
       /* ignore */
     }
   }, [filterYear, filterMonth]);
+
+  // viewMode y sortOrder
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    try {
+      sessionStorage.setItem(HOME_VIEW_MODE_STORAGE_KEY, viewMode);
+    } catch {
+      /* ignore */
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    try {
+      sessionStorage.setItem(HOME_SORT_ORDER_STORAGE_KEY, sortOrder);
+    } catch {
+      /* ignore */
+    }
+  }, [sortOrder]);
 
   const monthNamesFull =
     locale === "es"
@@ -779,7 +900,9 @@ function PreviousDaysSection({
     for (const arr of map.values()) {
       arr.sort((a, b) => (sortOrder === "asc" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
     }
-    return [...map.entries()].sort(([ka], [kb]) => kb.localeCompare(ka));
+    return [...map.entries()].sort(([ka], [kb]) =>
+      sortOrder === "asc" ? ka.localeCompare(kb) : kb.localeCompare(ka)
+    );
   }, [previousDays, sortOrder]);
 
   const availableMonthYearPairs = useMemo(() => {
@@ -798,9 +921,6 @@ function PreviousDaysSection({
       return true;
     });
   }, [groupsByMonth, filterYear, filterMonth]);
-
-  const [nowY, nowM] = getMadridDate().split("-").map(Number);
-  const currentMonthKey = `${nowY}-${String(nowM).padStart(2, "0")}`;
 
   const availableYears = useMemo(
     () => [...new Set(availableMonthYearPairs.map((p) => p.year))].sort((a, b) => b - a),
@@ -837,7 +957,11 @@ function PreviousDaysSection({
             const maxAttempts = 6;
 
             return (
-              <Link key={day.id} href={`/play/${day.id}`}>
+              <Link
+                key={day.id}
+                href={`/play/${day.id}`}
+                onClick={onNavigateToGame}
+              >
                 <motion.div
                   whileTap={{ scale: 0.99 }}
                   className={cn(
@@ -848,9 +972,12 @@ function PreviousDaysSection({
                   )}
                 >
                   {viewMode === "grid" ? (
-                    /* Grid: misma estructura que lista pero vertical — thumbnail arriba, info abajo, mismos estilos */
-                    <div className="flex h-full flex-col rounded-2xl p-3">
-                      <div className="relative mb-2 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
+                    /* Grid: fecha encima de la portada (centrada), portada, id debajo */
+                    <div className="flex h-full flex-col rounded-2xl px-3 py-1.5">
+                      <p className="mb-1.5 text-center text-[10px] text-muted-foreground">
+                        {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
+                      </p>
+                      <div className="relative mb-1.5 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
                         {played && displayCover ? (
                           <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" />
                         ) : (
@@ -880,13 +1007,9 @@ function PreviousDaysSection({
                           </div>
                         )}
                       </div>
-                      <div className="flex min-w-0 flex-1 flex-col">
-                        <p className="text-xs text-muted-foreground">
-                          {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
-                          <span className="text-muted-foreground/60"> | </span>
-                          <span className="tabular-nums text-muted-foreground/70">#{day.game_number}</span>
-                        </p>
-                      </div>
+                      <p className="text-center text-[10px] tabular-nums text-muted-foreground/70">
+                        #{day.game_number}
+                      </p>
                     </div>
                   ) : (
                     <>
@@ -933,7 +1056,7 @@ function PreviousDaysSection({
                       {completed ? displayTitle || "—" : t("guessTheSong")}
                     </p>
                     {completed && displayScore !== null ? (
-                      <p className="text-xs font-medium text-brand">
+                      <p className={cn("text-xs font-medium", displayScore === 0 ? "text-destructive" : "text-brand")}>
                         {t("score")}: {displayScore.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
                       </p>
                     ) : inProgress ? (
@@ -1096,14 +1219,30 @@ function PreviousDaysSection({
         <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
           {t("noGamesInPeriod")}
         </p>
+      ) : filteredGroupsByMonth.length === 1 ? (
+        <div
+          className={cn(
+            "gap-2",
+            viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
+          )}
+        >
+          {filteredGroupsByMonth[0][1].map((day) => (
+            <div key={day.id}>{renderDayCard(day)}</div>
+          ))}
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           {filteredGroupsByMonth.map(([key, days]) => {
             const [y, m] = key.split("-").map(Number);
             const monthLabel = `${monthNamesFull[m - 1]} ${y}`;
-            const isCurrentMonth = key === currentMonthKey;
+            const isOpen = openMonths.has(key);
             return (
-              <Collapsible key={key} defaultOpen={isCurrentMonth} className="group">
+              <Collapsible
+                key={key}
+                open={isOpen}
+                onOpenChange={(open) => handleOpenMonthsChange(key, open)}
+                className="group"
+              >
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"

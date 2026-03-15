@@ -67,6 +67,17 @@ export default async function LocaleLayout({ children, params }: Props) {
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
+        {/* Iconos para iOS: Safari ignora el manifest y usa solo apple-touch-icon */}
+        <link
+          rel="apple-touch-icon"
+          href="/web-app-manifest-192x192.png"
+          sizes="192x192"
+        />
+        <link
+          rel="apple-touch-icon"
+          href="/web-app-manifest-512x512.png"
+          sizes="512x512"
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
