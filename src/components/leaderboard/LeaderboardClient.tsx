@@ -9,6 +9,8 @@ import { useLeaderboard } from "@/lib/hooks/queries";
 import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
 import { cn } from "@/lib/utils";
 
+const SWIPE_THRESHOLD = 50;
+
 interface LeaderboardEntry {
   user_id: string;
   total_points: number;
@@ -46,6 +48,23 @@ export function LeaderboardClient({ initialData }: Props) {
   }
   const currentUserId = data?.currentUserId ?? lastUserIdRef.current;
 
+  const touchStartX = useRef<number>(0);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  }, []);
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const delta = e.changedTouches[0].clientX - touchStartX.current;
+      const idx = PERIOD_ORDER.indexOf(activeTab);
+      if (delta > SWIPE_THRESHOLD && idx > 0) {
+        setActiveTab(PERIOD_ORDER[idx - 1]);
+      } else if (delta < -SWIPE_THRESHOLD && idx < PERIOD_ORDER.length - 1) {
+        setActiveTab(PERIOD_ORDER[idx + 1]);
+      }
+    },
+    [activeTab]
+  );
+
   const formatPoints = useCallback(
     (n: number) => n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
     [locale]
@@ -81,6 +100,12 @@ export function LeaderboardClient({ initialData }: Props) {
         <div className="flex h-9 w-9" aria-hidden />
       </header>
 
+      <div
+        className="flex min-h-0 flex-1 flex-col touch-pan-y"
+        style={{ touchAction: "pan-y" }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
       {/* Banner de invitado */}
       {!currentUserId && (
         <div className="mx-4 mt-1 flex items-center gap-3 rounded-2xl bg-brand/10 px-4 py-3">
@@ -91,16 +116,16 @@ export function LeaderboardClient({ initialData }: Props) {
             emoji_events
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">¿Quieres competir?</p>
+            <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
             <p className="text-xs text-muted-foreground">
-              Inicia sesión para aparecer en el ranking global.
+              {t("guestBannerDescription")}
             </p>
           </div>
           <Link
             href="/login?redirect=/ranking"
             className="flex-shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-[#0a2015]"
           >
-            Entrar
+            {t("guestBannerCta")}
           </Link>
         </div>
       )}
@@ -133,7 +158,7 @@ export function LeaderboardClient({ initialData }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-col">
+      <div className="flex flex-1 flex-col">
         {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <span
@@ -151,9 +176,9 @@ export function LeaderboardClient({ initialData }: Props) {
             {/* Podio Top 3 */}
             <div className="px-4 py-6">
               <div className="flex items-end justify-center gap-4">
-                <PodiumEntry entry={top3[1]} position={2} isCurrentUser={isCurrentUser(top3[1]?.user_id ?? "")} formatPoints={formatPoints} getDisplayName={getDisplayName} />
-                <PodiumEntry entry={top3[0]} position={1} isCurrentUser={isCurrentUser(top3[0]?.user_id ?? "")} formatPoints={formatPoints} elevated getDisplayName={getDisplayName} />
-                <PodiumEntry entry={top3[2]} position={3} isCurrentUser={isCurrentUser(top3[2]?.user_id ?? "")} formatPoints={formatPoints} getDisplayName={getDisplayName} />
+                <PodiumEntry entry={top3[1]} position={2} isCurrentUser={isCurrentUser(top3[1]?.user_id ?? "")} formatPoints={formatPoints} getDisplayName={getDisplayName} earlySupporterLabel={t("earlySupporterBadge")} />
+                <PodiumEntry entry={top3[0]} position={1} isCurrentUser={isCurrentUser(top3[0]?.user_id ?? "")} formatPoints={formatPoints} elevated getDisplayName={getDisplayName} earlySupporterLabel={t("earlySupporterBadge")} />
+                <PodiumEntry entry={top3[2]} position={3} isCurrentUser={isCurrentUser(top3[2]?.user_id ?? "")} formatPoints={formatPoints} getDisplayName={getDisplayName} earlySupporterLabel={t("earlySupporterBadge")} />
               </div>
             </div>
 
@@ -198,12 +223,16 @@ export function LeaderboardClient({ initialData }: Props) {
                     {isCurrentUser(entry.user_id) ? t("youLabel") : getDisplayName(entry)}
                   </p>
                   <span
-                    className="material-symbols-outlined text-sky-500"
-                    style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-500/25 p-1 text-sky-500"
                     title={t("earlySupporterBadge")}
                     aria-hidden
                   >
-                    volunteer_activism
+                    <span
+                      className="material-symbols-outlined"
+                      style={{ fontVariationSettings: "'FILL' 1", fontSize: "12px" }}
+                    >
+                      volunteer_activism
+                    </span>
                   </span>
                 </div>
               </div>
@@ -223,6 +252,9 @@ export function LeaderboardClient({ initialData }: Props) {
           </>
         )}
       </div>
+        {/* Espaciador para que el área entre la lista y el nav sea touchable y responda al swipe */}
+        <div className="min-h-24 flex-shrink-0" aria-hidden />
+      </div>
     </div>
   );
 }
@@ -234,6 +266,7 @@ function PodiumEntry({
   formatPoints,
   elevated,
   getDisplayName,
+  earlySupporterLabel,
 }: {
   entry: LeaderboardEntry | undefined;
   position: 1 | 2 | 3;
@@ -241,6 +274,7 @@ function PodiumEntry({
   formatPoints: (n: number) => string;
   elevated?: boolean;
   getDisplayName: (e: LeaderboardEntry) => string;
+  earlySupporterLabel: string;
 }) {
   if (!entry) return <div className="flex-1" />;
 
@@ -293,11 +327,16 @@ function PodiumEntry({
             {displayName}
           </p>
           <span
-            className="material-symbols-outlined text-sky-500 shrink-0"
-            style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-500/25 p-0.5 text-sky-500"
+            title={earlySupporterLabel}
             aria-hidden
           >
-            volunteer_activism
+            <span
+              className="material-symbols-outlined"
+              style={{ fontVariationSettings: "'FILL' 1", fontSize: "10px" }}
+            >
+              volunteer_activism
+            </span>
           </span>
         </div>
         <p className="text-xs font-bold text-brand">

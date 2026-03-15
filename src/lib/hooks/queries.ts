@@ -20,7 +20,7 @@ export const queryKeys = {
   search: (q: string) => ["search", q] as const,
 };
 
-interface HomeData {
+export interface HomeData {
   todaysGame: GameWithSong | null;
   previousDays: PreviousDayGame[];
   userStats: UserStats | null;

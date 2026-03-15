@@ -39,6 +39,15 @@ export function getEffectiveGameDate(now: Date = new Date()): string {
 }
 
 /**
+ * Fecha del día siguiente en Madrid (formato YYYY-MM-DD).
+ * Útil para prefetch del home cuando faltan segundos para medianoche.
+ */
+export function getTomorrowMadridDate(now: Date = new Date()): string {
+  const atNextMidnight = new Date(now.getTime() + getMsUntilNextMidnightMadrid(now));
+  return getMadridDate(atNextMidnight);
+}
+
+/**
  * Milisegundos hasta la próxima medianoche (00:00) en Madrid.
  */
 export function getMsUntilNextMidnightMadrid(now: Date = new Date()): number {

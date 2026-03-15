@@ -7,17 +7,40 @@ import {
   getTodaysCompletedResult,
 } from "@/lib/queries/games";
 import { getUserStats, getLeaderboardByPeriod } from "@/lib/queries/users";
+import {
+  getEffectiveGameDate,
+  getTomorrowMadridDate,
+  getMsUntilNextMidnightMadrid,
+} from "@/lib/date-utils";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const effectiveDateParam = searchParams.get("effectiveDate");
+
+    let effectiveDate: string | undefined;
+    if (effectiveDateParam) {
+      const today = getEffectiveGameDate();
+      const tomorrow = getTomorrowMadridDate();
+      const msUntilMidnight = getMsUntilNextMidnightMadrid();
+      const isTomorrowAllowed = msUntilMidnight < 60_000; // solo últimos 60s antes de medianoche Madrid
+      if (
+        effectiveDateParam === today ||
+        (effectiveDateParam === tomorrow && isTomorrowAllowed)
+      ) {
+        effectiveDate = effectiveDateParam;
+      }
+      // si no es hoy ni mañana permitido, ignoramos effectiveDate y usamos "hoy" real
+    }
+
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     const [todaysGame, previousDays, userStats] = await Promise.all([
-      getTodaysGame(),
-      getPreviousDays(user?.id ?? null),
+      getTodaysGame(effectiveDate),
+      getPreviousDays(user?.id ?? null, undefined, effectiveDate),
       user ? getUserStats(user.id) : null,
     ]);
 

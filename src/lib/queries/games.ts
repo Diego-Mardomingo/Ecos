@@ -31,8 +31,11 @@ export interface PreviousDayGame {
   artist_name: string;
 }
 
-async function getTodaysGameWithClient(supabase: SupabaseClient) {
-  const effectiveDate = getEffectiveGameDate();
+async function getTodaysGameWithClient(
+  supabase: SupabaseClient,
+  effectiveDateOverride?: string
+) {
+  const effectiveDate = effectiveDateOverride ?? getEffectiveGameDate();
 
   const { data, error } = await supabase
     .from("ecos_games")
@@ -52,9 +55,11 @@ async function getTodaysGameWithClient(supabase: SupabaseClient) {
   return data as unknown as GameWithSong;
 }
 
-export async function getTodaysGame(): Promise<GameWithSong | null> {
+export async function getTodaysGame(
+  effectiveDate?: string
+): Promise<GameWithSong | null> {
   const supabase = await createClient();
-  return getTodaysGameWithClient(supabase);
+  return getTodaysGameWithClient(supabase, effectiveDate);
 }
 
 export async function getGameById(gameId: string): Promise<GameWithSong | null> {
@@ -80,9 +85,10 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
 async function getPreviousDaysWithClient(
   supabase: SupabaseClient,
   userId: string | null,
-  limit?: number
+  limit?: number,
+  effectiveDateOverride?: string
 ): Promise<PreviousDayGame[]> {
-  const effectiveDate = getEffectiveGameDate();
+  const effectiveDate = effectiveDateOverride ?? getEffectiveGameDate();
 
   const baseQuery = supabase
     .from("ecos_games")
@@ -147,10 +153,11 @@ async function getPreviousDaysWithClient(
 
 export async function getPreviousDays(
   userId: string | null,
-  limit?: number
+  limit?: number,
+  effectiveDate?: string
 ): Promise<PreviousDayGame[]> {
   const supabase = await createClient();
-  return getPreviousDaysWithClient(supabase, userId, limit);
+  return getPreviousDaysWithClient(supabase, userId, limit, effectiveDate);
 }
 
 export interface TodaysCompletedResult {

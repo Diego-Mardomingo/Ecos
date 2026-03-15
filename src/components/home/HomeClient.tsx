@@ -9,10 +9,15 @@ import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
-import { getMadridDate, getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
+import {
+  getMadridDate,
+  getMsUntilNextMidnightMadrid,
+  getTomorrowMadridDate,
+} from "@/lib/date-utils";
 import { getNextStreakBonusPoints } from "@/lib/scoring";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
-import { useHomeData } from "@/lib/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { useHomeData, queryKeys, type HomeData } from "@/lib/hooks/queries";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import {
@@ -64,7 +69,30 @@ interface Props {
 
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data, isLoading, refetch } = useHomeData(initialData);
+  const prefetchedNextRef = useRef<HomeData | null>(null);
+  const hasPrefetchedRef = useRef(false);
+
+  const handleCountdownUnder10s = useCallback(() => {
+    if (hasPrefetchedRef.current) return;
+    hasPrefetchedRef.current = true;
+    const effectiveDate = getTomorrowMadridDate();
+    fetch(`/api/home?effectiveDate=${encodeURIComponent(effectiveDate)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: HomeData | null) => {
+        if (payload) prefetchedNextRef.current = payload;
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleCountdownZero = useCallback(() => {
+    if (prefetchedNextRef.current) {
+      queryClient.setQueryData(queryKeys.home, prefetchedNextRef.current);
+      prefetchedNextRef.current = null;
+    }
+    refetch();
+  }, [queryClient, refetch]);
 
   const todaysGame = data?.todaysGame ?? null;
   const userStats = data?.userStats ?? null;
@@ -202,7 +230,11 @@ export function HomeClient({ initialData }: Props) {
       {/* Today's Challenge Hero */}
       <section>
         <div className="mb-3 flex justify-center">
-          <Countdown t={t} onCountdownZero={() => refetch()} />
+          <Countdown
+            t={t}
+            onCountdownUnder10s={handleCountdownUnder10s}
+            onCountdownZero={handleCountdownZero}
+          />
         </div>
 
         <motion.div
@@ -406,9 +438,9 @@ export function HomeClient({ initialData }: Props) {
               </span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">Únete al ranking global</p>
+              <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
               <p className="text-xs text-muted-foreground">
-                Inicia sesión para guardar tu racha y competir
+                {t("guestBannerDescription")}
               </p>
             </div>
             <span className="material-symbols-outlined text-brand">chevron_right</span>
@@ -499,18 +531,22 @@ function formatCountdown(ms: number): string {
 }
 
 const MS_PER_HOUR = 3600 * 1000;
+const PREFETCH_UNDER_MS = 10_000;
 
 function Countdown({
   t,
+  onCountdownUnder10s,
   onCountdownZero,
 }: {
   t: (key: string) => string;
+  onCountdownUnder10s?: () => void;
   onCountdownZero?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [ms, setMs] = useState(0);
   const prevMsRef = useRef<number | null>(null);
   const hasTriggeredRef = useRef(false);
+  const hasTriggeredUnder10Ref = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -523,6 +559,18 @@ function Countdown({
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (
+      onCountdownUnder10s &&
+      ms < PREFETCH_UNDER_MS &&
+      !hasTriggeredUnder10Ref.current
+    ) {
+      hasTriggeredUnder10Ref.current = true;
+      onCountdownUnder10s();
+    }
+  }, [mounted, ms, onCountdownUnder10s]);
 
   useEffect(() => {
     if (!mounted || !onCountdownZero || hasTriggeredRef.current) return;

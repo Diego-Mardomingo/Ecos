@@ -383,10 +383,10 @@ export function GameClient({ game, userId }: Props) {
             info
           </span>
           <p className="flex-1 text-xs text-brand/90">
-            Juegas como invitado — tu puntuación no se guarda en el ranking.
+            {t("guestNotice")}
           </p>
           <Link href="/login" className="text-xs font-bold text-brand underline underline-offset-2">
-            Entrar
+            {tc("enter")}
           </Link>
         </div>
       )}
@@ -589,13 +589,20 @@ function PreviousAttempts({
   );
 }
 
-const REPORT_REASONS = [
-  { id: "bad_audio" as const, label: "El audio no funciona o está cortado" },
-  { id: "wrong_video" as const, label: "El vídeo no corresponde a la canción" },
-  { id: "intro_problem" as const, label: "Los primeros segundos no son la canción" },
-  { id: "explicit_content" as const, label: "Contenido inapropiado" },
-  { id: "other" as const, label: "Otro problema" },
+const REPORT_REASON_IDS = [
+  "bad_audio",
+  "wrong_video",
+  "intro_problem",
+  "explicit_content",
+  "other",
 ] as const;
+const REPORT_REASON_KEYS: Record<(typeof REPORT_REASON_IDS)[number], string> = {
+  bad_audio: "report.reasonBadAudio",
+  wrong_video: "report.reasonWrongVideo",
+  intro_problem: "report.reasonIntroProblem",
+  explicit_content: "report.reasonExplicit",
+  other: "report.reasonOther",
+};
 
 function ResultScreen({
   phase,
@@ -743,11 +750,11 @@ function ResultScreen({
               leaderboard
             </span>
             <p className="text-sm font-bold">
-              {won ? "¡Buen resultado! Guárdalo en el ranking" : "¿A ver si mañana lo consigues?"}
+              {won ? t("guestResultTitleWon") : t("guestResultTitleLost")}
             </p>
           </div>
           <p className="mb-3 text-xs text-muted-foreground">
-            Inicia sesión para que tu puntuación cuente en el ranking global y puedas competir con otros jugadores.
+            {t("guestResultDescription")}
           </p>
           <Link
             href={`/login?redirect=/play`}
@@ -757,7 +764,7 @@ function ResultScreen({
               style={{ fontVariationSettings: "'FILL' 1" }}>
               login
             </span>
-            Iniciar sesión con Google
+            {t("signInWithGoogle")}
           </Link>
         </motion.div>
       )}
@@ -779,37 +786,37 @@ function ResultScreen({
               <DialogTrigger asChild>
                 <button className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium">
                   <span className="material-symbols-outlined text-lg">report</span>
-                  Reportar problema
+                  {t("report.reportProblem")}
                 </button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Reportar problema con la canción</DialogTitle>
+                  <DialogTitle>{t("report.dialogTitle")}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   {reportSent ? (
                     <p className="text-sm text-muted-foreground">
-                      Gracias por tu reporte.
+                      {t("report.thankYou")}
                     </p>
                   ) : (
                     <>
                       <div>
-                        <p className="mb-2 text-sm font-medium">Motivo</p>
+                        <p className="mb-2 text-sm font-medium">{t("report.reasonLabel")}</p>
                         <div className="space-y-2">
-                          {REPORT_REASONS.map((r) => (
+                          {REPORT_REASON_IDS.map((id) => (
                             <label
-                              key={r.id}
+                              key={id}
                               className="flex cursor-pointer items-center gap-2"
                             >
                               <input
                                 type="radio"
                                 name="reason"
-                                value={r.id}
-                                checked={reportReason === r.id}
-                                onChange={() => setReportReason(r.id)}
+                                value={id}
+                                checked={reportReason === id}
+                                onChange={() => setReportReason(id)}
                                 className="h-4 w-4"
                               />
-                              <span className="text-sm">{r.label}</span>
+                              <span className="text-sm">{t(REPORT_REASON_KEYS[id])}</span>
                             </label>
                           ))}
                         </div>
@@ -817,12 +824,12 @@ function ResultScreen({
                       {reportReason === "other" && (
                         <div>
                           <label className="mb-1 block text-sm font-medium">
-                            Descripción
+                            {t("report.descriptionLabel")}
                           </label>
                           <textarea
                             value={reportDesc}
                             onChange={(e) => setReportDesc(e.target.value)}
-                            placeholder="Describe el problema..."
+                            placeholder={t("report.descriptionPlaceholder")}
                             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                             rows={3}
                           />
@@ -833,7 +840,7 @@ function ResultScreen({
                         disabled={!reportReason || reportSending}
                         className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-[#0a2015] disabled:opacity-50"
                       >
-                        {reportSending ? "Enviando..." : "Enviar reporte"}
+                        {reportSending ? t("report.sending") : t("report.submit")}
                       </button>
                     </>
                   )}
@@ -845,7 +852,7 @@ function ResultScreen({
               className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
             >
               <span className="material-symbols-outlined text-lg">leaderboard</span>
-              Ver ranking
+              {t("viewRanking")}
             </Link>
           </>
         )}

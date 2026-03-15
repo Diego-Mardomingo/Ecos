@@ -32,13 +32,6 @@ interface Props {
   };
 }
 
-const ACHIEVEMENTS = [
-  { id: "perfect_week", title: "Perfect Week", icon: "star", gradient: "from-slate-700 to-slate-900", earned: true },
-  { id: "genre_master", title: "Genre Master", icon: "music_note", gradient: "from-indigo-600 to-indigo-900", earned: true },
-  { id: "streak_30", title: "30 Day Streak", icon: "local_fire_department", gradient: "from-orange-500 to-red-700", earned: false },
-  { id: "top_10", title: "Top 10 Global", icon: "emoji_events", gradient: "from-brand/80 to-green-900", earned: false },
-];
-
 export function ProfileClient({ initialData }: Props) {
   const { data, isLoading } = useProfile(initialData);
   const profile = data?.profile ?? {
@@ -142,37 +135,6 @@ export function ProfileClient({ initialData }: Props) {
           value={stats?.total_points ?? 0}
           label={t("stats.points")}
         />
-      </section>
-
-      {/* Logros */}
-      <section>
-        <h3 className="mb-3 font-semibold">{t("achievements")}</h3>
-        <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
-          {ACHIEVEMENTS.map((a) => (
-            <div
-              key={a.id}
-              className={cn(
-                "relative min-w-[160px] overflow-hidden rounded-2xl bg-gradient-to-br p-4",
-                a.gradient,
-                !a.earned && "opacity-50 grayscale"
-              )}
-            >
-              <span
-                className="material-symbols-outlined absolute -right-2 -top-2 text-6xl opacity-10 text-white"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                {a.icon}
-              </span>
-              <span
-                className="material-symbols-outlined text-2xl text-white"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                {a.icon}
-              </span>
-              <p className="mt-2 text-sm font-bold text-white">{a.title}</p>
-            </div>
-          ))}
-        </div>
       </section>
 
       {/* Ajustes */}
