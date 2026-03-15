@@ -365,7 +365,7 @@ export function HomeClient({ initialData }: Props) {
               <button
                 type="button"
                 onClick={handleShareHome}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-white/80 shadow-md transition-all hover:bg-[#383838] hover:text-white hover:shadow-lg active:scale-95"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-sky-400 shadow-md transition-all hover:bg-[#383838] hover:text-sky-300 hover:shadow-lg active:scale-95"
               >
                 <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0" }}>share</span>
               </button>
