@@ -35,6 +35,11 @@ ROTATION_DAYS = 14
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
 
 
+def format_date_ddmmyyyy(iso_date: str) -> str:
+    """Convierte fecha ISO (YYYY-MM-DD) a DD/MM/YYYY para logs."""
+    return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+
+
 def setup_logging() -> logging.Logger:
     log = logging.getLogger("daily-game")
     log.setLevel(logging.INFO)
@@ -106,7 +111,7 @@ def main() -> None:
                 "status": "success",
                 "summary": "Juego ya existía para mañana",
                 "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-                "details": {"target_date": target_date, "skipped": True},
+                "details": {"target_date": format_date_ddmmyyyy(target_date), "skipped": True},
             }).execute()
         except Exception:
             pass
@@ -214,14 +219,16 @@ def main() -> None:
         supabase.table("ecos_system_logs").insert({
             "job_type": "daily_game",
             "status": "success",
-            "summary": f"1 juego creado para {target_date}",
+            "summary": f"1 juego creado para {format_date_ddmmyyyy(target_date)}",
             "duration_ms": duration_ms,
             "details": {
-                "target_date": target_date,
+                "target_date": format_date_ddmmyyyy(target_date),
                 "game_number": next_game_number,
                 "song_id": str(song["id"]),
                 "title": song.get("title"),
                 "artist": song.get("artist_name"),
+                "playlist": song.get("spotify_playlist_name") or None,
+                "playlist_id": song.get("spotify_playlist_id") or None,
             },
         }).execute()
     except Exception as log_err:

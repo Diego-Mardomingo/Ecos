@@ -39,6 +39,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
 const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
@@ -107,6 +109,44 @@ export function HomeClient({ initialData }: Props) {
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const { byGameId, saveProgress } = useGameProgressStore();
+
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportType, setReportType] = useState<"bug" | "error" | "suggestion">("bug");
+  const [reportMessage, setReportMessage] = useState("");
+  const [reportEmail, setReportEmail] = useState("");
+  const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+
+  const handleReportSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const message = reportMessage.trim();
+      if (!message) return;
+      setReportStatus("sending");
+      try {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: reportType,
+            message,
+            email: reportEmail.trim() || undefined,
+          }),
+        });
+        if (!res.ok) throw new Error("Failed");
+        setReportStatus("success");
+        setReportMessage("");
+        setReportEmail("");
+      } catch {
+        setReportStatus("error");
+      }
+    },
+    [reportType, reportMessage, reportEmail]
+  );
+
+  const handleReportOpenChange = useCallback((open: boolean) => {
+    setReportOpen(open);
+    if (!open) setReportStatus("idle");
+  }, []);
 
   // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
   useEffect(() => {
@@ -210,21 +250,86 @@ export function HomeClient({ initialData }: Props) {
             music_note
           </span>
         </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors hover:bg-muted/80">
-              <span className="material-symbols-outlined text-xl">info</span>
-            </button>
-          </DialogTrigger>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>{t("aboutTitle")}</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">{t("aboutDescription")}</p>
-            <h4 className="mt-4 font-semibold">{t("howToPlayTitle")}</h4>
-            <p className="text-sm text-muted-foreground">{t("howToPlaySteps")}</p>
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <Dialog>
+            <DialogTrigger asChild>
+              <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors hover:bg-muted/80" aria-label={t("aboutTitle")}>
+                <span className="material-symbols-outlined text-xl">info</span>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{t("aboutTitle")}</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">{t("aboutDescription")}</p>
+              <h4 className="mt-4 font-semibold">{t("howToPlayTitle")}</h4>
+              <p className="text-sm text-muted-foreground">{t("howToPlaySteps")}</p>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
+            <DialogTrigger asChild>
+              <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors hover:bg-muted/80" aria-label={t("reportTitle")}>
+                <span className="material-symbols-outlined text-xl">bug_report</span>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{t("reportTitle")}</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground leading-relaxed">{t("reportDescription")}</p>
+              {reportStatus === "success" ? (
+                <p className="text-sm font-medium text-brand">{t("reportSuccess")}</p>
+              ) : (
+                <form onSubmit={handleReportSubmit} className="mt-4 space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium">{t("reportType")}</label>
+                    <Select value={reportType} onValueChange={(v) => setReportType(v as "bug" | "error" | "suggestion")}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bug">{t("reportTypeBug")}</SelectItem>
+                        <SelectItem value="error">{t("reportTypeError")}</SelectItem>
+                        <SelectItem value="suggestion">{t("reportTypeSuggestion")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium">{t("reportMessage")}</label>
+                    <textarea
+                      value={reportMessage}
+                      onChange={(e) => setReportMessage(e.target.value)}
+                      placeholder={t("reportMessagePlaceholder")}
+                      required
+                      rows={3}
+                      maxLength={2000}
+                      className={cn(
+                        "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 placeholder:text-muted-foreground disabled:opacity-50",
+                        "min-h-[72px] resize-y"
+                      )}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-muted-foreground">{t("reportEmail")}</label>
+                    <Input
+                      type="email"
+                      value={reportEmail}
+                      onChange={(e) => setReportEmail(e.target.value)}
+                      placeholder={t("reportEmailPlaceholder")}
+                      className="w-full"
+                    />
+                  </div>
+                  {reportStatus === "error" && (
+                    <p className="text-sm text-destructive">{t("reportError")}</p>
+                  )}
+                  <Button type="submit" className="w-full" disabled={reportStatus === "sending"}>
+                    {reportStatus === "sending" ? t("reportSending") : t("reportSubmit")}
+                  </Button>
+                </form>
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
       </header>
 
       {/* Today's Challenge Hero */}

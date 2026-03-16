@@ -10,6 +10,7 @@ type Song = {
   cover_url: string | null;
   is_active: boolean;
   youtube_verified: boolean;
+  spotify_playlist_name: string | null;
 };
 
 export function CatalogClient({ songs }: { songs: Song[] }) {
@@ -21,7 +22,8 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
     return songs.filter(
       (s) =>
         (s.title?.toLowerCase().includes(lower) ?? false) ||
-        (s.artist_name?.toLowerCase().includes(lower) ?? false)
+        (s.artist_name?.toLowerCase().includes(lower) ?? false) ||
+        (s.spotify_playlist_name?.toLowerCase().includes(lower) ?? false)
     );
   }, [songs, q]);
 
@@ -43,7 +45,7 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
             type="search"
             value={q}
             onChange={(e) => setQ(String((e.target as unknown as { value: string }).value))}
-            placeholder="Buscar por título o artista..."
+            placeholder="Buscar por título, artista o playlist..."
             className="h-9 w-full rounded-lg border border-input bg-background pl-10 pr-3 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
             aria-label="Buscar canciones"
           />
@@ -75,6 +77,11 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
               <p className="truncate text-sm text-muted-foreground">
                 {s.artist_name}
               </p>
+              {s.spotify_playlist_name && (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground/80">
+                  Playlist: {s.spotify_playlist_name}
+                </p>
+              )}
             </div>
             <div className="flex gap-1">
               {!s.is_active && (

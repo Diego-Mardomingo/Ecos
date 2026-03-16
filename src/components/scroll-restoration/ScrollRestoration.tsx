@@ -9,15 +9,30 @@ export function ScrollRestoration() {
   useEffect(() => {
     const key = `scroll:${pathname}`;
     const saved = sessionStorage.getItem(key);
-    const top = saved ? parseInt(saved, 10) : 0;
+    const targetTop = saved ? parseInt(saved, 10) : 0;
 
-    const restore = () => {
-      window.scrollTo({ top, left: 0, behavior: "auto" });
-    };
-    // Next.js resetea el scroll al navegar; el contenido puede no estar montado aún.
-    // Aplicamos la restauración varias veces para cuando el layout esté listo.
-    const delays = [150, 400, 800, 1200];
-    const timeouts = delays.map((d) => setTimeout(restore, d));
+    let rafId: number | null = null;
+    if (targetTop > 0) {
+      const restore = () => {
+        window.scrollTo({ top: targetTop, left: 0, behavior: "auto" });
+      };
+      const maxWait = 2500;
+      const start = Date.now();
+
+      const tryRestore = () => {
+        const doc = document.documentElement;
+        const canScroll = doc.scrollHeight >= targetTop + window.innerHeight * 0.5;
+        if (canScroll) {
+          restore();
+          return;
+        }
+        if (Date.now() - start < maxWait) {
+          rafId = requestAnimationFrame(tryRestore);
+        }
+      };
+
+      rafId = requestAnimationFrame(tryRestore);
+    }
 
     let timer: ReturnType<typeof setTimeout>;
     const onScroll = () => {
@@ -29,7 +44,7 @@ export function ScrollRestoration() {
 
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      timeouts.forEach(clearTimeout);
+      if (rafId !== null) cancelAnimationFrame(rafId);
       clearTimeout(timer);
       window.removeEventListener("scroll", onScroll);
     };

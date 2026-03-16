@@ -1,7 +1,13 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
+
+function formatLogDate(iso: string | null): string {
+  if (!iso) return "";
+  return format(new Date(iso), "dd/MM/yyyy HH:mm");
+}
 
 const JOB_LABELS: Record<string, string> = {
   ingestion: "Ingesta",
@@ -18,6 +24,7 @@ export default async function AdminDashboardPage() {
     { count: songsCount },
     { count: gamesCount },
     { count: reportsCount },
+    { count: feedbackCount },
     { data: recentLogs },
   ] = await Promise.all([
     supabase.from("ecos_songs").select("*", { count: "exact", head: true }),
@@ -26,6 +33,7 @@ export default async function AdminDashboardPage() {
       .from("ecos_reports")
       .select("*", { count: "exact", head: true })
       .eq("status", "pending"),
+    supabase.from("ecos_feedback").select("*", { count: "exact", head: true }),
     supabase
       .from("ecos_system_logs")
       .select("id, job_type, status, summary, ran_at")
@@ -33,11 +41,21 @@ export default async function AdminDashboardPage() {
       .limit(10),
   ]);
 
+  const reportsPending = reportsCount ?? 0;
+  const feedbackTotal = feedbackCount ?? 0;
+  const reportsAndFeedbackTotal = reportsPending + feedbackTotal;
+
   const sections = [
-    { href: "/admin/catalog", label: "Catálogo", icon: "library_music", value: songsCount ?? 0 },
-    { href: "/admin/schedule", label: "Programación", icon: "calendar_month", value: gamesCount ?? 0 },
-    { href: "/admin/reports", label: "Reportes pendientes", icon: "report", value: reportsCount ?? 0 },
-    { href: "/admin/logs", label: "Logs del sistema", icon: "terminal", value: null },
+    { href: "/admin/catalog", label: "Catálogo", icon: "library_music", value: songsCount ?? 0, detail: null as string | null },
+    { href: "/admin/schedule", label: "Programación", icon: "calendar_month", value: gamesCount ?? 0, detail: null },
+    {
+      href: "/admin/reports",
+      label: "Reportes y feedback",
+      icon: "report",
+      value: reportsAndFeedbackTotal,
+      detail: `${reportsPending} reportes · ${feedbackTotal} feedback`,
+    },
+    { href: "/admin/logs", label: "Logs del sistema", icon: "terminal", value: null, detail: null },
   ];
 
   return (
@@ -63,6 +81,9 @@ export default async function AdminDashboardPage() {
                 <p className="font-medium">{s.label}</p>
                 {s.value !== null && (
                   <p className="text-2xl font-bold">{s.value.toLocaleString()}</p>
+                )}
+                {s.detail && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{s.detail}</p>
                 )}
               </div>
             </Link>
@@ -122,14 +143,7 @@ export default async function AdminDashboardPage() {
                 </div>
               </div>
               <span className="text-xs text-muted-foreground">
-                {log.ran_at
-                  ? new Date(log.ran_at).toLocaleString("es", {
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : ""}
+                {formatLogDate(log.ran_at)}
               </span>
             </div>
           ))}

@@ -9,7 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
+// Permite letras, números, _ y emojis (3-30 caracteres)
+const USERNAME_REGEX = /^[\p{L}\p{N}_\p{Extended_Pictographic}]{3,30}$/u;
 
 interface Profile {
   id: string;

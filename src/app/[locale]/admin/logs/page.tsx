@@ -1,6 +1,12 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
+
+function formatLogDate(iso: string | null): string {
+  if (!iso) return "";
+  return format(new Date(iso), "dd/MM/yyyy HH:mm");
+}
 
 const JOB_LABELS: Record<string, string> = {
   ingestion: "Ingesta",
@@ -42,6 +48,7 @@ const DAILY_GAME_LABELS: Record<string, string> = {
   game_number: "Número",
   title: "Título",
   artist: "Artista",
+  playlist: "Playlist",
 };
 
 function JobDetailsSummary({
@@ -145,9 +152,7 @@ export default async function AdminLogsPage() {
                   <span>{formatDuration(log.duration_ms)}</span>
                 )}
                 <span>
-                  {log.ran_at
-                    ? new Date(log.ran_at).toLocaleString("es")
-                    : ""}
+                  {formatLogDate(log.ran_at)}
                 </span>
                 <span
                   className="material-symbols-outlined text-base"

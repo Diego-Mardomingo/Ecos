@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserStats } from "@/lib/queries/users";
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
+// Permite letras, números, _ y emojis (3-30 caracteres/code points)
+const USERNAME_REGEX = /^[\p{L}\p{N}_\p{Extended_Pictographic}]{3,30}$/u;
 
 export async function GET() {
   try {
