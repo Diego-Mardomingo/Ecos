@@ -69,9 +69,9 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   }, []);
 
   return (
-    <div ref={containerRef} className={cn("relative w-full", className)}>
+    <div ref={containerRef} className={cn("relative w-full group", className)}>
       <div className="relative">
-        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-xl text-muted-foreground">
+        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-xl text-muted-foreground transition-colors group-focus-within:text-brand">
           search
         </span>
         <input
@@ -82,9 +82,8 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
           disabled={disabled}
           placeholder={t("typeToSearch")}
           className={cn(
-            "w-full rounded-2xl border border-border bg-card py-3.5 pl-10 pr-4 text-sm outline-none transition-all",
-            "placeholder:text-muted-foreground",
-            "focus:border-brand focus:ring-2 focus:ring-brand/20",
+            "w-full rounded-xl border-2 border-transparent bg-muted py-4 pl-12 pr-4 text-base outline-none transition-all placeholder:text-muted-foreground",
+            "focus:border-brand/50 focus:ring-0",
             disabled && "cursor-not-allowed opacity-50"
           )}
         />

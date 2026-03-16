@@ -2,7 +2,8 @@
  * Comparación robusta de nombres de artistas para "correct artist".
  * Maneja acentos, varios artistas, formatos de colaboración.
  */
-function normalizeForCompare(s: string): string {
+/** Normaliza texto para comparación: quita acentos, minúsculas, espacios colapsados. */
+export function normalizeForCompare(s: string): string {
   return (
     s
       .normalize("NFD")

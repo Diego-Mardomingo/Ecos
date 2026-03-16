@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { calculateScore } from "@/lib/scoring";
-import { artistsMatch } from "@/lib/artist-match";
+import { artistsMatch, normalizeForCompare } from "@/lib/artist-match";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 import { z } from "zod";
 
@@ -54,16 +54,16 @@ export async function POST(request: NextRequest) {
 
     const isCorrect =
       songId === song.id ||
-      guessText.toLowerCase().includes(song.title.toLowerCase());
+      normalizeForCompare(guessText).includes(normalizeForCompare(song.title));
 
-    const normalize = (s: string) => s.toLowerCase().trim();
     const correctArtist =
       guessArtistName != null && guessArtistName.trim()
         ? artistsMatch(guessArtistName, song.artist_name)
         : false;
-    const correctAlbum = guessAlbumTitle != null && song.album_title != null
-      ? normalize(guessAlbumTitle) === normalize(song.album_title)
-      : false;
+    const correctAlbum =
+      guessAlbumTitle != null && song.album_title != null
+        ? normalizeForCompare(guessAlbumTitle) === normalizeForCompare(song.album_title)
+        : false;
 
     await supabase.from("ecos_guesses").upsert({
       user_id: userId,

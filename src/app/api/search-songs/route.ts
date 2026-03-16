@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+/** Normaliza el término de búsqueda: trim, colapsar espacios, quitar comillas. */
+function normalizeSearchQuery(q: string): string {
+  return q
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/"/g, "");
+}
+
 /**
- * Búsqueda fuzzy en ecos_songs por title y artist_name.
- * Usa Full Text Search (spanish). Solo canciones activas y verificadas.
+ * Búsqueda en ecos_songs por title y artist_name.
+ * Insensible a acentos (vía unaccent en DB). Solo canciones activas y verificadas.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const q = searchParams.get("q")?.trim();
+  const rawQ = searchParams.get("q");
+  const q = rawQ ? normalizeSearchQuery(rawQ) : "";
   const requestedLimit = searchParams.get("limit");
   const limit = requestedLimit ? Math.min(Number(requestedLimit), 200) : 100;
 
@@ -17,17 +26,27 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient();
 
-  // FTS: to_tsquery con plainto_tsquery para tolerar variaciones
-  const safeQ = q.replace(/"/g, "");
-  const pattern = `%${safeQ}%`;
+  const { data } = await supabase.rpc("ecos_search_songs", {
+    p_query: q,
+    p_limit: limit,
+  });
 
-  const { data } = await supabase
-    .from("ecos_songs")
-    .select("id, title, artist_name, album_title, cover_url, spotify_id")
-    .eq("is_active", true)
-    .or("youtube_id.not.is.null,preview_url.not.is.null")
-    .or(`title.ilike."${pattern}",artist_name.ilike."${pattern}"`)
-    .limit(limit);
-
-  return NextResponse.json({ data: data ?? [] });
+  const rows = (data ?? []) as Array<{
+    id: string;
+    title: string;
+    artist_name: string;
+    album_title: string | null;
+    cover_url: string | null;
+    spotify_id: string | null;
+  }>;
+  return NextResponse.json({
+    data: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      artist_name: r.artist_name,
+      album_title: r.album_title,
+      cover_url: r.cover_url,
+      spotify_id: r.spotify_id,
+    })),
+  });
 }
