@@ -14,6 +14,7 @@ import { queryKeys } from "@/lib/hooks/queries";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -792,6 +793,7 @@ function ResultScreen({
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{t("report.dialogTitle")}</DialogTitle>
+                  <DialogDescription className="sr-only">{t("report.reportProblem")}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   {reportSent ? (

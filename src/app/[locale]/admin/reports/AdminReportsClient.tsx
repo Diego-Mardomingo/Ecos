@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -240,6 +241,7 @@ export function AdminReportsClient({ reports, feedbackList }: Props) {
             <>
               <DialogHeader>
                 <DialogTitle>Reporte de canción</DialogTitle>
+                <DialogDescription className="sr-only">Detalle del reporte</DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -298,6 +300,7 @@ export function AdminReportsClient({ reports, feedbackList }: Props) {
             <>
               <DialogHeader>
                 <DialogTitle>Feedback</DialogTitle>
+                <DialogDescription className="sr-only">Detalle del feedback</DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">

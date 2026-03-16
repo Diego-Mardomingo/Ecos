@@ -28,6 +28,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -260,6 +261,7 @@ export function HomeClient({ initialData }: Props) {
             <DialogContent className="max-w-sm">
               <DialogHeader>
                 <DialogTitle>{t("aboutTitle")}</DialogTitle>
+                <DialogDescription className="sr-only">{t("aboutDescription")}</DialogDescription>
               </DialogHeader>
               <p className="text-sm text-muted-foreground">{t("aboutDescription")}</p>
               <h4 className="mt-4 font-semibold">{t("howToPlayTitle")}</h4>
@@ -275,8 +277,10 @@ export function HomeClient({ initialData }: Props) {
             <DialogContent className="max-w-sm">
               <DialogHeader>
                 <DialogTitle>{t("reportTitle")}</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
+                  {t("reportDescription")}
+                </DialogDescription>
               </DialogHeader>
-              <p className="text-sm text-muted-foreground leading-relaxed">{t("reportDescription")}</p>
               {reportStatus === "success" ? (
                 <p className="text-sm font-medium text-brand">{t("reportSuccess")}</p>
               ) : (
@@ -1224,6 +1228,7 @@ function PreviousDaysSection({
             <DialogContent className="max-w-xs">
               <DialogHeader>
                 <DialogTitle>{t("filterByDate")}</DialogTitle>
+                <DialogDescription className="sr-only">{t("filterByDate")}</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
