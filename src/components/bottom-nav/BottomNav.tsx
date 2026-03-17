@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/lib/store/authStore";
+import { useProfile } from "@/lib/hooks/queries";
 
 interface NavItem {
   href: string;
@@ -21,6 +23,8 @@ const NAV_ITEMS: NavItem[] = [
 export function BottomNav() {
   const pathname = usePathname();
   const t = useTranslations("nav");
+  const user = useAuthStore((s) => s.user);
+  const { data, isLoading } = useProfile(undefined, { enabled: !!user });
 
   // Normalizar pathname quitando el prefijo de locale (/en/... → /...)
   const normalizedPath = pathname.replace(/^\/(es|en)/, "") || "/";
@@ -40,6 +44,10 @@ export function BottomNav() {
       <div className="relative flex justify-around px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
+          const label =
+            item.labelKey === "profile" && user
+              ? (data?.profile?.display_name ?? t("profile"))
+              : t(item.labelKey);
 
           return (
             <Link
@@ -75,7 +83,7 @@ export function BottomNav() {
                   active ? "text-brand" : "text-muted-foreground"
                 )}
               >
-                {t(item.labelKey)}
+                {label}
               </span>
             </Link>
           );

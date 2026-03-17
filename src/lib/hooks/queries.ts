@@ -97,7 +97,10 @@ export function useLeaderboard(
   });
 }
 
-export function useProfile(initialData?: ProfileData) {
+export function useProfile(
+  initialData?: ProfileData,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: queryKeys.profile,
     queryFn: async (): Promise<ProfileData> => {
@@ -107,6 +110,7 @@ export function useProfile(initialData?: ProfileData) {
     },
     initialData,
     retry: false,
+    enabled: options?.enabled ?? true,
   });
 }
 
