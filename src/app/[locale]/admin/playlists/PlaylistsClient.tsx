@@ -190,10 +190,10 @@ export function PlaylistsClient({ playlists }: { playlists: PlaylistRow[] }) {
             .filter(Boolean)
             .join(" ")}
         >
-          <CardContent className="relative space-y-2.5 px-3">
+          <CardContent className="space-y-3 px-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">
+                <p className="break-words font-medium leading-snug">
                   {p.spotify_playlist_name || "Sin nombre"}
                 </p>
                 <p className="mt-1 truncate text-sm text-muted-foreground">
@@ -282,24 +282,23 @@ export function PlaylistsClient({ playlists }: { playlists: PlaylistRow[] }) {
               >
                 Eliminar
               </Button>
-            </div>
-
-            <button
-              type="button"
-              className="absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/15 text-muted-foreground hover:bg-muted/30 hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
-              aria-label="Reordenar playlist"
-              title="Reordenar"
-              {...attributes}
-              {...listeners}
-            >
-              <span
-                className="material-symbols-outlined text-lg leading-none"
-                style={{ fontVariationSettings: "'FILL' 0" }}
-                aria-hidden
+              <button
+                type="button"
+                className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/15 text-muted-foreground cursor-grab touch-none hover:bg-muted/30 hover:text-foreground active:cursor-grabbing"
+                aria-label="Reordenar playlist"
+                title="Reordenar"
+                {...attributes}
+                {...listeners}
               >
-                drag_indicator
-              </span>
-            </button>
+                <span
+                  className="material-symbols-outlined text-lg leading-none"
+                  style={{ fontVariationSettings: "'FILL' 0" }}
+                  aria-hidden
+                >
+                  drag_indicator
+                </span>
+              </button>
+            </div>
           </CardContent>
         </Card>
       </div>
