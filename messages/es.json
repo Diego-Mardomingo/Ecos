@@ -244,7 +244,7 @@
       "save": "Guardar",
       "saving": "Guardando...",
       "usernameRequired": "El nombre de usuario es obligatorio",
-      "usernameInvalid": "3-30 caracteres, solo letras, números y guiones bajos",
+      "usernameInvalid": "Entre 3 y 50 caracteres: letras, números, _, espacios y emojis",
       "usernameTaken": "Este nombre ya está en uso"
     },
     "completeProfile": {
@@ -254,7 +254,7 @@
       "placeholder": "Nombre de usuario",
       "continue": "Continuar",
       "usernameTaken": "Este nombre ya está en uso",
-      "usernameInvalid": "3-30 caracteres: letras, números y _"
+      "usernameInvalid": "Entre 3 y 50 caracteres: letras, números, _, espacios y emojis"
     }
   },
   "scoring": {

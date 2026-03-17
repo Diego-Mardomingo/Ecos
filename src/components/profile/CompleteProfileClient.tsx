@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-// Permite letras, números, _ y emojis (3-30 caracteres)
-const USERNAME_REGEX = /^[\p{L}\p{N}_\p{Extended_Pictographic}]{3,30}$/u;
+// Permite letras, números, _, espacios y emojis (3-50 caracteres)
+const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
 
 export function CompleteProfileClient() {
   const t = useTranslations("profile.completeProfile");
@@ -73,7 +73,7 @@ export function CompleteProfileClient() {
               setError(null);
             }}
             placeholder={t("placeholder")}
-            maxLength={30}
+            maxLength={50}
             className="text-center"
             autoFocus
           />

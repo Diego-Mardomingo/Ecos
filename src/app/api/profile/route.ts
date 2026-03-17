@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserStats } from "@/lib/queries/users";
 
-// Permite letras, números, _ y emojis (3-30 caracteres/code points)
-const USERNAME_REGEX = /^[\p{L}\p{N}_\p{Extended_Pictographic}]{3,30}$/u;
+// Permite letras, números, _, espacios y emojis (3-50 caracteres/code points)
+const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
+const USERNAME_MAX_LENGTH = 50;
 
 export async function GET() {
   try {
@@ -74,7 +75,7 @@ export async function PATCH(request: NextRequest) {
       if (!trimmed) {
         return NextResponse.json({ error: "username_required" }, { status: 400 });
       }
-      if (!USERNAME_REGEX.test(trimmed)) {
+      if (trimmed.length > USERNAME_MAX_LENGTH || !USERNAME_REGEX.test(trimmed)) {
         return NextResponse.json({ error: "username_invalid" }, { status: 400 });
       }
 

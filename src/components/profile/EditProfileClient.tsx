@@ -9,8 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-// Permite letras, números, _ y emojis (3-30 caracteres)
-const USERNAME_REGEX = /^[\p{L}\p{N}_\p{Extended_Pictographic}]{3,30}$/u;
+// Permite letras, números, _, espacios y emojis (3-50 caracteres)
+const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
 
 interface Profile {
   id: string;
@@ -162,7 +162,7 @@ export function EditProfileClient({ profile }: Props) {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder={t("usernamePlaceholder")}
-            maxLength={30}
+            maxLength={50}
           />
         </div>
 

@@ -244,7 +244,7 @@
       "save": "Save",
       "saving": "Saving...",
       "usernameRequired": "Username is required",
-      "usernameInvalid": "3-30 characters, letters, numbers and underscores only",
+      "usernameInvalid": "3-50 characters: letters, numbers, spaces, _ and emojis",
       "usernameTaken": "This username is already taken"
     },
     "completeProfile": {
@@ -254,7 +254,7 @@
       "placeholder": "Username",
       "continue": "Continue",
       "usernameTaken": "This username is already taken",
-      "usernameInvalid": "3-30 characters: letters, numbers and _"
+      "usernameInvalid": "3-50 characters: letters, numbers, spaces, _ and emojis"
     }
   },
   "scoring": {
