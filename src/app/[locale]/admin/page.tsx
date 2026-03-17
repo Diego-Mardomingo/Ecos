@@ -47,6 +47,7 @@ export default async function AdminDashboardPage() {
 
   const sections = [
     { href: "/admin/catalog", label: "Catálogo", icon: "library_music", value: songsCount ?? 0, detail: null as string | null },
+    { href: "/admin/playlists", label: "Playlists", icon: "queue_music", value: null, detail: "Pool para ingesta" },
     { href: "/admin/schedule", label: "Programación", icon: "calendar_month", value: gamesCount ?? 0, detail: null },
     {
       href: "/admin/reports",

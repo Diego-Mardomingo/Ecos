@@ -387,6 +387,7 @@ export function GameClient({ game, userId }: Props) {
               phase={resultPhase}
               song={song}
               gameId={game.id}
+              gameDate={game.date}
               correctAttempt={resultCorrectAttempt}
               finalScore={resultFinalScore}
               maxAttempts={maxAttempts}
@@ -816,6 +817,7 @@ function ResultScreen({
   phase,
   song,
   gameId,
+  gameDate,
   correctAttempt,
   finalScore,
   maxAttempts,
@@ -827,6 +829,7 @@ function ResultScreen({
   phase: "won" | "lost";
   song: GameWithSong["ecos_songs"];
   gameId: string;
+  gameDate: string;
   correctAttempt: number | null;
   finalScore: number | null;
   maxAttempts: number;
@@ -838,6 +841,7 @@ function ResultScreen({
   const t = useTranslations("game");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const dateFnsLocale = locale === "es" ? es : enUS;
   const won = phase === "won";
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>("");
@@ -866,6 +870,15 @@ function ResultScreen({
         })
       : t("shareScoreLost");
     const inviteText = t("shareInvite");
+    const dateLabel = (() => {
+      if (!gameDate) return "";
+      try {
+        return format(parseISO(String(gameDate)), "d MMM", { locale: dateFnsLocale }).toUpperCase();
+      } catch {
+        return "";
+      }
+    })();
+    const metaLabel = dateLabel ? `${dateLabel} · #${gameNumber}` : `#${gameNumber}`;
     const correctIdx = won && correctAttempt != null ? correctAttempt - 1 : -1;
     const dotsEmoji = Array.from({ length: maxAttempts }, (_, i) => {
       if (won && correctAttempt != null) {
@@ -876,8 +889,8 @@ function ResultScreen({
       return "🔴";
     }).join("");
     const emojiIntro = won ? "🎵 🏆" : "🎵 💪";
-    const textWithEmojis = `${emojiIntro} ${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText}`;
-    const fullTextForClipboard = `${emojiIntro} ${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText} ${shareUrl}`;
+    const textWithEmojis = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText}`;
+    const fullTextForClipboard = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText} ${shareUrl}`;
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({

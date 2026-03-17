@@ -14,11 +14,13 @@ import logging
 import os
 import re
 import sys
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from io import BytesIO
 
 # Cargar .env.local
 _env = Path(__file__).resolve().parent.parent / ".env.local"
@@ -34,31 +36,12 @@ try:
     from spotify_scraper import SpotifyClient
     from spotify_scraper.parsers.json_parser import extract_track_data_from_page
     from supabase import create_client, Client
+    from mutagen.mp3 import MP3
 except ImportError as e:
     print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
     sys.exit(1)
 
 # --- Config ---
-# (playlist_id, nombre, modo)
-# modo: "default" = bloques de 5; salta bloque solo si las 5 duplicadas; sin límite
-#       "all"     = todas las canciones (playlist personal)
-PLAYLISTS: list[tuple[str, str, str]] = [
-    ("37i9dQZEVXbNFJfN1Vw8d9", "Top 50 Spain", "default"),
-    ("37i9dQZF1DXaxEKcoCdWHD", "Exitos Espana", "default"),
-    ("37i9dQZF1DWVskFRGurTfg", "Hits Urbanos", "default"),
-    ("37i9dQZF1DXcd2Vmhfon1w", "Rap Espanol", "default"),
-    ("37i9dQZF1DWV7FWPDK0Dg1", "Flamenco Pop", "default"),
-    ("37i9dQZF1DWZMtkg0cMXbp", "Flamenco Flow", "default"),
-    ("37i9dQZF1DX8SfyqmSFDwe", "Old School Reggaeton", "default"),
-    ("37i9dQZF1DX09mi3a4Zmox", "Baladas Romanticas", "default"),
-    ("37i9dQZF1DXdnGF35OawbN", "Verano Forever", "default"),
-    ("37i9dQZF1DX20VDU4OIBfS", "Canciones del Recuerdo", "default"),
-    ("37i9dQZF1DX7alvT6zKWrM", "Los 2010 Espana", "default"),
-    ("37i9dQZF1DXb0AsvHMF4aM", "Los 2000s Espana", "default"),
-    ("37i9dQZF1DWXm9R2iowygp", "Los 90 Espana", "default"),
-    ("37i9dQZF1DWU4xtX4v6Z9l", "Los 80 Espana", "default"),
-    ("5xeQJDbA4L6LNyVeFz3MHF", "Playlist Personal", "all"),
-]
 CHUNK_SIZE = 5  # Bloque de 5; saltar al siguiente solo si las 5 duplicadas
 ALBUM_PATTERNS = [
     r"open\.spotify\.com/album/([a-zA-Z0-9]{20,25})",
@@ -101,6 +84,69 @@ def get_spotify_id(track: dict) -> str:
         return tid
     uri = track.get("uri", "")
     return uri.split(":")[-1] if uri and ":" in uri else ""
+
+
+def normalize_text(s: str | None) -> str:
+    if not s:
+        return ""
+    s = s.strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def track_key(title: str | None, artist: str | None) -> str:
+    return f"{normalize_text(title)}|{normalize_text(artist)}"
+
+
+def extract_title_artist_from_track(track: dict) -> tuple[str | None, str | None]:
+    title = track.get("name") or track.get("title")
+    artists = track.get("artists")
+    if isinstance(artists, list):
+        artist = ", ".join(a.get("name", "") for a in artists if isinstance(a, dict) and a.get("name")) or None
+    else:
+        artist = track.get("artist_name") or None
+    return title, artist
+
+
+def get_mp3_duration_seconds(url: str) -> float | None:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "EcosIngest/1.0"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read()
+        audio = MP3(BytesIO(data))
+        length = getattr(audio.info, "length", None)
+        return float(length) if length is not None else None
+    except Exception:
+        return None
+
+
+def load_active_playlists(supabase: Client) -> list[tuple[str, str, str]]:
+    """
+    Devuelve [(spotify_playlist_id, spotify_playlist_name, ingest_mode)] solo activas.
+    ingest_mode: 'default' o 'all'
+    """
+    res = (
+        supabase.table("ecos_spotify_playlists")
+        .select("spotify_playlist_id, spotify_playlist_name, ingest_mode")
+        .eq("is_active", True)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    rows = res.data or []
+    out: list[tuple[str, str, str]] = []
+    for r in rows:
+        pl_id = (r.get("spotify_playlist_id") or "").strip()
+        if not pl_id:
+            continue
+        name = (r.get("spotify_playlist_name") or pl_id).strip()
+        mode = (r.get("ingest_mode") or "default").strip()
+        if mode not in ("default", "all"):
+            mode = "default"
+        out.append((pl_id, name, mode))
+    return out
 
 
 def enrich_track(client: SpotifyClient, track: dict, log: logging.Logger) -> dict | None:
@@ -197,8 +243,11 @@ def main() -> None:
         sys.exit(1)
 
     supabase: Client = create_client(url_env, key_env)
-    existing = {r["spotify_id"] for r in (supabase.table("ecos_songs").select("spotify_id").execute()).data or []}
+    existing_rows = (supabase.table("ecos_songs").select("spotify_id, title, artist_name").execute()).data or []
+    existing = {r["spotify_id"] for r in existing_rows if r.get("spotify_id")}
+    existing_keys = {track_key(r.get("title"), r.get("artist_name")) for r in existing_rows}
     seen_this_run: set[str] = set()
+    seen_keys_this_run: set[str] = set()
     errors: list[str] = []
     playlist_stats: list[dict] = []
     total_found = 0
@@ -207,7 +256,10 @@ def main() -> None:
     total_inserted = 0
 
     log.info("=== Ingesta semanal Ecos ===")
-    log.info("Playlists: %d", len(PLAYLISTS))
+    PLAYLISTS = load_active_playlists(supabase)
+    log.info("Playlists activas: %d", len(PLAYLISTS))
+    if not PLAYLISTS:
+        log.warning("No hay playlists activas en ecos_spotify_playlists")
 
     client = SpotifyClient()
 
@@ -255,13 +307,24 @@ def main() -> None:
                 if mode == "default" and len(block) == CHUNK_SIZE:
                     # Quick check: ¿las 5 duplicadas? Si sí, saltar bloque sin enriquecer
                     sids = [get_spotify_id(tr) or "" for tr in block]
+                    keys = []
+                    for tr in block:
+                        t, a = extract_title_artist_from_track(tr)
+                        keys.append(track_key(t, a))
                     all_block_dup = all(
-                        sid and (sid in existing or sid in seen_this_run) for sid in sids
+                        (
+                            (sid and (sid in existing or sid in seen_this_run))
+                            or (k and (k in existing_keys or k in seen_keys_this_run))
+                        )
+                        for sid, k in zip(sids, keys)
                     )
                     if all_block_dup:
                         for sid in sids:
                             if sid:
                                 seen_this_run.add(sid)
+                        for k in keys:
+                            if k:
+                                seen_keys_this_run.add(k)
                         pl_duplicates += len(block)
                         total_duplicates += len(block)
                         pl_found += len(block)
@@ -290,12 +353,27 @@ def main() -> None:
                     images = album.get("images") or []
                     cover = images[0].get("url") if images else None
 
-                    yt_id = search_youtube(title, artist, yt_key)
                     preview_url = full.get("preview_url")
+                    dedupe_key = track_key(title, artist)
+                    if dedupe_key and (dedupe_key in existing_keys or dedupe_key in seen_keys_this_run):
+                        pl_duplicates += 1
+                        total_duplicates += 1
+                        continue
+
+                    yt_id = search_youtube(title, artist, yt_key)
                     if not yt_id and not preview_url:
                         pl_no_yt += 1
                         total_no_yt += 1
                         continue
+
+                    # Si entra por preview, exigir duración mínima usable (>=28s)
+                    if not yt_id and preview_url:
+                        dur = get_mp3_duration_seconds(preview_url)
+                        if dur is None or dur < 28.0:
+                            # no insertar si no hay preview suficiente
+                            pl_no_yt += 1
+                            total_no_yt += 1
+                            continue
 
                     now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                     uses_preview = not yt_id and preview_url
@@ -320,6 +398,8 @@ def main() -> None:
                     try:
                         supabase.table("ecos_songs").insert(row).execute()
                         existing.add(sid)
+                        if dedupe_key:
+                            existing_keys.add(dedupe_key)
                         pl_inserted += 1
                         total_inserted += 1
                         inserted_in_block += 1
@@ -328,6 +408,8 @@ def main() -> None:
                         err_msg = str(ins_err)
                         if "23505" in err_msg or "duplicate" in err_msg.lower():
                             existing.add(sid)
+                            if dedupe_key:
+                                existing_keys.add(dedupe_key)
                             pl_duplicates += 1
                             total_duplicates += 1
                         else:
