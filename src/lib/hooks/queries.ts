@@ -20,6 +20,11 @@ export const queryKeys = {
   search: (q: string) => ["search", q] as const,
 };
 
+export interface RankingStatsPeriod {
+  points: number;
+  rank: number | null;
+}
+
 export interface HomeData {
   todaysGame: GameWithSong | null;
   previousDays: PreviousDayGame[];
@@ -28,6 +33,11 @@ export interface HomeData {
   inProgressByGameId?: Record<string, InProgressProgress>;
   todaysCompletedResult?: TodaysCompletedResult | null;
   rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
+  rankingStats?: {
+    global: RankingStatsPeriod;
+    weekly: RankingStatsPeriod;
+    monthly: RankingStatsPeriod;
+  };
 }
 
 interface RankingData {
@@ -57,7 +67,7 @@ export function useHomeData(initialData?: HomeData) {
   return useQuery({
     queryKey: queryKeys.home,
     queryFn: async (): Promise<HomeData> => {
-      const res = await fetch("/api/home");
+      const res = await fetch("/api/home", { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch home data");
       return res.json();
     },

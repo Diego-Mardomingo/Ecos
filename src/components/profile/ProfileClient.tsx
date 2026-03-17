@@ -45,6 +45,7 @@ export function ProfileClient({ initialData }: Props) {
   const stats = data?.stats ?? null;
 
   const t = useTranslations("profile");
+  const tc = useTranslations("common");
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const locale = useLocale();
@@ -112,28 +113,51 @@ export function ProfileClient({ initialData }: Props) {
         </div>
       </section>
 
-      {/* Estadísticas */}
+      {/* Estadísticas: % aciertos, Adivinadas, Completadas, Intentos avg, Racha actual, Racha máx. */}
       <section className="grid grid-cols-3 gap-2">
         <StatBlock
-          icon="check_circle"
+          icon="percent"
           iconBg="bg-blue-500/15"
           iconColor="text-blue-400"
+          value={stats?.games_played ? `${Math.round(((stats?.games_won ?? 0) / stats.games_played) * 100)}%` : "0%"}
+          label={t("stats.hitRate")}
+        />
+        <StatBlock
+          icon="check_circle"
+          iconBg="bg-green-500/15"
+          iconColor="text-green-400"
           value={stats?.games_won ?? 0}
           label={t("stats.guessed")}
+        />
+        <StatBlock
+          icon="flag"
+          iconBg="bg-violet-500/15"
+          iconColor="text-violet-400"
+          value={stats?.games_played ?? 0}
+          label={t("stats.completed")}
+        />
+        <StatBlock
+          icon="analytics"
+          iconBg="bg-amber-500/15"
+          iconColor="text-amber-400"
+          value={typeof stats?.avg_guesses === "number" ? stats.avg_guesses.toFixed(1) : "0"}
+          label={t("stats.avgAttempts")}
         />
         <StatBlock
           icon="local_fire_department"
           iconBg="bg-orange-500/15"
           iconColor="text-orange-400"
-          value={stats?.max_streak ?? stats?.streak ?? 0}
-          label={t("stats.maxStreak")}
+          value={stats?.streak ?? 0}
+          label={t("stats.currentStreak")}
+          suffix={tc("days")}
         />
         <StatBlock
-          icon="emoji_events"
-          iconBg="bg-brand/15"
-          iconColor="text-brand"
-          value={stats?.total_points ?? 0}
-          label={t("stats.points")}
+          icon="whatshot"
+          iconBg="bg-red-500/15"
+          iconColor="text-red-400"
+          value={stats?.max_streak ?? 0}
+          label={t("stats.maxStreak")}
+          suffix={tc("days")}
         />
       </section>
 
@@ -243,13 +267,21 @@ function StatBlock({
   iconColor,
   value,
   label,
+  suffix,
 }: {
   icon: string;
   iconBg: string;
   iconColor: string;
-  value: number;
+  value: number | string;
   label: string;
+  suffix?: string;
 }) {
+  const displayValue =
+    typeof value === "number"
+      ? suffix
+        ? `${value.toLocaleString()} ${suffix}`
+        : value.toLocaleString()
+      : value;
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl bg-card p-3 text-center">
       <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", iconBg)}>
@@ -260,7 +292,7 @@ function StatBlock({
           {icon}
         </span>
       </div>
-      <p className="text-xl font-bold">{value.toLocaleString()}</p>
+      <p className="text-xl font-bold tabular-nums">{displayValue}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );

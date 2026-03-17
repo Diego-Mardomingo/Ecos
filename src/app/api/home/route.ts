@@ -45,6 +45,13 @@ export async function GET(request: Request) {
     ]);
 
     let rankingRanks: { global: number | null; weekly: number | null; monthly: number | null } | undefined;
+    let rankingStats:
+      | {
+          global: { points: number; rank: number | null };
+          weekly: { points: number; rank: number | null };
+          monthly: { points: number; rank: number | null };
+        }
+      | undefined;
     if (user?.id) {
       const [weeklyEntries, monthlyEntries] = await Promise.all([
         getLeaderboardByPeriod("weekly", 150),
@@ -56,6 +63,20 @@ export async function GET(request: Request) {
         global: userStats?.global_rank ?? null,
         weekly: weeklyEntry?.global_rank ?? null,
         monthly: monthlyEntry?.global_rank ?? null,
+      };
+      rankingStats = {
+        global: {
+          points: userStats?.total_points ?? 0,
+          rank: userStats?.global_rank ?? null,
+        },
+        weekly: {
+          points: weeklyEntry?.total_points ?? 0,
+          rank: weeklyEntry?.global_rank ?? null,
+        },
+        monthly: {
+          points: monthlyEntry?.total_points ?? 0,
+          rank: monthlyEntry?.global_rank ?? null,
+        },
       };
     }
 
@@ -78,6 +99,7 @@ export async function GET(request: Request) {
       inProgressByGameId,
       todaysCompletedResult,
       rankingRanks,
+      rankingStats,
     });
   } catch (err) {
     console.error("api/home error:", err);

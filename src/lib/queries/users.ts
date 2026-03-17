@@ -13,11 +13,17 @@ export interface UserStats {
 export async function getUserStats(userId: string): Promise<UserStats | null> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("ecos_leaderboard")
-    .select("total_points, games_played, games_won, streak, max_streak, global_rank, avg_guesses")
-    .eq("user_id", userId)
-    .single();
+  const [leaderboardRes, avgRes] = await Promise.all([
+    supabase
+      .from("ecos_leaderboard")
+      .select("total_points, games_played, games_won, streak, max_streak, global_rank")
+      .eq("user_id", userId)
+      .single(),
+    supabase.rpc("get_user_avg_guesses", { p_user_id: userId }),
+  ]);
+
+  const { data, error } = leaderboardRes;
+  const avgGuesses = typeof avgRes.data === "number" ? avgRes.data : 0;
 
   if (error || !data) {
     return {
@@ -27,12 +33,16 @@ export async function getUserStats(userId: string): Promise<UserStats | null> {
       streak: 0,
       max_streak: 0,
       global_rank: null,
-      avg_guesses: 0,
+      avg_guesses: avgGuesses,
     };
   }
 
-return { ...data, max_streak: (data as { max_streak?: number }).max_streak ?? 0 };
-  }
+  return {
+    ...data,
+    max_streak: (data as { max_streak?: number }).max_streak ?? 0,
+    avg_guesses: avgGuesses,
+  };
+}
 
   export interface LeaderboardEntryRow {
   user_id: string;

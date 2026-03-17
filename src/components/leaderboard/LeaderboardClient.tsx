@@ -186,7 +186,6 @@ export function LeaderboardClient({ initialData }: Props) {
             <div className="flex items-center px-4 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <span className="w-10">{t("rank")}</span>
               <span className="flex-1">{t("user")}</span>
-              <span className="w-16 text-center">{t("streak")}</span>
               <span className="w-16 text-right">{t("totalPoints")}</span>
             </div>
 
@@ -235,13 +234,6 @@ export function LeaderboardClient({ initialData }: Props) {
                     </span>
                   </span>
                 </div>
-              </div>
-              <div className="flex w-16 items-center justify-center gap-1">
-                <span className="material-symbols-outlined text-sm text-orange-400"
-                  style={{ fontVariationSettings: "'FILL' 1" }}>
-                  local_fire_department
-                </span>
-                <span className="text-sm font-medium">{entry.streak}</span>
               </div>
               <span className="w-16 text-right text-sm font-bold tabular-nums">
                 {formatPoints(entry.total_points)}

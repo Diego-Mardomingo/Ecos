@@ -14,7 +14,6 @@ import {
   getMsUntilNextMidnightMadrid,
   getTomorrowMadridDate,
 } from "@/lib/date-utils";
-import { getNextStreakBonusPoints } from "@/lib/scoring";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHomeData, queryKeys, type HomeData } from "@/lib/hooks/queries";
@@ -42,11 +41,18 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  type CarouselApi,
+} from "@/components/ui/carousel";
 
 const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
 const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
 const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
 const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
+const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
 /** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
 const PREVIOUS_DAY_COLORS = [
   "hsl(0, 55%, 40%)",   /* rojo */
@@ -93,8 +99,10 @@ export function HomeClient({ initialData }: Props) {
     if (prefetchedNextRef.current) {
       queryClient.setQueryData(queryKeys.home, prefetchedNextRef.current);
       prefetchedNextRef.current = null;
+      // No refetch: la respuesta podría ser del día anterior y sobrescribiría la UI correcta.
+    } else {
+      refetch();
     }
-    refetch();
   }, [queryClient, refetch]);
 
   const todaysGame = data?.todaysGame ?? null;
@@ -104,6 +112,7 @@ export function HomeClient({ initialData }: Props) {
   const inProgressByGameId = data?.inProgressByGameId ?? {};
   const todaysCompletedResult = data?.todaysCompletedResult ?? null;
   const rankingRanks = data?.rankingRanks;
+  const rankingStats = data?.rankingStats;
 
   const t = useTranslations("home");
   const tc = useTranslations("common");
@@ -516,20 +525,18 @@ export function HomeClient({ initialData }: Props) {
       </section>
       </div>
 
-      {/* Stats rápidas */}
-      {userId ? (
+      {/* Stats por período: carrusel Global / Semanal / Mensual (bucle infinito) */}
+      {userId && rankingStats ? (
+        <HomeStatsCarousel
+          rankingStats={rankingStats}
+          t={t}
+          tc={tc}
+          locale={locale}
+        />
+      ) : userId ? (
         <section className="grid grid-cols-2 gap-3">
-          <StatCard
-            label={t("currentStreak")}
-            value={`${userStats?.streak ?? 0}`}
-            suffix={tc("days")}
-            icon="local_fire_department"
-            iconColor="text-orange-400"
-            iconBg="bg-orange-500/15"
-            nextBonus={getNextStreakBonusPoints(userStats?.streak ?? 0)}
-            nextBonusSuffix={t("streakBonusNextSuffix")}
-          />
-          <RankingCard rankingRanks={rankingRanks} t={t} />
+          <div className="rounded-2xl bg-card p-4 animate-pulse" />
+          <div className="rounded-2xl bg-card p-4 animate-pulse" />
         </section>
       ) : (
         /* Invitado: CTA motivacional para registrarse */
@@ -761,78 +768,127 @@ function WaveformBars() {
   );
 }
 
-function RankingCard({
-  rankingRanks,
+function HomeStatsCarousel({
+  rankingStats,
   t,
+  tc,
+  locale,
 }: {
-  rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
+  rankingStats: { global: { points: number; rank: number | null }; weekly: { points: number; rank: number | null }; monthly: { points: number; rank: number | null } };
   t: (key: string) => string;
+  tc: (key: string) => string;
+  locale: string;
 }) {
-  const fmt = (r: number | null) => (r != null ? `#${r}` : "—");
-  const global = fmt(rankingRanks?.global ?? null);
-  const weekly = fmt(rankingRanks?.weekly ?? null);
-  const monthly = fmt(rankingRanks?.monthly ?? null);
+  const [api, setApi] = useState<CarouselApi>(undefined);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const periods = ["global", "weekly", "monthly"] as const;
+
+  // Restaurar último período guardado y persistir al cambiar
+  useEffect(() => {
+    if (!api) return;
+    const saved = typeof window !== "undefined" ? localStorage.getItem(HOME_STATS_PERIOD_STORAGE_KEY) : null;
+    const idx = saved != null ? periods.indexOf(saved as (typeof periods)[number]) : -1;
+    const initialIndex = idx >= 0 ? idx : 0;
+    if (initialIndex !== 0) api.scrollTo(initialIndex);
+    setSelectedIndex(initialIndex);
+    if (typeof window !== "undefined") localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[initialIndex]);
+    api.on("select", () => {
+      const i = api.selectedScrollSnap();
+      setSelectedIndex(i);
+      if (typeof window !== "undefined") localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[i]);
+    });
+  }, [api]);
+
+  const scrollTo = useCallback(
+    (index: number) => {
+      api?.scrollTo(index);
+    },
+    [api]
+  );
+
+  const positionIconStyle = (rank: number | null) => {
+    if (rank === 1) return { iconColor: "text-amber-500", iconBg: "bg-amber-500/20" };
+    if (rank === 2) return { iconColor: "text-gray-400", iconBg: "bg-gray-500/20" };
+    if (rank === 3) return { iconColor: "text-[#cd7f32]", iconBg: "bg-[#cd7f32]/20" };
+    return { iconColor: "text-sky-400", iconBg: "bg-sky-500/15" };
+  };
 
   return (
-    <Link
-      href="/ranking"
-      className="flex flex-col rounded-2xl bg-card p-4 transition-colors active:bg-card/70"
-    >
-      <div className="mb-3 flex items-center gap-2">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/15">
-          <span
-            className="material-symbols-outlined text-base text-brand"
-            style={{ fontVariationSettings: "'FILL' 1" }}
+    <section className="w-full px-1">
+      {/* Botones de período encima de las tarjetas; último seleccionado persistido en localStorage */}
+      <div className="mb-2 flex justify-center gap-1.5">
+        {periods.map((period, index) => (
+          <button
+            key={period}
+            type="button"
+            onClick={() => scrollTo(index)}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+              selectedIndex === index
+                ? "bg-brand text-[#0a2015]"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            )}
           >
-            emoji_events
-          </span>
-        </div>
-        <p className="text-xs font-medium text-muted-foreground">{t("rankingsLabel")}</p>
+            {t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}
+          </button>
+        ))}
       </div>
-      <div className="flex flex-1 flex-wrap items-end gap-x-3 gap-y-1.5 text-xs sm:gap-x-4">
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{t("globalRank")}</span>
-          <span className="font-bold tabular-nums">{global}</span>
-        </div>
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{t("weeklyRank")}</span>
-          <span className="font-bold tabular-nums">{weekly}</span>
-        </div>
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{t("monthlyRank")}</span>
-          <span className="font-bold tabular-nums">{monthly}</span>
-        </div>
+      <div className="relative flex items-center">
+        <Carousel
+          opts={{ align: "start", loop: true }}
+          setApi={setApi}
+          className="relative w-full flex-1"
+        >
+          <CarouselContent className="-ml-3">
+            {periods.map((period) => (
+              <CarouselItem key={period} className="pl-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <HomeStatCard
+                    label={`${t("score")} ${t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}`}
+                    value={rankingStats[period].points.toLocaleString(locale === "es" ? "es-ES" : "en-US")}
+                    subLabel={tc("points")}
+                    icon="emoji_events"
+                    iconColor="text-brand"
+                    iconBg="bg-brand/15"
+                  />
+                  <HomeStatCard
+                    label={`${t("position")} ${t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}`}
+                    value={rankingStats[period].rank != null ? `#${rankingStats[period].rank}` : "—"}
+                    icon="military_tech"
+                    {...positionIconStyle(rankingStats[period].rank ?? null)}
+                  />
+                </div>
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+        </Carousel>
       </div>
-    </Link>
+    </section>
   );
 }
 
-function StatCard({
+function HomeStatCard({
   label,
   value,
-  suffix,
+  subLabel,
   icon,
   iconColor,
   iconBg,
-  nextBonus,
-  nextBonusSuffix,
 }: {
   label: string;
   value: string;
-  suffix?: string;
+  subLabel?: string;
   icon: string;
   iconColor: string;
-  iconBg?: string;
-  nextBonus?: number;
-  nextBonusSuffix?: string;
+  iconBg: string;
 }) {
   return (
-    <div className="rounded-2xl bg-card p-4 flex flex-col">
-      <div className="mb-3 flex items-center gap-2">
+    <div className="flex flex-col rounded-2xl bg-card p-4">
+      <div className="mb-2 flex items-center gap-2">
         <div
           className={cn(
             "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-            iconBg ?? "bg-muted"
+            iconBg
           )}
         >
           <span
@@ -844,19 +900,11 @@ function StatCard({
         </div>
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
       </div>
-      <div className="flex items-end justify-between gap-2">
-        {nextBonus != null && nextBonus > 0 && nextBonusSuffix && (
-          <p className="text-[10px] text-muted-foreground min-w-0">
-            <span className="font-semibold text-brand">+{nextBonus}</span>
-            {` ${nextBonusSuffix}`}
-          </p>
+      <div className="flex items-end gap-1">
+        <span className="text-2xl font-bold tabular-nums">{value}</span>
+        {subLabel && (
+          <span className="mb-0.5 text-sm text-muted-foreground">{subLabel}</span>
         )}
-        <div className="flex items-end gap-1 shrink-0">
-          <span className="text-2xl font-bold">{value}</span>
-          {suffix && (
-            <span className="mb-0.5 text-sm text-muted-foreground">{suffix}</span>
-          )}
-        </div>
       </div>
     </div>
   );

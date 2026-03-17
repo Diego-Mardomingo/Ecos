@@ -118,8 +118,9 @@ export async function POST(request: NextRequest) {
       newStreak = leaderboard?.streak ?? 0;
     }
 
+    // La racha ya no afecta a la puntuación: solo puntos base (streakBonus = 0)
     const scoreResult = isCorrect
-      ? calculateScore(attemptNumber, newStreak)
+      ? calculateScore(attemptNumber, 1)
       : { basePoints: 0, streakBonus: 0, totalPoints: 0 };
 
     await supabase.from("ecos_scores").upsert({
