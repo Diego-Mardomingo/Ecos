@@ -89,7 +89,7 @@ export function LeaderboardClient({ initialData }: Props) {
         : "calc(66.666% + 2px)";
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex min-h-full flex-col min-h-[calc(100dvh-5rem)]">
       {/* Header */}
       <header
         className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 pt-safe backdrop-blur-md"
@@ -101,7 +101,7 @@ export function LeaderboardClient({ initialData }: Props) {
       </header>
 
       <div
-        className="flex min-h-0 flex-1 flex-col touch-pan-y"
+        className="flex min-h-0 flex-1 flex-col touch-pan-y min-h-[calc(100dvh-8rem)]"
         style={{ touchAction: "pan-y" }}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
