@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -10,6 +10,7 @@ import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
 import { cn } from "@/lib/utils";
 
 const SWIPE_THRESHOLD = 50;
+const RANKING_PERIOD_STORAGE_KEY = "ecos-ranking-period";
 
 interface LeaderboardEntry {
   user_id: string;
@@ -38,6 +39,26 @@ export function LeaderboardClient({ initialData }: Props) {
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
+  const isFirstSaveRun = useRef(true);
+
+  // Restaurar último período guardado al montar
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem(RANKING_PERIOD_STORAGE_KEY);
+    const idx = saved != null ? PERIOD_ORDER.indexOf(saved as PeriodTab) : -1;
+    if (idx >= 0) setActiveTab(PERIOD_ORDER[idx]);
+  }, []);
+
+  // Persistir al cambiar de período (saltar la primera ejecución para no sobrescribir antes de restaurar)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isFirstSaveRun.current) {
+      isFirstSaveRun.current = false;
+      return;
+    }
+    localStorage.setItem(RANKING_PERIOD_STORAGE_KEY, activeTab);
+  }, [activeTab]);
+
   const { data, isLoading } = useLeaderboard(activeTab, initialData);
   useLeaderboardRealtime();
   const entries = data?.entries ?? [];
@@ -56,10 +77,10 @@ export function LeaderboardClient({ initialData }: Props) {
     (e: React.TouchEvent) => {
       const delta = e.changedTouches[0].clientX - touchStartX.current;
       const idx = PERIOD_ORDER.indexOf(activeTab);
-      if (delta > SWIPE_THRESHOLD && idx > 0) {
-        setActiveTab(PERIOD_ORDER[idx - 1]);
-      } else if (delta < -SWIPE_THRESHOLD && idx < PERIOD_ORDER.length - 1) {
-        setActiveTab(PERIOD_ORDER[idx + 1]);
+      if (delta > SWIPE_THRESHOLD) {
+        setActiveTab(PERIOD_ORDER[(idx - 1 + 3) % 3]);
+      } else if (delta < -SWIPE_THRESHOLD) {
+        setActiveTab(PERIOD_ORDER[(idx + 1) % 3]);
       }
     },
     [activeTab]
