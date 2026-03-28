@@ -48,6 +48,15 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 
+/** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
+const ABOUT_HOW_TO_PLAY_ICONS = [
+  "calendar_today",
+  "graphic_eq",
+  "search",
+  "emoji_events",
+  "skip_next",
+] as const;
+
 const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
 const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
 const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
@@ -117,6 +126,7 @@ export function HomeClient({ initialData }: Props) {
 
   const t = useTranslations("home");
   const tc = useTranslations("common");
+  const howToPlaySteps = t.raw("howToPlayStepsList") as { title: string; desc: string }[];
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const { byGameId, saveProgress } = useGameProgressStore();
@@ -268,14 +278,44 @@ export function HomeClient({ initialData }: Props) {
                 <span className="material-symbols-outlined text-xl">info</span>
               </button>
             </DialogTrigger>
-            <DialogContent className="max-w-sm">
+            <DialogContent className="max-w-md gap-0 overflow-y-auto sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>{t("aboutTitle")}</DialogTitle>
-                <DialogDescription className="sr-only">{t("aboutDescription")}</DialogDescription>
+                <DialogDescription className="sr-only">{t("aboutAccessibilitySummary")}</DialogDescription>
               </DialogHeader>
-              <p className="text-sm text-muted-foreground">{t("aboutDescription")}</p>
-              <h4 className="mt-4 font-semibold">{t("howToPlayTitle")}</h4>
-              <p className="text-sm text-muted-foreground">{t("howToPlaySteps")}</p>
+              <div className="mt-3 space-y-5">
+                <div className="rounded-xl border border-brand/25 bg-gradient-to-br from-brand/12 to-brand/5 px-3.5 py-3">
+                  <p className="text-sm font-semibold leading-snug text-brand">{t("aboutTagline")}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("aboutBody")}</p>
+                </div>
+                <div>
+                  <h4 className="mb-3 text-sm font-semibold tracking-tight">{t("howToPlayTitle")}</h4>
+                  <ul className="space-y-2" role="list">
+                    {howToPlaySteps.map((step, i) => (
+                      <li
+                        key={i}
+                        className="flex gap-3 rounded-xl border border-border/60 bg-muted/40 px-2.5 py-2.5"
+                      >
+                        <span
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand ring-1 ring-brand/25"
+                          aria-hidden
+                        >
+                          <span
+                            className="material-symbols-outlined text-[22px]"
+                            style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
+                          >
+                            {ABOUT_HOW_TO_PLAY_ICONS[i] ?? "music_note"}
+                          </span>
+                        </span>
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <p className="text-sm font-medium leading-snug text-foreground">{step.title}</p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{step.desc}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </DialogContent>
           </Dialog>
           <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>

@@ -35,9 +35,32 @@
     "challengeAvailable": "Today's challenge available",
     "playNow": "Play Now",
     "aboutTitle": "What is ECOS?",
-    "aboutDescription": "ECOS is a music guessing game similar to Heardle, focused on Spanish and Latin music. Every day a new song is released and you have to guess it by listening to audio clips that unlock progressively.",
+    "aboutTagline": "🎵 Recognize the song?",
+    "aboutBody": "A daily challenge: guess the track that is playing in as few attempts as possible.",
+    "aboutAccessibilitySummary": "ECOS is a game where you guess songs from Spanish and Latin music. There is a new song each day. You have up to six attempts; each one plays a little more audio. Type the title or artist and pick the right match from the list. The sooner you guess, the more points. You can skip an attempt if you are not sure.",
     "howToPlayTitle": "How to play?",
-    "howToPlaySteps": "You have 6 attempts. In each attempt you'll hear more seconds of the song. Search for the correct title or artist. The sooner you guess, the more points you get. You can skip an attempt if you don't know it.",
+    "howToPlayStepsList": [
+      {
+        "title": "A fresh challenge daily",
+        "desc": "A new track is waiting for you; tomorrow brings another one."
+      },
+      {
+        "title": "The clip keeps growing",
+        "desc": "Up to 6 attempts: each time you hear a little more of the song."
+      },
+      {
+        "title": "Search and pick",
+        "desc": "Type the title or artist and select the correct option from the list."
+      },
+      {
+        "title": "Fewer attempts, better score",
+        "desc": "The earlier you guess, the more points you earn for the leaderboard."
+      },
+      {
+        "title": "Not ringing a bell?",
+        "desc": "Skip the attempt and try again with more seconds of the song."
+      }
+    ],
     "reportTitle": "Report a bug or suggest improvements",
     "reportDescription": "Found a bug, something that doesn't work as expected, or have an idea to make ECOS better? Your feedback helps us a lot to improve the experience for everyone. Every report and every suggestion matters: they help us fix issues and prioritize the improvements you care about most. Don't hesitate to use it —we really appreciate it!",
     "reportType": "Type",
