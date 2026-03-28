@@ -260,7 +260,9 @@
       "saving": "Guardando...",
       "usernameRequired": "El nombre de usuario es obligatorio",
       "usernameInvalid": "Entre 3 y 50 caracteres: letras, números, _, espacios y emojis",
-      "usernameTaken": "Este nombre ya está en uso"
+      "usernameTaken": "Este nombre ya está en uso",
+      "rankingsAvatarVisibility": "Mostrar mi foto en los rankings",
+      "rankingsAvatarVisibilityHelp": "Si está activado, otros jugadores verán tu imagen de perfil en las clasificaciones. Si lo desactivas, solo verán tu nombre (o iniciales). Tu perfil sigue mostrando tu foto solo para ti."
     },
     "completeProfile": {
       "title": "Completa tu perfil",

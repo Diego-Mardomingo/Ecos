@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 // Permite letras, números, _, espacios y emojis (3-50 caracteres)
 const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
@@ -17,6 +18,7 @@ interface Profile {
   display_name: string;
   avatar_url: string;
   username?: string | null;
+  show_avatar_in_rankings: boolean;
 }
 
 interface Props {
@@ -30,6 +32,9 @@ export function EditProfileClient({ profile }: Props) {
 
   const [username, setUsername] = useState(profile.username ?? profile.display_name ?? "");
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url ?? "");
+  const [showAvatarInRankings, setShowAvatarInRankings] = useState(
+    profile.show_avatar_in_rankings
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -84,6 +89,7 @@ export function EditProfileClient({ profile }: Props) {
       body: JSON.stringify({
         username: trimmed,
         avatar_url: avatarUrl || undefined,
+        show_avatar_in_rankings: showAvatarInRankings,
       }),
     });
 
@@ -139,7 +145,7 @@ export function EditProfileClient({ profile }: Props) {
               className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-brand shadow-md"
             >
               <span
-                className="material-symbols-outlined text-base text-[#0a2015]"
+                className="material-symbols-outlined text-base text-primary-foreground"
                 style={{ fontVariationSettings: "'FILL' 1" }}
               >
                 add_a_photo
@@ -153,6 +159,23 @@ export function EditProfileClient({ profile }: Props) {
           >
             {t("changeAvatar")}
           </Button>
+        </div>
+
+        <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/80 bg-card/50 px-4 py-3">
+          <div className="min-w-0 space-y-1 pr-2">
+            <p className="text-sm font-medium leading-snug">
+              {t("rankingsAvatarVisibility")}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {t("rankingsAvatarVisibilityHelp")}
+            </p>
+          </div>
+          <Switch
+            checked={showAvatarInRankings}
+            onCheckedChange={setShowAvatarInRankings}
+            className="shrink-0"
+            aria-label={t("rankingsAvatarVisibility")}
+          />
         </div>
 
         {/* Username */}

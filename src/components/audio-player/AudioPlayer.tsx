@@ -348,7 +348,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       >
         {isLoaded ? (
           <span
-            className="material-symbols-outlined text-3xl text-[#0a2015]"
+            className="material-symbols-outlined text-3xl text-primary-foreground"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
             {isPlaying ? "stop" : "play_arrow"}

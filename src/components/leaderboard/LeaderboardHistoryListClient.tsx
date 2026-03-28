@@ -199,7 +199,7 @@ export function LeaderboardHistoryListClient() {
             onClick={() => setGranularity("weekly")}
             className={cn(
               "relative z-10 flex-1 rounded-full py-2 text-sm font-semibold transition-colors",
-              granularity === "weekly" ? "text-[#0a2015]" : "text-muted-foreground"
+              granularity === "weekly" ? "text-primary-foreground" : "text-muted-foreground"
             )}
           >
             {t("weekly")}
@@ -209,7 +209,7 @@ export function LeaderboardHistoryListClient() {
             onClick={() => setGranularity("monthly")}
             className={cn(
               "relative z-10 flex-1 rounded-full py-2 text-sm font-semibold transition-colors",
-              granularity === "monthly" ? "text-[#0a2015]" : "text-muted-foreground"
+              granularity === "monthly" ? "text-primary-foreground" : "text-muted-foreground"
             )}
           >
             {t("monthly")}

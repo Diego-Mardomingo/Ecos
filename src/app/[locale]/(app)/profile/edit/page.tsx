@@ -19,11 +19,16 @@ export default async function EditProfilePage() {
 
   const { data: dbProfile } = await supabase
     .from("ecos_profiles")
-    .select("display_name, avatar_url, username")
+    .select("display_name, avatar_url, username, show_avatar_in_rankings")
     .eq("user_id", user.id)
     .single();
 
-  const db = dbProfile as { display_name?: string; avatar_url?: string; username?: string } | null;
+  const db = dbProfile as {
+    display_name?: string;
+    avatar_url?: string;
+    username?: string;
+    show_avatar_in_rankings?: boolean;
+  } | null;
   const profile = {
     id: user.id,
     display_name:
@@ -38,6 +43,7 @@ export default async function EditProfilePage() {
       user.user_metadata?.picture ??
       "",
     username: db?.username ?? null,
+    show_avatar_in_rankings: db?.show_avatar_in_rankings ?? true,
   };
 
   return <EditProfileClient profile={profile} />;

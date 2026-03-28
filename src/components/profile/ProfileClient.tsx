@@ -20,6 +20,7 @@ interface Profile {
   id: string;
   display_name: string;
   avatar_url: string;
+  show_avatar_in_rankings: boolean;
   created_at: string;
   email: string;
   role?: string | null;
@@ -38,6 +39,7 @@ export function ProfileClient({ initialData }: Props) {
     id: "",
     display_name: "",
     avatar_url: "",
+    show_avatar_in_rankings: true,
     created_at: "",
     email: "",
     role: null,
@@ -125,7 +127,7 @@ export function ProfileClient({ initialData }: Props) {
         <StatBlock
           icon="check_circle"
           iconBg="bg-green-500/15"
-          iconColor="text-green-400"
+          iconColor="text-green-700 dark:text-green-400"
           value={stats?.games_won ?? 0}
           label={t("stats.guessed")}
         />
@@ -184,7 +186,7 @@ export function ProfileClient({ initialData }: Props) {
                     className={cn(
                       "rounded-full px-2.5 py-1 text-xs font-medium transition-all",
                       mounted && theme === th
-                        ? "bg-brand text-[#0a2015]"
+                        ? "bg-brand text-primary-foreground"
                         : "text-muted-foreground"
                     )}
                   >

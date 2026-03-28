@@ -39,6 +39,19 @@ export function getEffectiveGameDate(now: Date = new Date()): string {
 }
 
 /**
+ * Normaliza a YYYY-MM-DD un valor de fecha (Postgres `date`, ISO con zona, etc.).
+ * Útil para comparar `last_played` con fechas calculadas en Madrid sin fallos por formato.
+ */
+export function toDateKey(value: string | null | undefined): string | null {
+  if (value == null || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    return trimmed.slice(0, 10);
+  }
+  return null;
+}
+
+/**
  * Fecha del día siguiente en Madrid (formato YYYY-MM-DD).
  * Útil para prefetch del home cuando faltan segundos para medianoche.
  */

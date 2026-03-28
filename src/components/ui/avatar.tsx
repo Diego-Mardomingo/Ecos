@@ -27,15 +27,26 @@ function Avatar({
 
 function AvatarImage({
   className,
+  src,
   ...props
 }: React.ComponentProps<typeof AvatarPrimitive.Image>) {
+  const safe =
+    src == null
+      ? undefined
+      : typeof src === "string"
+        ? (src.trim() === "" ? undefined : src)
+        : src;
+  if (safe == null) {
+    return null;
+  }
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
       className={cn("aspect-square size-full", className)}
+      src={safe}
       {...props}
     />
-  )
+  );
 }
 
 function AvatarFallback({

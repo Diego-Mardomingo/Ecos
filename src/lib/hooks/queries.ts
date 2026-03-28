@@ -61,6 +61,7 @@ interface ProfileData {
     id: string;
     display_name: string;
     avatar_url: string;
+    show_avatar_in_rankings: boolean;
     created_at: string;
     email: string;
     role: string | null;

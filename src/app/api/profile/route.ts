@@ -21,11 +21,17 @@ export async function GET() {
 
     const { data: dbProfile } = await supabase
       .from("ecos_profiles")
-      .select("display_name, avatar_url, role, username")
+      .select("display_name, avatar_url, role, username, show_avatar_in_rankings")
       .eq("user_id", user.id)
       .single();
 
-    const db = dbProfile as { display_name?: string; avatar_url?: string; role?: string; username?: string } | null;
+    const db = dbProfile as {
+      display_name?: string;
+      avatar_url?: string;
+      role?: string;
+      username?: string;
+      show_avatar_in_rankings?: boolean;
+    } | null;
     const profile = {
       id: user.id,
       display_name:
@@ -39,6 +45,7 @@ export async function GET() {
         user.user_metadata?.avatar_url ??
         user.user_metadata?.picture ??
         "",
+      show_avatar_in_rankings: db?.show_avatar_in_rankings ?? true,
       created_at: user.created_at,
       email: user.email ?? "",
       role: db?.role ?? null,
@@ -66,9 +73,18 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { username, avatar_url } = body as { username?: string; avatar_url?: string };
+    const { username, avatar_url, show_avatar_in_rankings } = body as {
+      username?: string;
+      avatar_url?: string;
+      show_avatar_in_rankings?: boolean;
+    };
 
-    const updates: { username?: string; avatar_url?: string; updated_at?: string } = {};
+    const updates: {
+      username?: string;
+      avatar_url?: string | null;
+      show_avatar_in_rankings?: boolean;
+      updated_at?: string;
+    } = {};
 
     if (typeof username === "string") {
       const trimmed = username.trim();
@@ -94,6 +110,10 @@ export async function PATCH(request: NextRequest) {
 
     if (typeof avatar_url === "string") {
       updates.avatar_url = avatar_url || null;
+    }
+
+    if (typeof show_avatar_in_rankings === "boolean") {
+      updates.show_avatar_in_rankings = show_avatar_in_rankings;
     }
 
     if (Object.keys(updates).length === 0) {

@@ -260,7 +260,9 @@
       "saving": "Saving...",
       "usernameRequired": "Username is required",
       "usernameInvalid": "3-50 characters: letters, numbers, spaces, _ and emojis",
-      "usernameTaken": "This username is already taken"
+      "usernameTaken": "This username is already taken",
+      "rankingsAvatarVisibility": "Show my photo on leaderboards",
+      "rankingsAvatarVisibilityHelp": "When enabled, other players see your profile picture on rankings. When disabled, they only see your name (or initials). Your own profile page still shows your photo to you."
     },
     "completeProfile": {
       "title": "Complete your profile",

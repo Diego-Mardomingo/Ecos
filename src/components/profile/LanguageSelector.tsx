@@ -43,7 +43,7 @@ export function LanguageSelector() {
             disabled={isPending}
             className={cn(
               "rounded-full px-2.5 py-1 text-xs font-medium transition-all",
-              locale === loc ? "bg-brand text-[#0a2015]" : "text-muted-foreground"
+              locale === loc ? "bg-brand text-primary-foreground" : "text-muted-foreground"
             )}
           >
             {loc === "es" ? "Español" : "English"}

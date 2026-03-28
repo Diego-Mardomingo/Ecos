@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
 import confetti from "canvas-confetti";
+import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
@@ -31,6 +32,9 @@ import { cn } from "@/lib/utils";
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
 
+const CONFETTI_COLORS_DARK = ["#2bee79", "#ffffff", "#0a2015"] as const;
+const CONFETTI_COLORS_LIGHT = ["#059669", "#ffffff", "#f8fafc"] as const;
+
 interface Props {
   game: GameWithSong;
   userId: string | null; // null = invitado
@@ -38,6 +42,7 @@ interface Props {
 
 export function GameClient({ game, userId }: Props) {
   const queryClient = useQueryClient();
+  const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
   const tc = useTranslations("common");
   const locale = useLocale();
@@ -154,7 +159,10 @@ export function GameClient({ game, userId }: Props) {
           particleCount: 120,
           spread: 80,
           origin: { y: 0.6 },
-          colors: ["#2bee79", "#ffffff", "#0a2015"],
+          colors:
+            resolvedTheme === "dark"
+              ? [...CONFETTI_COLORS_DARK]
+              : [...CONFETTI_COLORS_LIGHT],
         });
 
         const guessEntry = {
@@ -277,7 +285,20 @@ export function GameClient({ game, userId }: Props) {
         }
       }
     },
-    [phase, game, userId, isGuest, currentAttempt, maxAttempts, addGuess, setWon, setLost, saveProgress, invalidateOnGameComplete]
+    [
+      phase,
+      game,
+      userId,
+      isGuest,
+      currentAttempt,
+      maxAttempts,
+      addGuess,
+      setWon,
+      setLost,
+      saveProgress,
+      invalidateOnGameComplete,
+      resolvedTheme,
+    ]
   );
 
   const song = game.ecos_songs;
@@ -351,7 +372,7 @@ export function GameClient({ game, userId }: Props) {
                   className={cn(
                     "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
                     audioLoaded
-                      ? "bg-brand text-[#0a2015]"
+                      ? "bg-brand text-primary-foreground"
                       : "cursor-not-allowed bg-muted text-muted-foreground opacity-50"
                   )}
                   aria-label={audioPlaying ? t("listening") : t("pressPlay")}
@@ -581,7 +602,7 @@ export function GameClient({ game, userId }: Props) {
               className={cn(
                 "absolute flex size-32 items-center justify-center rounded-full shadow-lg transition-transform",
                 audioLoaded
-                  ? "bg-brand text-[#0a2015] shadow-brand/20 hover:scale-105 active:scale-95"
+                  ? "bg-brand text-primary-foreground shadow-brand/20 hover:scale-105 active:scale-95"
                   : "cursor-not-allowed bg-muted opacity-50 text-muted-foreground"
               )}
               aria-label={audioPlaying ? t("listening") : t("pressPlay")}
@@ -1023,7 +1044,7 @@ function ResultScreen({
         <button
           type="button"
           onClick={handleShare}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3.5 text-sm font-bold text-[#0a2015]"
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3.5 text-sm font-bold text-primary-foreground"
         >
           <span className="material-symbols-outlined text-lg">share</span>
           {shareCopied ? t("shareCopied") : t("shareResult")}
@@ -1059,7 +1080,7 @@ function ResultScreen({
           </p>
           <Link
             href={`/login?redirect=/play`}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-[#0a2015]"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-primary-foreground"
           >
             <span className="material-symbols-outlined text-base"
               style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -1159,7 +1180,7 @@ function ResultScreen({
                       <button
                         onClick={handleReport}
                         disabled={!reportReason || reportSending}
-                        className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-[#0a2015] disabled:opacity-50"
+                        className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50"
                       >
                         {reportSending ? t("report.sending") : t("report.submit")}
                       </button>

@@ -29,9 +29,9 @@
   --color-ring: var(--ring);
   --color-surface: var(--surface);
 
-  /* Tokens de marca ECOS */
-  --color-brand: #2bee79;
-  --color-brand-dim: #1abc62;
+  /* Tokens de marca ECOS — resuelven por tema (:root / .dark) */
+  --color-brand: var(--brand);
+  --color-brand-dim: var(--brand-dim);
   --color-bronze: #cd7f32;
 
   /* Radio de bordes — esquinas discretas */
@@ -48,36 +48,44 @@
 :root {
   --radius: 0.5rem;
 
-  --background:         #f6f8f7;
+  --brand:              #059669;
+  --brand-dim:          #047857;
+  --background:         #f4f6f5;
   --foreground:         #111827;
   --card:               #ffffff;
   --card-foreground:    #111827;
   --popover:            #ffffff;
   --popover-foreground: #111827;
-  --primary:            #2bee79;
-  --primary-foreground: #0a2015;
-  --secondary:          #e8f5ee;
-  --secondary-foreground:#1a3a27;
-  --muted:              #e8f5ee;
-  --muted-foreground:   #6b7280;
-  --accent:             #e8f5ee;
+  --primary:            var(--brand);
+  --primary-foreground: #f8fafc;
+  --secondary:          #eef1ef;
+  --secondary-foreground:#1e293b;
+  --muted:              #eef1ef;
+  --muted-foreground:   #475569;
+  --accent:             #eef1ef;
   --accent-foreground:  #111827;
   --destructive:        oklch(0.577 0.245 27.325);
-  --border:             #d1e8db;
-  --input:              #d1e8db;
-  --ring:               #2bee79;
+  --border:             #d1dcd7;
+  --input:              #d1dcd7;
+  --ring:               var(--brand);
   --surface:            #ffffff;
+
+  /* Acentos “tipo tema oscuro”: iconos sobre portadas / textos en superficies oscuras (hero hoy) */
+  --ecos-bright-brand:       #2bee79;
+  --ecos-bright-destructive: oklch(0.704 0.191 22.216);
 }
 
-/* ---- DARK THEME ---- */
+/* ---- DARK THEME (acentos sin cambios respecto al diseño anterior) ---- */
 .dark {
+  --brand:              #2bee79;
+  --brand-dim:          #1abc62;
   --background:         #0f1112;
   --foreground:         #f4f4f5;
   --card:               #181b1d;
   --card-foreground:    #f4f4f5;
   --popover:            #181b1d;
   --popover-foreground: #f4f4f5;
-  --primary:            #2bee79;
+  --primary:            var(--brand);
   --primary-foreground: #0a2015;
   --secondary:          #1c1f21;
   --secondary-foreground:#d4d4d8;
@@ -88,8 +96,11 @@
   --destructive:        oklch(0.704 0.191 22.216);
   --border:             rgba(255,255,255,0.08);
   --input:              rgba(255,255,255,0.10);
-  --ring:               #2bee79;
+  --ring:               var(--brand);
   --surface:            #181b1d;
+
+  --ecos-bright-brand:       var(--brand);
+  --ecos-bright-destructive: var(--destructive);
 }
 
 @layer base {
@@ -106,6 +117,10 @@
     min-height: 100dvh;
   }
   ::selection {
+    background-color: var(--brand);
+    color: var(--primary-foreground);
+  }
+  .dark ::selection {
     background-color: #2bee79;
     color: #0a2015;
   }

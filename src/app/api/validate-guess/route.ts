@@ -3,7 +3,7 @@ import { revalidateTag } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { calculateScore } from "@/lib/scoring";
 import { artistsMatch, normalizeForCompare } from "@/lib/artist-match";
-import { getEffectiveGameDate } from "@/lib/date-utils";
+import { getEffectiveGameDate, toDateKey } from "@/lib/date-utils";
 import { z } from "zod";
 
 const GuessSchema = z.object({
@@ -102,15 +102,19 @@ export async function POST(request: NextRequest) {
 
     if (isTodaysGame) {
       if (isCorrect) {
-        const lastPlayed = leaderboard?.last_played as string | null | undefined;
+        const lastPlayedKey = toDateKey(leaderboard?.last_played as string | null | undefined);
         const [y, m, d] = todayMadrid.split("-").map(Number);
         const yesterdayDate = new Date(Date.UTC(y, m - 1, d - 1));
         const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
-        const lastPlayedContinuation =
-          lastPlayed && (lastPlayed === yesterdayStr || lastPlayed === todayMadrid);
-        newStreak = lastPlayedContinuation
-          ? (leaderboard?.streak ?? 0) + 1
-          : 1;
+
+        if (lastPlayedKey === todayMadrid) {
+          // Ya hubo finalización hoy: idempotente (no duplicar +1 por doble finalize).
+          newStreak = leaderboard?.streak ?? 0;
+        } else if (lastPlayedKey === yesterdayStr) {
+          newStreak = (leaderboard?.streak ?? 0) + 1;
+        } else {
+          newStreak = 1;
+        }
       } else {
         newStreak = 0;
       }

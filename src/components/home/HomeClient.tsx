@@ -474,7 +474,7 @@ export function HomeClient({ initialData }: Props) {
                       className={cn(
                         "h-2 w-2 shrink-0 rounded-full",
                         i < todaysGuesses.length
-                          ? "bg-destructive"
+                          ? "bg-[var(--ecos-bright-destructive)]"
                           : i === todaysGuesses.length
                             ? "bg-white/80"
                             : "bg-white/40"
@@ -491,17 +491,32 @@ export function HomeClient({ initialData }: Props) {
             <div className="flex items-center justify-between gap-2 sm:gap-3">
               {todaysCompleted ? (
                 <div className="flex w-fit items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md">
-                  <span className={todaysDisplayScore === 0 ? "text-destructive" : "text-brand"}>{t("score")}:</span>
-                  <span className={todaysDisplayScore === 0 ? "text-destructive" : "text-brand"}>
+                  <span
+                    className={
+                      todaysDisplayScore === 0
+                        ? "text-[color:var(--ecos-bright-destructive)]"
+                        : "text-[color:var(--ecos-bright-brand)]"
+                    }
+                  >
+                    {t("score")}:
+                  </span>
+                  <span
+                    className={
+                      todaysDisplayScore === 0
+                        ? "text-[color:var(--ecos-bright-destructive)]"
+                        : "text-[color:var(--ecos-bright-brand)]"
+                    }
+                  >
                     {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
                     {tc("points")}
                   </span>
                 </div>
               ) : (
                 <div
-                  className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_rgba(43,238,121,0.4)]"
+                  className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_color-mix(in_srgb,var(--brand)_40%,transparent)]"
                   style={{
-                    background: "linear-gradient(135deg, #2bee79 0%, #1abc62 50%, #2bee79 100%)",
+                    background:
+                      "linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 50%, var(--brand) 100%)",
                   }}
                 >
                   <span
@@ -516,7 +531,7 @@ export function HomeClient({ initialData }: Props) {
               <button
                 type="button"
                 onClick={handleShareHome}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-sky-400 shadow-md transition-all hover:bg-[#383838] hover:text-sky-300 hover:shadow-lg active:scale-95"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-[color:var(--ecos-bright-brand)] shadow-md transition-all hover:bg-[#383838] hover:opacity-90 hover:shadow-lg active:scale-95"
               >
                 <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0" }}>share</span>
               </button>
@@ -591,8 +606,8 @@ function TodaysCardBadge({
 
   const dotColor = todaysCompleted
     ? todaysWon
-      ? "bg-brand"
-      : "bg-destructive"
+      ? "bg-[var(--ecos-bright-brand)]"
+      : "bg-[var(--ecos-bright-destructive)]"
     : todaysInProgress
       ? "bg-orange-500"
       : "bg-blue-500";
@@ -605,7 +620,11 @@ function TodaysCardBadge({
           className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
           style={{ animationDuration: "2s" }}
         />
-        <span className={isWon ? "text-brand" : "text-destructive"}>
+        <span
+          className={
+            isWon ? "text-[color:var(--ecos-bright-brand)]" : "text-[color:var(--ecos-bright-destructive)]"
+          }
+        >
           {isWon ? t("badgeWon") : t("badgeLost")}
         </span>
       </div>
@@ -826,7 +845,7 @@ function HomeStatsCarousel({
             className={cn(
               "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
               selectedIndex === index
-                ? "bg-brand text-[#0a2015]"
+                ? "bg-brand text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:bg-muted/80"
             )}
           >
@@ -1141,7 +1160,9 @@ function PreviousDaysSection({
                             <span
                               className={cn(
                                 "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
-                                won ? "text-brand" : "text-destructive"
+                                won
+                                  ? "text-[color:var(--ecos-bright-brand)]"
+                                  : "text-[color:var(--ecos-bright-destructive)]"
                               )}
                               style={{ fontVariationSettings: "'FILL' 1" }}
                             >
@@ -1178,7 +1199,9 @@ function PreviousDaysSection({
                         <span
                           className={cn(
                             "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
-                            won ? "text-brand" : "text-destructive"
+                            won
+                              ? "text-[color:var(--ecos-bright-brand)]"
+                              : "text-[color:var(--ecos-bright-destructive)]"
                           )}
                           style={{ fontVariationSettings: "'FILL' 1" }}
                         >

@@ -138,7 +138,7 @@ export function LeaderboardClient({ initialData }: Props) {
             </div>
             <Link
               href="/login?redirect=/ranking"
-              className="flex-shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-[#0a2015]"
+              className="flex-shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-primary-foreground"
             >
               {t("guestBannerCta")}
             </Link>
@@ -163,7 +163,7 @@ export function LeaderboardClient({ initialData }: Props) {
                 onClick={() => setActiveTab(tab)}
                 className={cn(
                   "relative z-10 flex-1 rounded-full py-2 text-sm font-semibold transition-colors",
-                  activeTab === tab ? "text-[#0a2015]" : "text-muted-foreground"
+                  activeTab === tab ? "text-primary-foreground" : "text-muted-foreground"
                 )}
               >
                 {t(tab)}
