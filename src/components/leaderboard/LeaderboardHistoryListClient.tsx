@@ -19,6 +19,7 @@ import {
   useLeaderboardHistorySummaries,
   type LeaderboardHistorySummary,
 } from "@/lib/hooks/queries";
+import { RankingHistoryListContentSkeleton } from "@/components/skeletons";
 
 type Granularity = "weekly" | "monthly";
 
@@ -28,11 +29,22 @@ type WeekMonthGroup = {
   rows: LeaderboardHistorySummary[];
 };
 
-export function LeaderboardHistoryListClient() {
+interface Props {
+  initialSummaries?: Partial<
+    Record<"weekly" | "monthly", LeaderboardHistorySummary[]>
+  >;
+}
+
+export function LeaderboardHistoryListClient({
+  initialSummaries,
+}: Props) {
   const t = useTranslations("ranking");
   const locale = useLocale();
   const [granularity, setGranularity] = useState<Granularity>("weekly");
-  const { data: summaries, isLoading } = useLeaderboardHistorySummaries(granularity);
+  const { data: summaries, isLoading } = useLeaderboardHistorySummaries(
+    granularity,
+    initialSummaries
+  );
 
   const dfLocale = locale === "es" ? esLocale : enUS;
 
@@ -219,9 +231,7 @@ export function LeaderboardHistoryListClient() {
 
       <div className="flex flex-1 flex-col gap-3 px-4 pb-28">
         {isLoading ? (
-          <p className="py-12 text-center text-sm text-muted-foreground">
-            {t("loading")}
-          </p>
+          <RankingHistoryListContentSkeleton />
         ) : !summaries?.length ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             {t("historyEmpty")}

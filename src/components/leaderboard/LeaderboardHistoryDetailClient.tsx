@@ -10,6 +10,7 @@ import {
   LeaderboardPodiumAndList,
   type LeaderboardEntry,
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
+import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import { useLeaderboardHistoryDetail } from "@/lib/hooks/queries";
 
 export function LeaderboardHistoryDetailClient() {
@@ -112,9 +113,7 @@ export function LeaderboardHistoryDetailClient() {
         style={{ touchAction: "pan-y" }}
       >
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center px-6 py-16">
-            <p className="text-sm text-muted-foreground">{t("loading")}</p>
-          </div>
+          <RankingPodiumAndListSkeleton />
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <span

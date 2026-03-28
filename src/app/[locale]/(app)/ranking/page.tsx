@@ -13,13 +13,20 @@ export default async function RankingPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const leaderboard = await getLeaderboardByPeriod("global", 50);
+  const [globalEntries, weeklyEntries, monthlyEntries] = await Promise.all([
+    getLeaderboardByPeriod("global", 50),
+    getLeaderboardByPeriod("weekly", 50),
+    getLeaderboardByPeriod("monthly", 50),
+  ]);
+
+  const currentUserId = user?.id ?? null;
 
   return (
     <LeaderboardClient
-      initialData={{
-        entries: leaderboard,
-        currentUserId: user?.id ?? null,
+      initialByPeriod={{
+        global: { entries: globalEntries, currentUserId },
+        weekly: { entries: weeklyEntries, currentUserId },
+        monthly: { entries: monthlyEntries, currentUserId },
       }}
     />
   );

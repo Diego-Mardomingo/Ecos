@@ -44,7 +44,7 @@ export interface HomeData {
   };
 }
 
-interface RankingData {
+export interface RankingData {
   entries: Array<{
     user_id: string;
     total_points: number;
@@ -100,8 +100,15 @@ export function useGameById(gameId: string, initialData?: GameWithSong | null) {
 
 export function useLeaderboard(
   period: "weekly" | "monthly" | "global",
-  initialData?: RankingData
+  initialByPeriod?: Partial<
+    Record<"weekly" | "monthly" | "global", RankingData>
+  >,
+  legacyInitialData?: RankingData
 ) {
+  const initialData =
+    initialByPeriod?.[period] ??
+    (period === "global" ? legacyInitialData : undefined);
+
   return useQuery({
     queryKey: queryKeys.leaderboard(period),
     queryFn: async (): Promise<RankingData> => {
@@ -109,7 +116,7 @@ export function useLeaderboard(
       if (!res.ok) throw new Error("Failed to fetch leaderboard");
       return res.json();
     },
-    initialData: period === "global" ? initialData : undefined,
+    initialData,
   });
 }
 
@@ -130,7 +137,10 @@ export interface LeaderboardHistoryDetailData extends RankingData {
 }
 
 export function useLeaderboardHistorySummaries(
-  granularity: "weekly" | "monthly"
+  granularity: "weekly" | "monthly",
+  initialByGranularity?: Partial<
+    Record<"weekly" | "monthly", LeaderboardHistorySummary[]>
+  >
 ) {
   return useQuery({
     queryKey: queryKeys.leaderboardHistorySummaries(granularity),
@@ -144,6 +154,7 @@ export function useLeaderboardHistorySummaries(
       const json = (await res.json()) as { summaries: LeaderboardHistorySummary[] };
       return json.summaries ?? [];
     },
+    initialData: initialByGranularity?.[granularity],
     staleTime: 60 * 60 * 1000,
   });
 }

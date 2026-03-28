@@ -3,6 +3,10 @@
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import {
+  leaderboardHeaderGridClass,
+  leaderboardRowGridClass,
+} from "@/components/leaderboard/leaderboard-grid-classes";
 
 export interface LeaderboardEntry {
   user_id: string;
@@ -16,11 +20,10 @@ export interface LeaderboardEntry {
   } | null;
 }
 
-/** Columnas: barra | # | usuario | aciertos | puntos */
-export const leaderboardRowGridClass =
-  "grid w-full min-w-0 grid-cols-[0.25rem_2.25rem_minmax(0,1fr)_minmax(5.25rem,auto)_minmax(5.5rem,auto)] items-center gap-x-2 px-3 py-3 sm:grid-cols-[0.25rem_2.5rem_minmax(0,1fr)_minmax(5.5rem,auto)_minmax(6rem,auto)] sm:gap-x-3";
-export const leaderboardHeaderGridClass =
-  "grid w-full grid-cols-[0.25rem_2.25rem_minmax(0,1fr)_minmax(5.25rem,auto)_minmax(5.5rem,auto)] items-center gap-x-2 px-3 pb-2 sm:grid-cols-[0.25rem_2.5rem_minmax(0,1fr)_minmax(5.5rem,auto)_minmax(6rem,auto)] sm:gap-x-3";
+export {
+  leaderboardHeaderGridClass,
+  leaderboardRowGridClass,
+} from "@/components/leaderboard/leaderboard-grid-classes";
 
 type RankingT = {
   (key: string): string;

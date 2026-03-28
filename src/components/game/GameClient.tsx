@@ -28,6 +28,7 @@ import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgres
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { cn } from "@/lib/utils";
+import { PlayGameSkeleton } from "@/components/skeletons";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -306,15 +307,7 @@ export function GameClient({ game, userId }: Props) {
   // Mostrar resumen guardado al reentrar a un juego completado
   if (loadedProgress === "loading") {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4">
-        <span
-          className="material-symbols-outlined animate-spin text-6xl text-brand"
-          aria-hidden
-        >
-          progress_activity
-        </span>
-        <p className="text-sm text-muted-foreground">{t("loadingGame")}</p>
-      </div>
+      <PlayGameSkeleton footer={<span>{t("loadingGame")}</span>} />
     );
   }
 

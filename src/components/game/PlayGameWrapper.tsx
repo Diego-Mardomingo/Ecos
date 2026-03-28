@@ -4,20 +4,11 @@ import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import { useGameById } from "@/lib/hooks/queries";
 import type { GameWithSong } from "@/lib/queries/games";
+import { PlayGameSkeleton } from "@/components/skeletons";
 
 function PlayGameLoading() {
   const t = useTranslations("game");
-  return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-5 px-4">
-      <span
-        className="material-symbols-outlined animate-spin text-6xl text-brand"
-        aria-hidden
-      >
-        progress_activity
-      </span>
-      <p className="text-sm text-muted-foreground">{t("preparingGame")}</p>
-    </div>
-  );
+  return <PlayGameSkeleton footer={<span>{t("loadingGame")}</span>} />;
 }
 
 const GameClient = dynamic(

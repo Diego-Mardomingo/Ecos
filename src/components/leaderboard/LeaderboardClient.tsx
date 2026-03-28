@@ -11,22 +11,25 @@ import {
   LeaderboardPodiumAndList,
   type LeaderboardEntry,
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
+import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
+import type { RankingData } from "@/lib/hooks/queries";
 
 const SWIPE_THRESHOLD = 50;
 const RANKING_PERIOD_STORAGE_KEY = "ecos-ranking-period";
 
 interface Props {
-  initialData?: {
-    entries: LeaderboardEntry[];
-    currentUserId: string | null;
-  };
+  initialByPeriod?: Partial<
+    Record<"weekly" | "monthly" | "global", RankingData>
+  >;
+  /** @deprecated usar initialByPeriod */
+  initialData?: RankingData;
 }
 
 type PeriodTab = "weekly" | "monthly" | "global";
 
 const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 
-export function LeaderboardClient({ initialData }: Props) {
+export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   const t = useTranslations("ranking");
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
@@ -49,7 +52,11 @@ export function LeaderboardClient({ initialData }: Props) {
     localStorage.setItem(RANKING_PERIOD_STORAGE_KEY, activeTab);
   }, [activeTab]);
 
-  const { data, isLoading } = useLeaderboard(activeTab, initialData);
+  const { data, isLoading, isFetching } = useLeaderboard(
+    activeTab,
+    initialByPeriod,
+    initialData
+  );
   useLeaderboardRealtime();
   const entries = data?.entries ?? [];
 
@@ -93,6 +100,9 @@ export function LeaderboardClient({ initialData }: Props) {
       : activeTab === "monthly"
         ? "calc(33.333% + 2px)"
         : "calc(66.666% + 2px)";
+
+  const showListSkeleton =
+    entries.length === 0 && (isLoading || isFetching);
 
   return (
     <div className="flex min-h-full flex-col min-h-[calc(100dvh-5rem)]">
@@ -173,7 +183,9 @@ export function LeaderboardClient({ initialData }: Props) {
         </div>
 
         <div className="flex flex-1 flex-col">
-          {entries.length === 0 ? (
+          {showListSkeleton ? (
+            <RankingPodiumAndListSkeleton />
+          ) : entries.length === 0 ? (
             <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
               <span
                 className="material-symbols-outlined mb-4 text-4xl text-muted-foreground"
@@ -182,19 +194,17 @@ export function LeaderboardClient({ initialData }: Props) {
                 emoji_events
               </span>
               <p className="text-sm font-medium text-muted-foreground">
-                {isLoading ? t("loading") : t("emptyPeriod")}
+                {t("emptyPeriod")}
               </p>
             </div>
           ) : (
-            <>
-              <LeaderboardPodiumAndList
-                entries={entries}
-                currentUserId={currentUserId}
-                formatPoints={formatPoints}
-                getDisplayName={getDisplayName}
-                t={t}
-              />
-            </>
+            <LeaderboardPodiumAndList
+              entries={entries}
+              currentUserId={currentUserId}
+              formatPoints={formatPoints}
+              getDisplayName={getDisplayName}
+              t={t}
+            />
           )}
         </div>
         <div className="min-h-24 flex-shrink-0" aria-hidden />

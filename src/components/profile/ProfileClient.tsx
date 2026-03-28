@@ -15,6 +15,7 @@ import { useProfile } from "@/lib/hooks/queries";
 import type { UserStats } from "@/lib/queries/users";
 import { LanguageSelector } from "@/components/profile/LanguageSelector";
 import { cn } from "@/lib/utils";
+import { ProfileSkeleton } from "@/components/skeletons";
 
 interface Profile {
   id: string;
@@ -57,15 +58,7 @@ export function ProfileClient({ initialData }: Props) {
   const dateFnsLocale = locale === "es" ? es : enUS;
 
   if (isLoading && !data) {
-    return (
-      <div className="flex min-h-full flex-col gap-5 px-4 pb-28">
-        <div className="h-8 animate-pulse rounded bg-muted" />
-        <div className="flex flex-col items-center gap-3 py-4">
-          <div className="h-24 w-24 animate-pulse rounded-full bg-muted" />
-          <div className="h-6 w-32 animate-pulse rounded bg-muted" />
-        </div>
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   const handleSignOut = async () => {

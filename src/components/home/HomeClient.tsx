@@ -19,6 +19,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useHomeData, queryKeys, type HomeData } from "@/lib/hooks/queries";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
+import { HomeSkeleton } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Collapsible,
   CollapsibleContent,
@@ -234,16 +236,7 @@ export function HomeClient({ initialData }: Props) {
   };
 
   if (isLoading && !data) {
-    return (
-      <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
-        <div className="h-9 w-9 animate-pulse rounded-lg bg-muted" />
-        <div className="aspect-[4/3] animate-pulse rounded-2xl bg-muted" />
-        <div className="grid grid-cols-2 gap-3">
-          <div className="h-20 animate-pulse rounded-2xl bg-muted" />
-          <div className="h-20 animate-pulse rounded-2xl bg-muted" />
-        </div>
-      </div>
-    );
+    return <HomeSkeleton />;
   }
 
   return (
@@ -591,8 +584,8 @@ export function HomeClient({ initialData }: Props) {
         />
       ) : userId ? (
         <section className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-card p-4 animate-pulse" />
-          <div className="rounded-2xl bg-card p-4 animate-pulse" />
+          <Skeleton className="h-28 rounded-2xl" />
+          <Skeleton className="h-28 rounded-2xl" />
         </section>
       ) : (
         /* Invitado: CTA motivacional para registrarse */
