@@ -37,6 +37,7 @@ export interface ScoreResult {
 /**
  * Calcula la puntuación final.
  * streakDays = racha tras acertar (incluye el día actual).
+ * En `validate-guess` se pasa streakDays = 1 para no aplicar bonus de racha (solo puntos base por intento).
  */
 export function calculateScore(
   attemptNumber: number,

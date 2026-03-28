@@ -87,21 +87,20 @@ export async function POST(request: NextRequest) {
           currentStreak = lb?.streak ?? 0;
         }
 
-        await serviceSupabase.from("ecos_scores").upsert({
-          user_id: user.id,
-          game_id: gameId,
-          points: 0,
-          guesses_used: 6,
-          correct: false,
-        });
-
-        await serviceSupabase.rpc("ecos_update_leaderboard", {
+        const { error: finalizeError } = await serviceSupabase.rpc("ecos_finalize_game_score", {
           p_user_id: user.id,
+          p_game_id: gameId,
           p_points: 0,
+          p_guesses_used: 6,
+          p_correct: false,
           p_won: false,
           p_streak: isTodaysGame ? 0 : currentStreak,
           p_update_streak: isTodaysGame,
         });
+        if (finalizeError) {
+          console.error("ecos_finalize_game_score (skip):", finalizeError);
+          return NextResponse.json({ error: "Failed to save score" }, { status: 500 });
+        }
 
         revalidateTag("games", "max");
       }

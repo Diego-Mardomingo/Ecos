@@ -123,21 +123,20 @@ export async function POST(request: NextRequest) {
       ? calculateScore(attemptNumber, 1)
       : { basePoints: 0, streakBonus: 0, totalPoints: 0 };
 
-    await supabase.from("ecos_scores").upsert({
-      user_id: userId,
-      game_id: gameId,
-      points: scoreResult.totalPoints,
-      guesses_used: attemptNumber,
-      correct: isCorrect,
-    });
-
-    await supabase.rpc("ecos_update_leaderboard", {
+    const { error: finalizeError } = await supabase.rpc("ecos_finalize_game_score", {
       p_user_id: userId,
+      p_game_id: gameId,
       p_points: scoreResult.totalPoints,
+      p_guesses_used: attemptNumber,
+      p_correct: isCorrect,
       p_won: isCorrect,
       p_streak: newStreak,
       p_update_streak: updateStreak,
     });
+    if (finalizeError) {
+      console.error("ecos_finalize_game_score:", finalizeError);
+      return NextResponse.json({ error: "Failed to save score" }, { status: 500 });
+    }
 
     revalidateTag("games", "max");
 

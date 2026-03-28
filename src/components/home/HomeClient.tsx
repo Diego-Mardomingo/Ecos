@@ -73,6 +73,7 @@ interface Props {
     inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
     todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
     rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
+    rankingStats?: HomeData["rankingStats"];
   };
 }
 
