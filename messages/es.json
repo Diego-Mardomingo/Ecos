@@ -171,6 +171,7 @@
     "hintYear": "Año de lanzamiento",
     "hintGenre": "Género musical",
     "guestNotice": "Juegas como invitado — tu puntuación no se guarda en el ranking.",
+    "saveResultError": "No se pudo guardar el resultado. Inténtalo de nuevo.",
     "guestResultTitleWon": "¡Buen resultado! Guárdalo en el ranking",
     "guestResultTitleLost": "¿A ver si mañana lo consigues?",
     "guestResultDescription": "Inicia sesión para que tu puntuación cuente en el ranking global y puedas competir con otros jugadores.",

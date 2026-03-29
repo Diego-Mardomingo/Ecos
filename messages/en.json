@@ -171,6 +171,7 @@
     "hintYear": "Release year",
     "hintGenre": "Music genre",
     "guestNotice": "You're playing as a guest — your score won't be saved to the leaderboard.",
+    "saveResultError": "Could not save your result. Please try again.",
     "guestResultTitleWon": "Great result! Save it to the leaderboard",
     "guestResultTitleLost": "Maybe tomorrow?",
     "guestResultDescription": "Sign in so your score counts on the global leaderboard and you can compete with other players.",

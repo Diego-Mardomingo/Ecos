@@ -29,6 +29,7 @@ import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { cn } from "@/lib/utils";
 import { PlayGameSkeleton } from "@/components/skeletons";
+import { toast } from "sonner";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -69,6 +70,7 @@ export function GameClient({ game, userId }: Props) {
     startGame,
     loadProgress,
     addGuess,
+    removeLastGuess,
     setWon,
     setLost,
     gameId,
@@ -205,14 +207,21 @@ export function GameClient({ game, userId }: Props) {
                 finalize: true,
               }),
             });
-            const data = await res.json();
+            const data = (await res.json()) as {
+              error?: string;
+              totalPoints?: number;
+            };
+            if (!res.ok) {
+              throw new Error(
+                typeof data.error === "string" ? data.error : "save_failed"
+              );
+            }
             const totalPoints = data.totalPoints ?? 1000;
             setWon(currentAttempt, totalPoints);
             invalidateOnGameComplete();
           } catch {
-            const { totalPoints } = calculateScore(currentAttempt, 0);
-            setWon(currentAttempt, totalPoints);
-            invalidateOnGameComplete();
+            removeLastGuess();
+            toast.error(t("saveResultError"));
           }
         }
       } else {
@@ -299,6 +308,8 @@ export function GameClient({ game, userId }: Props) {
       saveProgress,
       invalidateOnGameComplete,
       resolvedTheme,
+      removeLastGuess,
+      t,
     ]
   );
 

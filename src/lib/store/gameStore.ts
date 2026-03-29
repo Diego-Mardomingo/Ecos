@@ -34,6 +34,8 @@ export interface GameState {
   startGame: (gameId: string, gameDate: string) => void;
   loadProgress: (gameId: string, gameDate: string, guesses: GuessEntry[], currentAttempt: number) => void;
   addGuess: (guess: GuessEntry) => void;
+  /** Quita el último intento (p. ej. si falló el guardado en servidor). */
+  removeLastGuess: () => void;
   setPlaying: (playing: boolean) => void;
   useHint: () => void;
   setWon: (attempt: number, score: number) => void;
@@ -104,6 +106,15 @@ export const useGameStore = create<GameState>()(
           currentAttempt: nextAttempt,
           audioDuration: ATTEMPT_DURATIONS[nextAttempt - 1] ?? 30,
           isPlaying: false,
+        });
+      },
+
+      removeLastGuess: () => {
+        const { guesses } = get();
+        if (guesses.length === 0) return;
+        set({
+          guesses: guesses.slice(0, -1),
+          isPlaying: true,
         });
       },
 
