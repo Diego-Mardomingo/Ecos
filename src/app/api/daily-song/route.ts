@@ -13,7 +13,7 @@ export async function GET() {
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre
+        cover_url, youtube_id, preview_url, genre, release_date
       )
     `
     )
@@ -35,7 +35,8 @@ export async function GET() {
     cover_url: string;
     youtube_id: string | null;
     preview_url: string | null;
-    genre: string;
+    genre: string | null;
+    release_date: string | null;
   };
 
   return NextResponse.json({

@@ -15,7 +15,9 @@ export interface GameWithSong {
     cover_url: string;
     youtube_id: string | null;
     preview_url: string | null;
-    genre: string;
+    genre: string | null;
+    /** ISO date YYYY-MM-DD desde Spotify */
+    release_date: string | null;
   };
 }
 
@@ -44,7 +46,7 @@ async function getTodaysGameWithClient(
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre
+        cover_url, youtube_id, preview_url, genre, release_date
       )
     `
     )
@@ -71,7 +73,7 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre
+        cover_url, youtube_id, preview_url, genre, release_date
       )
     `
     )

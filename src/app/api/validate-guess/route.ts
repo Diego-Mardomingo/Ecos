@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
-import { calculateScore } from "@/lib/scoring";
 import { artistsMatch, normalizeForCompare } from "@/lib/artist-match";
-import { getEffectiveGameDate, toDateKey } from "@/lib/date-utils";
+import { computeFinalizeParams } from "@/lib/ecos-finalize-helpers";
 import { z } from "zod";
 
 const GuessSchema = z.object({
@@ -65,31 +64,31 @@ export async function POST(request: NextRequest) {
         ? normalizeForCompare(guessAlbumTitle) === normalizeForCompare(song.album_title)
         : false;
 
-    await supabase.from("ecos_guesses").upsert({
-      user_id: userId,
-      game_id: gameId,
-      attempt_number: attemptNumber,
-      guess_text: guessText,
-      correct: isCorrect,
-      correct_artist: correctArtist,
-      correct_album: correctAlbum,
-    });
+    const needsFinalize = !!finalize && (isCorrect || attemptNumber >= 6);
 
-    if (!finalize) {
-      return NextResponse.json({
+    if (!needsFinalize) {
+      await supabase.from("ecos_guesses").upsert({
+        user_id: userId,
+        game_id: gameId,
+        attempt_number: attemptNumber,
+        guess_text: guessText,
         correct: isCorrect,
-        correctArtist,
-        correctAlbum,
+        correct_artist: correctArtist,
+        correct_album: correctAlbum,
       });
-    }
 
-    if (!isCorrect && attemptNumber < 6) {
+      if (!finalize) {
+        return NextResponse.json({
+          correct: isCorrect,
+          correctArtist,
+          correctAlbum,
+        });
+      }
+
       return NextResponse.json({ correct: false });
     }
 
     const gameDate = (game as { date?: string }).date ?? "";
-    const todayMadrid = getEffectiveGameDate();
-    const isTodaysGame = gameDate === todayMadrid;
 
     const { data: leaderboard } = await supabase
       .from("ecos_leaderboard")
@@ -97,48 +96,30 @@ export async function POST(request: NextRequest) {
       .eq("user_id", userId)
       .single();
 
-    let newStreak: number;
-    let updateStreak = isTodaysGame;
+    const { newStreak, updateStreak, scoreResult } = computeFinalizeParams({
+      gameDate,
+      isCorrect,
+      attemptNumber,
+      leaderboard: leaderboard ?? null,
+    });
 
-    if (isTodaysGame) {
-      if (isCorrect) {
-        const lastPlayedKey = toDateKey(leaderboard?.last_played as string | null | undefined);
-        const [y, m, d] = todayMadrid.split("-").map(Number);
-        const yesterdayDate = new Date(Date.UTC(y, m - 1, d - 1));
-        const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
-
-        if (lastPlayedKey === todayMadrid) {
-          // Ya hubo finalización hoy: idempotente (no duplicar +1 por doble finalize).
-          newStreak = leaderboard?.streak ?? 0;
-        } else if (lastPlayedKey === yesterdayStr) {
-          newStreak = (leaderboard?.streak ?? 0) + 1;
-        } else {
-          newStreak = 1;
-        }
-      } else {
-        newStreak = 0;
-      }
-    } else {
-      newStreak = leaderboard?.streak ?? 0;
-    }
-
-    // La racha ya no afecta a la puntuación: solo puntos base (streakBonus = 0)
-    const scoreResult = isCorrect
-      ? calculateScore(attemptNumber, 1)
-      : { basePoints: 0, streakBonus: 0, totalPoints: 0 };
-
-    const { error: finalizeError } = await supabase.rpc("ecos_finalize_game_score", {
+    const { error: finalizeError } = await supabase.rpc("ecos_guess_and_finalize_score", {
       p_user_id: userId,
       p_game_id: gameId,
+      p_attempt_number: attemptNumber,
+      p_guess_text: guessText,
+      p_correct: isCorrect,
+      p_correct_artist: correctArtist,
+      p_correct_album: correctAlbum,
       p_points: scoreResult.totalPoints,
       p_guesses_used: attemptNumber,
-      p_correct: isCorrect,
       p_won: isCorrect,
       p_streak: newStreak,
       p_update_streak: updateStreak,
     });
+
     if (finalizeError) {
-      console.error("ecos_finalize_game_score:", finalizeError);
+      console.error("ecos_guess_and_finalize_score:", finalizeError);
       return NextResponse.json({ error: "Failed to save score" }, { status: 500 });
     }
 

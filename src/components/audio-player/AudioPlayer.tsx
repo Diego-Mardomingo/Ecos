@@ -10,6 +10,8 @@ type AudioSource = "youtube" | "preview";
 
 export interface AudioPlayerHandle {
   togglePlay: () => void;
+  /** Si está reproduciendo, pausa y resetea el fragmento (mismo efecto que pulsar Stop). */
+  stopIfPlaying: () => void;
 }
 
 interface AudioPlayerProps {
@@ -41,13 +43,25 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** id de requestAnimationFrame para el bucle de progreso (preview / YouTube) */
+  const playbackRafRef = useRef<number | null>(null);
+
+  const cancelPlaybackLoop = useCallback(() => {
+    if (playbackRafRef.current !== null) {
+      cancelAnimationFrame(playbackRafRef.current);
+      playbackRafRef.current = null;
+    }
+  }, []);
   const sourceRef = useRef<AudioSource | null>(null);
   const maxDurationRef = useRef(maxDuration);
   maxDurationRef.current = maxDuration;
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const isPlayingRef = useRef(false);
+  const isLoadedRef = useRef(false);
+  isPlayingRef.current = isPlaying;
+  isLoadedRef.current = isLoaded;
 
   const updateMediaSessionPosition = useCallback((position: number) => {
     if (typeof navigator !== "undefined" && "mediaSession" in navigator && sourceRef.current === "preview") {
@@ -113,7 +127,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
         });
 
       return () => {
-        if (timerRef.current) clearInterval(timerRef.current);
+        if (playbackRafRef.current !== null) {
+          cancelAnimationFrame(playbackRafRef.current);
+          playbackRafRef.current = null;
+        }
         if (playerRef.current) {
           playerRef.current.stopVideo();
           playerRef.current.destroy();
@@ -163,7 +180,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
         audio.removeEventListener("error", onError);
         audio.removeEventListener("seeking", onSeeking);
         audio.removeEventListener("timeupdate", onTimeUpdate);
-        if (timerRef.current) clearInterval(timerRef.current);
+        if (playbackRafRef.current !== null) {
+          cancelAnimationFrame(playbackRafRef.current);
+          playbackRafRef.current = null;
+        }
         audio.pause();
         audio.src = "";
         audioRef.current = null;
@@ -180,12 +200,27 @@ ref: React.Ref<AudioPlayerHandle>) => {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    if (timerRef.current) clearInterval(timerRef.current);
+    cancelPlaybackLoop();
     setCurrentTime(0);
     setIsPlaying(false);
     clearMediaSession();
     onTimeUpdate?.(0);
-  }, [clearMediaSession, onTimeUpdate]);
+  }, [cancelPlaybackLoop, clearMediaSession, onTimeUpdate]);
+
+  const stopIfPlaying = useCallback(() => {
+    if (!isLoadedRef.current || !isPlayingRef.current) return;
+
+    if (sourceRef.current === "youtube") {
+      playerRef.current?.stopVideo();
+      stopAndReset();
+      return;
+    }
+
+    if (sourceRef.current === "preview") {
+      audioRef.current?.pause();
+      stopAndReset();
+    }
+  }, [stopAndReset]);
 
   const togglePlay = useCallback(() => {
     if (!isLoaded) return;
@@ -204,12 +239,14 @@ ref: React.Ref<AudioPlayerHandle>) => {
       player.playVideo();
       setIsPlaying(true);
 
-      timerRef.current = setInterval(() => {
-        const seek = player.getCurrentTime();
+      cancelPlaybackLoop();
+      const tickYoutube = () => {
+        const p = playerRef.current;
+        if (!p) return;
+        const seek = p.getCurrentTime();
         if (seek >= maxDuration) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          timerRef.current = null;
-          player.stopVideo();
+          cancelPlaybackLoop();
+          p.stopVideo();
           onTimeUpdate?.(maxDuration);
           setTimeout(() => {
             stopAndReset();
@@ -219,7 +256,9 @@ ref: React.Ref<AudioPlayerHandle>) => {
         }
         setCurrentTime(seek);
         onTimeUpdate?.(seek);
-      }, 16);
+        playbackRafRef.current = requestAnimationFrame(tickYoutube);
+      };
+      playbackRafRef.current = requestAnimationFrame(tickYoutube);
       return;
     }
 
@@ -238,8 +277,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       setIsPlaying(true);
 
       const onEndedNative = () => {
-        if (timerRef.current) clearInterval(timerRef.current);
-        timerRef.current = null;
+        cancelPlaybackLoop();
         stopAndReset();
         onEnded?.();
       };
@@ -268,17 +306,19 @@ ref: React.Ref<AudioPlayerHandle>) => {
         }
       }
 
-      timerRef.current = setInterval(() => {
-        const seek = audio.currentTime;
+      cancelPlaybackLoop();
+      const tickPreview = () => {
+        const a = audioRef.current;
+        if (!a) return;
+        const seek = a.currentTime;
         const clamped = Math.min(seek, maxDuration);
         if (clamped < seek) {
-          audio.currentTime = clamped;
-          audio.pause();
+          a.currentTime = clamped;
+          a.pause();
         }
         if (seek >= maxDuration) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          timerRef.current = null;
-          audio.pause();
+          cancelPlaybackLoop();
+          a.pause();
           onTimeUpdate?.(maxDuration);
           updateMediaSessionPosition(maxDuration);
           setTimeout(() => {
@@ -290,13 +330,16 @@ ref: React.Ref<AudioPlayerHandle>) => {
         setCurrentTime(seek);
         onTimeUpdate?.(seek);
         updateMediaSessionPosition(seek);
-      }, 16);
+        playbackRafRef.current = requestAnimationFrame(tickPreview);
+      };
+      playbackRafRef.current = requestAnimationFrame(tickPreview);
     }
-  }, [isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition]);
+  }, [cancelPlaybackLoop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition]);
 
   useImperativeHandle(ref, () => ({
     togglePlay,
-  }), [togglePlay]);
+    stopIfPlaying,
+  }), [togglePlay, stopIfPlaying]);
 
   if (!source) {
     return (
@@ -319,7 +362,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       <div className="w-full space-y-1">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-brand transition-[width] duration-75 ease-linear"
+            className="h-full rounded-full bg-brand"
             style={{ width: `${progress}%` }}
           />
         </div>

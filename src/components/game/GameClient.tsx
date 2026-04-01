@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState, useRef } from "react";
+import { useEffect, useCallback, useState, useRef, memo, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
@@ -23,10 +23,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { artistsMatch } from "@/lib/artist-match";
-import { useGameStore } from "@/lib/store/gameStore";
+import { useGameStore, type GuessEntry, type GamePhase } from "@/lib/store/gameStore";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
+import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import { cn } from "@/lib/utils";
 import { PlayGameSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -41,6 +42,312 @@ interface Props {
   game: GameWithSong;
   userId: string | null; // null = invitado
 }
+
+const ResultGameView = memo(function ResultGameView({
+  game,
+  resultPhase,
+  resultCorrectAttempt,
+  resultFinalScore,
+  resultGuesses,
+  resultReadOnly,
+  isGuest,
+  maxAttempts,
+}: {
+  game: GameWithSong;
+  resultPhase: GamePhase;
+  resultCorrectAttempt: number | null;
+  resultFinalScore: number | null;
+  resultGuesses: GuessEntry[];
+  resultReadOnly: boolean;
+  isGuest: boolean;
+  maxAttempts: number;
+}) {
+  const t = useTranslations("game");
+  const tc = useTranslations("common");
+  const locale = useLocale();
+  const dateFnsLocale = locale === "es" ? es : enUS;
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
+  const song = game.ecos_songs;
+
+  const progress = Math.min((audioCurrentTime / FULL_PREVIEW_SECONDS) * 100, 100);
+
+  return (
+    <div className="relative flex min-h-dvh flex-col bg-background">
+      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
+        <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
+        <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
+      </div>
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+        <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
+          <Link
+            href="/"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
+            aria-label={tc("back")}
+          >
+            <span className="material-symbols-outlined text-xl">arrow_back</span>
+          </Link>
+          <h1 className="min-w-0 flex-1 truncate text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
+            {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
+            {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
+            {game.game_number != null && (
+              <>
+                <span className="text-foreground/50"> · </span>
+                <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
+              </>
+            )}
+          </h1>
+          <div className="flex w-28 shrink-0 flex-col items-end gap-0">
+            <div className="flex w-full items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => resultAudioPlayerRef.current?.togglePlay()}
+                disabled={!audioLoaded}
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
+                  audioLoaded
+                    ? "bg-brand text-primary-foreground"
+                    : "cursor-not-allowed bg-muted text-muted-foreground opacity-50"
+                )}
+                aria-label={audioPlaying ? t("listening") : t("pressPlay")}
+              >
+                {audioLoaded ? (
+                  <span
+                    className="material-symbols-outlined text-xl"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    {audioPlaying ? "stop" : "play_arrow"}
+                  </span>
+                ) : (
+                  <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                )}
+              </button>
+              <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-1 rounded-full bg-brand"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+            <span className="-mt-0.5 leading-none text-[9px] tabular-nums text-muted-foreground">
+              {String(Math.floor(audioCurrentTime / 60)).padStart(2, "0")}:
+              {String(Math.floor(audioCurrentTime % 60)).padStart(2, "0")} / 00:
+              {String(FULL_PREVIEW_SECONDS).padStart(2, "0")}
+            </span>
+          </div>
+        </header>
+        <div className="h-14 shrink-0" aria-hidden />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ResultScreen
+            phase={resultPhase as "won" | "lost"}
+            song={song}
+            gameId={game.id}
+            gameDate={game.date}
+            correctAttempt={resultCorrectAttempt}
+            finalScore={resultFinalScore}
+            maxAttempts={maxAttempts}
+            gameNumber={game.game_number}
+            isGuest={isGuest}
+            guesses={resultGuesses}
+            readOnly={resultReadOnly}
+          />
+        </div>
+      </div>
+      <AudioPlayer
+        ref={resultAudioPlayerRef}
+        youtubeId={song.youtube_id ?? ""}
+        previewUrl={song.preview_url ?? undefined}
+        maxDuration={FULL_PREVIEW_SECONDS}
+        onTimeUpdate={setAudioCurrentTime}
+        onPlayingChange={setAudioPlaying}
+        onLoadedChange={setAudioLoaded}
+        onEnded={() => {
+          setAudioCurrentTime(0);
+          setTimeout(() => setAudioCurrentTime(0), 150);
+        }}
+        hideControls
+      />
+    </div>
+  );
+});
+
+const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
+  game,
+  audioDuration,
+  guesses,
+  maxAttempts,
+  isGuest,
+  playerRef,
+  children,
+}: {
+  game: GameWithSong;
+  audioDuration: number;
+  guesses: GuessEntry[];
+  maxAttempts: number;
+  isGuest: boolean;
+  playerRef: RefObject<AudioPlayerHandle | null>;
+  children: ReactNode;
+}) {
+  const t = useTranslations("game");
+  const tc = useTranslations("common");
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const song = game.ecos_songs;
+
+  useEffect(() => {
+    setAudioCurrentTime(0);
+  }, [audioDuration]);
+
+  const formatTimeRemaining = (s: number) => {
+    if (s <= 0) return "00:00";
+    const secs = Math.ceil(s);
+    return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+  };
+
+  return (
+    <>
+      <div className="flex w-full flex-col items-center px-4 pb-4 pt-1">
+        <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
+          {formatTimeRemaining(Math.max(0, audioDuration - audioCurrentTime))}
+        </span>
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-brand"
+            style={{
+              width: `${Math.min((audioCurrentTime / audioDuration) * 100, 100)}%`,
+            }}
+          />
+        </div>
+      </div>
+
+      {isGuest && (
+        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2">
+          <span
+            className="material-symbols-outlined text-base text-brand"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            info
+          </span>
+          <p className="flex-1 text-xs text-brand/90">{t("guestNotice")}</p>
+          <Link href="/login" className="text-xs font-bold text-brand underline underline-offset-2">
+            {tc("enter")}
+          </Link>
+        </div>
+      )}
+
+      <div className="relative flex shrink-0 flex-col items-center justify-start gap-3 overflow-hidden px-4 pb-2 pt-4">
+        <div className="relative flex flex-col items-center gap-2">
+          <div className="relative flex items-center justify-center">
+            <svg className="h-48 w-48 -rotate-90" viewBox="0 0 192 192" aria-hidden>
+              <circle
+                cx="96"
+                cy="96"
+                r="80"
+                fill="transparent"
+                stroke="currentColor"
+                strokeWidth="6"
+                className="text-muted dark:text-white/5"
+              />
+              <circle
+                cx="96"
+                cy="96"
+                r="80"
+                fill="transparent"
+                stroke="currentColor"
+                strokeWidth="6"
+                strokeLinecap="round"
+                className="text-brand"
+                strokeDasharray={502.65}
+                strokeDashoffset={502.65 * (1 - Math.min(audioCurrentTime / audioDuration, 1))}
+              />
+            </svg>
+            <motion.button
+              type="button"
+              onClick={() => playerRef.current?.togglePlay()}
+              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: audioLoaded ? 1.05 : 1 }}
+              disabled={!audioLoaded}
+              className={cn(
+                "absolute flex size-32 items-center justify-center rounded-full shadow-lg transition-transform",
+                audioLoaded
+                  ? "bg-brand text-primary-foreground shadow-brand/20 hover:scale-105 active:scale-95"
+                  : "cursor-not-allowed bg-muted text-muted-foreground opacity-50"
+              )}
+              aria-label={audioPlaying ? t("listening") : t("pressPlay")}
+            >
+              {audioLoaded ? (
+                <span
+                  className="material-symbols-outlined inline-block font-bold"
+                  style={{
+                    fontVariationSettings: "'FILL' 1, 'opsz' 48",
+                    fontSize: "3.25rem",
+                  }}
+                >
+                  {audioPlaying ? "stop" : "play_arrow"}
+                </span>
+              ) : (
+                <span
+                  className="material-symbols-outlined inline-block animate-spin"
+                  style={{
+                    fontVariationSettings: "'opsz' 48",
+                    fontSize: "2.75rem",
+                  }}
+                >
+                  progress_activity
+                </span>
+              )}
+            </motion.button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {Array.from({ length: maxAttempts }).map((_, i) => {
+            const guess = guesses[i];
+            const isCurrent = i === guesses.length;
+            return (
+              <div
+                key={i}
+                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+                aria-hidden
+              >
+                <div
+                  className={cn(
+                    "h-2.5 w-2.5 rounded-full transition-all",
+                    i < guesses.length
+                      ? guess?.correct
+                        ? "bg-brand"
+                        : "bg-destructive"
+                      : isCurrent
+                        ? "bg-brand/50 ring-2 ring-brand/30"
+                        : "bg-muted"
+                  )}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="px-4 pb-8 pt-5">
+        <AudioPlayer
+          ref={playerRef}
+          youtubeId={song.youtube_id ?? ""}
+          previewUrl={song.preview_url ?? undefined}
+          maxDuration={audioDuration}
+          onTimeUpdate={setAudioCurrentTime}
+          onPlayingChange={setAudioPlaying}
+          onLoadedChange={setAudioLoaded}
+          hideControls
+          className="mb-3"
+        />
+        {children}
+      </div>
+    </>
+  );
+});
 
 export function GameClient({ game, userId }: Props) {
   const queryClient = useQueryClient();
@@ -78,15 +385,7 @@ export function GameClient({ game, userId }: Props) {
 
   const { getProgress, saveProgress, removeProgress } = useGameProgressStore();
   const [loadedProgress, setLoadedProgress] = useState<GameProgress | null | "loading">("loading");
-  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioLoaded, setAudioLoaded] = useState(false);
-  const audioPlayerRef = useRef<AudioPlayerHandle | null>(null);
-  const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
-
-  useEffect(() => {
-    setAudioCurrentTime(0);
-  }, [audioDuration]);
+  const gameAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
 
   // Cargar progreso guardado o iniciar partida nueva
   useEffect(() => {
@@ -341,114 +640,22 @@ export function GameClient({ game, userId }: Props) {
       loadedProgress && loadedProgress !== "loading" ? loadedProgress.guesses : guesses;
     const resultReadOnly = Boolean(loadedProgress && loadedProgress !== "loading");
 
-    const progress = Math.min((audioCurrentTime / FULL_PREVIEW_SECONDS) * 100, 100);
     return (
-      <div className="relative flex min-h-dvh flex-col bg-background">
-        <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
-          <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
-          <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
-        </div>
-        <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-          <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
-            <Link
-              href="/"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
-              aria-label={tc("back")}
-            >
-              <span className="material-symbols-outlined text-xl">arrow_back</span>
-            </Link>
-            <h1 className="min-w-0 flex-1 truncate text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
-              {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
-              {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
-              {game.game_number != null && (
-                <>
-                  <span className="text-foreground/50"> · </span>
-                  <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
-                </>
-              )}
-            </h1>
-            <div className="flex w-28 shrink-0 flex-col items-end gap-0">
-              <div className="flex w-full items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => resultAudioPlayerRef.current?.togglePlay()}
-                  disabled={!audioLoaded}
-                  className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
-                    audioLoaded
-                      ? "bg-brand text-primary-foreground"
-                      : "cursor-not-allowed bg-muted text-muted-foreground opacity-50"
-                  )}
-                  aria-label={audioPlaying ? t("listening") : t("pressPlay")}
-                >
-                  {audioLoaded ? (
-                    <span
-                      className="material-symbols-outlined text-xl"
-                      style={{ fontVariationSettings: "'FILL' 1" }}
-                    >
-                      {audioPlaying ? "stop" : "play_arrow"}
-                    </span>
-                  ) : (
-                    <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-                  )}
-                </button>
-                <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-1 rounded-full bg-brand transition-[width] duration-75 ease-linear"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-              <span className="-mt-0.5 leading-none text-[9px] tabular-nums text-muted-foreground">
-                {String(Math.floor(audioCurrentTime / 60)).padStart(2, "0")}:
-                {String(Math.floor(audioCurrentTime % 60)).padStart(2, "0")} / 00:
-                {String(FULL_PREVIEW_SECONDS).padStart(2, "0")}
-              </span>
-            </div>
-          </header>
-          <div className="h-14 shrink-0" aria-hidden />
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <ResultScreen
-              phase={resultPhase}
-              song={song}
-              gameId={game.id}
-              gameDate={game.date}
-              correctAttempt={resultCorrectAttempt}
-              finalScore={resultFinalScore}
-              maxAttempts={maxAttempts}
-              gameNumber={game.game_number}
-              isGuest={isGuest}
-              guesses={resultGuesses}
-              readOnly={resultReadOnly}
-            />
-          </div>
-        </div>
-        <AudioPlayer
-          ref={resultAudioPlayerRef}
-          youtubeId={song.youtube_id ?? ""}
-          previewUrl={song.preview_url ?? undefined}
-          maxDuration={FULL_PREVIEW_SECONDS}
-          onTimeUpdate={setAudioCurrentTime}
-          onPlayingChange={setAudioPlaying}
-          onLoadedChange={setAudioLoaded}
-          onEnded={() => {
-              setAudioCurrentTime(0);
-              setTimeout(() => setAudioCurrentTime(0), 150);
-            }}
-          hideControls
-        />
-      </div>
+      <ResultGameView
+        game={game}
+        resultPhase={resultPhase}
+        resultCorrectAttempt={resultCorrectAttempt}
+        resultFinalScore={resultFinalScore}
+        resultGuesses={resultGuesses}
+        resultReadOnly={resultReadOnly}
+        isGuest={isGuest}
+        maxAttempts={maxAttempts}
+      />
     );
   }
 
   const formatTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  /** Para el countdown: redondeamos hacia arriba para no mostrar 00:00 hasta llegar a 0 */
-  const formatTimeRemaining = (s: number) => {
-    if (s <= 0) return "00:00";
-    const secs = Math.ceil(s);
-    return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
-  };
 
   return (
     <div className="relative flex flex-col bg-background">
@@ -481,6 +688,7 @@ export function GameClient({ game, userId }: Props) {
         <button
           type="button"
           onClick={async () => {
+            gameAudioPlayerRef.current?.stopIfPlaying();
             addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
             if (!isGuest && userId) {
               try {
@@ -536,148 +744,14 @@ export function GameClient({ game, userId }: Props) {
       {/* Espaciador para el header fijo */}
       <div className="h-14 shrink-0" aria-hidden />
 
-      {/* Tiempo + barra horizontal (justo bajo el header) */}
-      <div className="flex w-full flex-col items-center px-4 pb-4 pt-1">
-        <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
-          {formatTimeRemaining(Math.max(0, audioDuration - audioCurrentTime))}
-        </span>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-brand will-change-[width] transition-[width] duration-[120ms] ease-linear"
-            style={{
-              width: `${Math.min((audioCurrentTime / audioDuration) * 100, 100)}%`,
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Banner de invitado */}
-      {isGuest && (
-        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2">
-          <span
-            className="material-symbols-outlined text-base text-brand"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            info
-          </span>
-          <p className="flex-1 text-xs text-brand/90">
-            {t("guestNotice")}
-          </p>
-          <Link href="/login" className="text-xs font-bold text-brand underline underline-offset-2">
-            {tc("enter")}
-          </Link>
-        </div>
-      )}
-
-      {/* Área principal: play + anillo + dots (solo el espacio que necesita, sin crecer) */}
-      <div className="relative flex shrink-0 flex-col items-center justify-start gap-3 px-4 pt-4 pb-2 overflow-hidden">
-        {/* Reproductor circular (estilos del boceto: anillo + botón + banner pegado abajo) */}
-        <div className="relative flex flex-col items-center gap-2">
-          <div className="relative flex items-center justify-center">
-            <svg className="h-48 w-48 -rotate-90" viewBox="0 0 192 192" aria-hidden>
-              <circle
-                cx="96"
-                cy="96"
-                r="80"
-                fill="transparent"
-                stroke="currentColor"
-                strokeWidth="6"
-                className="text-muted dark:text-white/5"
-              />
-              <circle
-                cx="96"
-                cy="96"
-                r="80"
-                fill="transparent"
-                stroke="currentColor"
-                strokeWidth="6"
-                strokeLinecap="round"
-                className="text-brand will-change-[stroke-dashoffset] transition-[stroke-dashoffset] duration-[120ms] ease-linear"
-                strokeDasharray={502.65}
-                strokeDashoffset={502.65 * (1 - Math.min(audioCurrentTime / audioDuration, 1))}
-              />
-            </svg>
-            <motion.button
-              type="button"
-              onClick={() => audioPlayerRef.current?.togglePlay()}
-              whileTap={{ scale: 0.95 }}
-              whileHover={{ scale: audioLoaded ? 1.05 : 1 }}
-              disabled={!audioLoaded}
-              className={cn(
-                "absolute flex size-32 items-center justify-center rounded-full shadow-lg transition-transform",
-                audioLoaded
-                  ? "bg-brand text-primary-foreground shadow-brand/20 hover:scale-105 active:scale-95"
-                  : "cursor-not-allowed bg-muted opacity-50 text-muted-foreground"
-              )}
-              aria-label={audioPlaying ? t("listening") : t("pressPlay")}
-            >
-              {audioLoaded ? (
-                <span
-                  className="material-symbols-outlined font-bold inline-block"
-                  style={{
-                    fontVariationSettings: "'FILL' 1, 'opsz' 48",
-                    fontSize: "3.25rem",
-                  }}
-                >
-                  {audioPlaying ? "stop" : "play_arrow"}
-                </span>
-              ) : (
-                <span
-                  className="material-symbols-outlined animate-spin inline-block"
-                  style={{
-                    fontVariationSettings: "'opsz' 48",
-                    fontSize: "2.75rem",
-                  }}
-                >
-                  progress_activity
-                </span>
-              )}
-            </motion.button>
-          </div>
-        </div>
-
-        {/* Indicador de intentos (dots): correcto=verde, fallo=rojo, actual=anillo, pendiente=gris */}
-        <div className="flex items-center gap-1">
-          {Array.from({ length: maxAttempts }).map((_, i) => {
-            const guess = guesses[i];
-            const isCurrent = i === guesses.length;
-            return (
-              <div
-                key={i}
-                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-                aria-hidden
-              >
-                <div
-                  className={cn(
-                    "h-2.5 w-2.5 rounded-full transition-all",
-                    i < guesses.length
-                      ? guess?.correct
-                        ? "bg-brand"
-                        : "bg-destructive"
-                      : isCurrent
-                        ? "bg-brand/50 ring-2 ring-brand/30"
-                        : "bg-muted"
-                  )}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Panel inferior: búsqueda (contenedor invisible, algo de espacio sobre los dots) */}
-      <div className="px-4 pb-8 pt-5">
-        <AudioPlayer
-          ref={audioPlayerRef}
-          youtubeId={song.youtube_id ?? ""}
-          previewUrl={song.preview_url ?? undefined}
-          maxDuration={audioDuration}
-          onTimeUpdate={setAudioCurrentTime}
-          onPlayingChange={setAudioPlaying}
-          onLoadedChange={setAudioLoaded}
-          hideControls
-          className="mb-3"
-        />
+      <PlayingGameAudioSection
+        game={game}
+        audioDuration={audioDuration}
+        guesses={guesses}
+        maxAttempts={maxAttempts}
+        isGuest={isGuest}
+        playerRef={gameAudioPlayerRef}
+      >
         <GuessInput
           onGuess={handleGuess}
           disabled={phase !== "playing"}
@@ -686,7 +760,7 @@ export function GameClient({ game, userId }: Props) {
         {guesses.length > 0 && (
           <PreviousAttempts guesses={guesses} />
         )}
-      </div>
+      </PlayingGameAudioSection>
       </div>
     </div>
   );
@@ -868,6 +942,10 @@ function ResultScreen({
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const won = phase === "won";
+  const metaAlbum = song.album_title?.trim();
+  const metaYear = releaseYearFromReleaseDate(song.release_date);
+  const metaGenre = song.genre?.trim();
+  const hasSongMeta = Boolean(metaAlbum || metaYear || metaGenre);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>("");
   const [reportDesc, setReportDesc] = useState("");
@@ -995,6 +1073,28 @@ function ResultScreen({
         </p>
         <h2 className="text-2xl font-bold">{song.title}</h2>
         <p className="text-muted-foreground">{song.artist_name}</p>
+        {hasSongMeta ? (
+          <dl className="mt-3 space-y-1.5 text-left text-sm text-muted-foreground">
+            {metaAlbum ? (
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                <dt className="shrink-0 font-medium text-foreground/70">{t("resultAlbum")}</dt>
+                <dd className="min-w-0 break-words">{metaAlbum}</dd>
+              </div>
+            ) : null}
+            {metaYear ? (
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                <dt className="shrink-0 font-medium text-foreground/70">{t("resultYear")}</dt>
+                <dd>{metaYear}</dd>
+              </div>
+            ) : null}
+            {metaGenre ? (
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                <dt className="shrink-0 font-medium text-foreground/70">{t("resultGenre")}</dt>
+                <dd className="min-w-0 break-words">{metaGenre}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
       </motion.div>
 
       {/* Resultado (sin fondo para que sea invisible) */}

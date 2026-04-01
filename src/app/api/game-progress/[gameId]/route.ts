@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { revalidateTag } from "next/cache";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { repairOrphanScoreIfNeeded } from "@/lib/ecos-finalize-helpers";
 
 /**
  * GET /api/game-progress/[gameId]
@@ -32,18 +34,36 @@ export async function GET(
       .eq("game_id", gameId)
       .order("attempt_number", { ascending: true });
 
-    const { data: score } = await supabase
+    let { data: score } = await supabase
       .from("ecos_scores")
       .select("points, guesses_used, correct")
       .eq("user_id", user.id)
       .eq("game_id", gameId)
-      .single();
+      .maybeSingle();
 
     const { data: game } = await supabase
       .from("ecos_games")
       .select("date, ecos_songs(title, artist_name, cover_url)")
       .eq("id", gameId)
       .single();
+
+    if (!score && (guesses?.length ?? 0) > 0) {
+      const svc = createServiceClient();
+      const repaired = await repairOrphanScoreIfNeeded(svc, user.id, gameId, {
+        gameDate: game?.date ?? "",
+        guesses: guesses ?? [],
+      });
+      if (repaired) {
+        revalidateTag("games", "max");
+        const { data: s2 } = await svc
+          .from("ecos_scores")
+          .select("points, guesses_used, correct")
+          .eq("user_id", user.id)
+          .eq("game_id", gameId)
+          .maybeSingle();
+        score = s2;
+      }
+    }
 
     const songRaw = game?.ecos_songs as unknown;
     const song =

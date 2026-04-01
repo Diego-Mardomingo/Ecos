@@ -60,6 +60,18 @@ export function getTomorrowMadridDate(now: Date = new Date()): string {
   return getMadridDate(atNextMidnight);
 }
 
+
+/**
+ * Día calendario anterior a todayMadrid (YYYY-MM-DD en Europe/Madrid).
+ * Usar para rachas en lugar de Date.UTC(y, m-1, d-1) para alinear con el calendario local.
+ */
+export function getMadridYesterdayDateString(todayMadrid: string): string {
+  const [y, m, d] = todayMadrid.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
 /**
  * Milisegundos hasta la próxima medianoche (00:00) en Madrid.
  */
