@@ -38,37 +38,45 @@ export function RankingPodiumAndListSkeleton() {
         </div>
       </div>
 
-      <div
-        className={cn(
-          leaderboardHeaderGridClass,
-          "text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-        )}
-      >
-        <span aria-hidden className="block min-h-[1px] w-full" />
-        <Skeleton className="h-3 max-w-[2rem] rounded" />
-        <Skeleton className="h-3 max-w-[4rem] rounded" />
-        <Skeleton className="h-3 max-w-[2.5rem] justify-self-end rounded" />
-        <Skeleton className="h-3 max-w-[3rem] justify-self-end rounded" />
-      </div>
-
-      <div className="flex flex-col gap-1 px-4 pb-28">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className="rounded-2xl bg-card">
-            <div className={leaderboardRowGridClass}>
-              <div
-                className="flex h-full min-h-[2rem] justify-center"
-                aria-hidden
-              />
-              <Skeleton className="h-4 w-6 rounded tabular-nums" />
-              <div className="flex min-w-0 items-center gap-2">
-                <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
-                <Skeleton className="h-4 min-w-0 flex-1 rounded" />
-              </div>
-              <Skeleton className="h-4 w-8 justify-self-end rounded tabular-nums" />
-              <Skeleton className="h-4 w-12 justify-self-end rounded tabular-nums" />
-            </div>
+      <div className="px-4">
+        <div
+          className={cn(
+            leaderboardHeaderGridClass,
+            "text-[11px] font-semibold leading-snug tracking-wide text-muted-foreground sm:text-xs"
+          )}
+        >
+          <div className="flex shrink-0 items-center gap-1.5">
+            <span className="block w-1 shrink-0" aria-hidden />
+            <Skeleton className="h-3.5 w-[2.75rem] shrink-0 rounded" />
           </div>
-        ))}
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <Skeleton className="h-3.5 max-w-[4rem] flex-1 rounded" />
+            <Skeleton className="h-3.5 w-12 shrink-0 rounded" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1 pb-28">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="rounded-2xl bg-card">
+              <div className={leaderboardRowGridClass}>
+                <div className="flex shrink-0 items-center gap-1.5" aria-hidden>
+                  <span className="block h-8 w-1 shrink-0" />
+                  <Skeleton className="h-4 w-[2.75rem] shrink-0 rounded tabular-nums" />
+                </div>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+                  <div className="min-w-0 flex-1 space-y-1.5 py-0.5">
+                    <Skeleton className="h-4 w-full max-w-[10rem] rounded" />
+                    <Skeleton className="h-3 w-24 rounded" />
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center justify-end self-center">
+                  <Skeleton className="h-4 w-12 rounded tabular-nums" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="min-h-24 flex-shrink-0" aria-hidden />
     </div>

@@ -83,89 +83,104 @@ export function LeaderboardPodiumAndList({
         </div>
       </div>
 
-      <div
-        className={cn(
-          leaderboardHeaderGridClass,
-          "text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs"
-        )}
-      >
-        <span aria-hidden className="block min-h-[1px] w-full" />
-        <span>{t("rank")}</span>
-        <span className="min-w-0 truncate">{t("user")}</span>
-        <span className="whitespace-nowrap text-right">
-          <span className="sm:hidden">{t("hitsShort")}</span>
-          <span className="hidden sm:inline">{t("hits")}</span>
-        </span>
-        <span className="whitespace-nowrap text-right">
-          <span className="sm:hidden">{t("totalPointsShort")}</span>
-          <span className="hidden sm:inline">{t("totalPoints")}</span>
-        </span>
-      </div>
+      <div className="px-4">
+        <div
+          className={cn(
+            leaderboardHeaderGridClass,
+            "text-[11px] font-semibold leading-snug tracking-wide text-muted-foreground sm:text-xs"
+          )}
+        >
+          <div className="flex shrink-0 items-center gap-1.5">
+            <span className="block w-1 shrink-0" aria-hidden />
+            <span className="block w-[2.75rem] shrink-0" aria-hidden />
+          </div>
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <span className="text-left">{t("user")}</span>
+            <span className="shrink-0 text-right">{t("totalPoints")}</span>
+          </div>
+        </div>
 
-      <div className="flex flex-col gap-1 px-4 pb-28">
-        {allListEntries.map((entry, i) => (
-          <motion.div
-            key={entry.user_id}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.04 }}
-            className={cn(
-              "rounded-2xl transition-colors",
-              isCurrentUser(entry.user_id)
-                ? "border border-brand/30 bg-brand/10"
-                : "bg-card"
-            )}
-          >
-            <div className={leaderboardRowGridClass}>
-              <div className="flex h-full min-h-[2rem] justify-center">
-                {isCurrentUser(entry.user_id) ? (
-                  <div className="w-1 self-stretch rounded-full bg-brand" />
-                ) : null}
-              </div>
-              <span className="text-sm font-bold tabular-nums text-muted-foreground">
-                #{entry.global_rank ?? i + 1}
-              </span>
-              <div className="flex min-w-0 items-center gap-2">
-                <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={entry.profiles?.avatar_url} />
-                  <AvatarFallback className="bg-secondary text-xs font-bold">
-                    {getDisplayName(entry).slice(0, 2).toUpperCase() || "?"}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 items-center gap-1">
-                  <p
-                    className={cn(
-                      "min-w-0 truncate text-sm font-semibold",
-                      isCurrentUser(entry.user_id) && "text-brand"
-                    )}
-                  >
-                    {isCurrentUser(entry.user_id)
-                      ? t("youLabel")
-                      : getDisplayName(entry)}
-                  </p>
-                  <span
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-500/25 p-1 text-sky-500"
-                    title={t("earlySupporterBadge")}
+        <div className="flex flex-col gap-1 pb-28">
+          {allListEntries.map((entry, i) => (
+            <motion.div
+              key={entry.user_id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.04 }}
+              className={cn(
+                "rounded-2xl transition-colors",
+                isCurrentUser(entry.user_id)
+                  ? "border border-brand/30 bg-brand/10"
+                  : "bg-card"
+              )}
+            >
+              <div className={leaderboardRowGridClass}>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <div
+                    className="flex h-8 w-1 shrink-0 items-center justify-center"
                     aria-hidden
                   >
-                    <span
-                      className="material-symbols-outlined"
-                      style={{ fontVariationSettings: "'FILL' 1", fontSize: "12px" }}
-                    >
-                      volunteer_activism
-                    </span>
+                    {isCurrentUser(entry.user_id) ? (
+                      <div className="h-full min-h-[1.5rem] w-1 rounded-full bg-brand" />
+                    ) : null}
+                  </div>
+                  <span className="min-w-[2.75rem] shrink-0 text-left text-sm font-bold tabular-nums leading-none text-muted-foreground">
+                    #{entry.global_rank ?? i + 1}
+                  </span>
+                </div>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarImage src={entry.profiles?.avatar_url} />
+                    <AvatarFallback className="bg-secondary text-xs font-bold">
+                      {getDisplayName(entry).slice(0, 2).toUpperCase() || "?"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5">
+                      <p
+                        className={cn(
+                          "m-0 min-w-0 break-words text-sm font-semibold leading-tight line-clamp-2",
+                          isCurrentUser(entry.user_id) && "text-brand"
+                        )}
+                      >
+                        {isCurrentUser(entry.user_id)
+                          ? t("youLabel")
+                          : getDisplayName(entry)}
+                      </p>
+                      <span
+                        className="inline-flex h-6 w-6 shrink-0 translate-y-2 items-center justify-center justify-self-end rounded-full bg-sky-500/25 text-sky-500"
+                        title={t("earlySupporterBadge")}
+                        aria-hidden
+                      >
+                        <span
+                          className="material-symbols-outlined select-none leading-none"
+                          style={{
+                            fontVariationSettings: "'FILL' 1",
+                            fontSize: "12px",
+                            lineHeight: 1,
+                          }}
+                        >
+                          volunteer_activism
+                        </span>
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">
+                      <span>{t("hitsLabel")}</span>{" "}
+                      <span className="font-semibold tabular-nums text-brand">
+                        {entry.aciertos}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center justify-end self-center">
+                  <span className="text-right text-sm font-bold tabular-nums leading-none">
+                    {formatPoints(entry.total_points)}
                   </span>
                 </div>
               </div>
-              <span className="text-right text-sm font-semibold tabular-nums text-brand">
-                {entry.aciertos}
-              </span>
-              <span className="text-right text-sm font-bold tabular-nums">
-                {formatPoints(entry.total_points)}
-              </span>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          ))}
+        </div>
       </div>
     </>
   );
@@ -236,16 +251,22 @@ function PodiumEntry({
         <span className="absolute -bottom-1 -right-1 text-base">{medals[position]}</span>
       </div>
       <div className="text-center">
-        <div className="flex items-center justify-center gap-1">
-          <p className="max-w-[80px] truncate text-xs font-semibold">{displayName}</p>
+        <div className="flex items-center justify-center gap-1.5">
+          <p className="m-0 max-w-[80px] truncate text-xs font-semibold leading-tight">
+            {displayName}
+          </p>
           <span
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-500/25 p-0.5 text-sky-500"
+            className="inline-flex h-5 w-5 shrink-0 translate-y-1 items-center justify-center rounded-full bg-sky-500/25 text-sky-500"
             title={earlySupporterLabel}
             aria-hidden
           >
             <span
-              className="material-symbols-outlined"
-              style={{ fontVariationSettings: "'FILL' 1", fontSize: "10px" }}
+              className="material-symbols-outlined select-none leading-none"
+              style={{
+                fontVariationSettings: "'FILL' 1",
+                fontSize: "10px",
+                lineHeight: 1,
+              }}
             >
               volunteer_activism
             </span>

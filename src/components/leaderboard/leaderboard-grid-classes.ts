@@ -1,6 +1,6 @@
-/** Columnas: barra | # | usuario | aciertos | puntos — compartido entre lista y skeletons */
+/** Fila: justify-between — posición a la izquierda, puntos a la derecha, usuario flex-1 al centro */
 export const leaderboardRowGridClass =
-  "grid w-full min-w-0 grid-cols-[0.25rem_2.25rem_minmax(0,1fr)_minmax(5.25rem,auto)_minmax(5.5rem,auto)] items-center gap-x-2 px-3 py-3 sm:grid-cols-[0.25rem_2.5rem_minmax(0,1fr)_minmax(5.5rem,auto)_minmax(6rem,auto)] sm:gap-x-3";
+  "flex w-full min-w-0 items-center justify-between gap-2 px-2 py-2 sm:px-2.5";
 
 export const leaderboardHeaderGridClass =
-  "grid w-full grid-cols-[0.25rem_2.25rem_minmax(0,1fr)_minmax(5.25rem,auto)_minmax(5.5rem,auto)] items-center gap-x-2 px-3 pb-2 sm:grid-cols-[0.25rem_2.5rem_minmax(0,1fr)_minmax(5.5rem,auto)_minmax(6rem,auto)] sm:gap-x-3";
+  "flex w-full min-w-0 items-center justify-between gap-2 px-2 pb-1.5 sm:px-2.5";
