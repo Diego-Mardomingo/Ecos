@@ -389,15 +389,20 @@ export function HomeClient({ initialData }: Props) {
           />
         </div>
 
-        <motion.div
-          role="button"
-          tabIndex={0}
-          whileTap={{ scale: 0.99 }}
-          onClick={() => router.push("/play")}
-          onKeyDown={(e) => e.key === "Enter" && router.push("/play")}
+        {/* Contenedor estático: en iOS Safari, transform (p. ej. whileTap) en el mismo nodo que
+            rounded + overflow-hidden rompe el recorte; el motion.div va dentro sin border-radius en el padre animado */}
+        <div
           className="relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08]"
           style={{ aspectRatio: "4/3" }}
         >
+          <motion.div
+            role="button"
+            tabIndex={0}
+            whileTap={{ scale: 0.99 }}
+            onClick={() => router.push("/play")}
+            onKeyDown={(e) => e.key === "Enter" && router.push("/play")}
+            className="absolute inset-0 origin-center will-change-transform"
+          >
           {/* Fondo: cover con blur cuando completado, sino oscuro */}
           {todaysCompleted && todaysDisplayCover ? (
             <div
@@ -570,7 +575,8 @@ export function HomeClient({ initialData }: Props) {
               </button>
             </div>
           </div>
-        </motion.div>
+          </motion.div>
+        </div>
       </section>
       </div>
 
