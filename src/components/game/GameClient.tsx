@@ -377,20 +377,26 @@ export function GameClient({ game, userId }: Props) {
         };
       });
 
-      queryClient.setQueryData(queryKeys.home.today, (prev: unknown) => {
-        const previous = (prev ?? {}) as Record<string, unknown>;
-        return {
-          ...previous,
-          todaysCompletedResult: {
-            title: game.ecos_songs.title,
-            artist_name: game.ecos_songs.artist_name,
-            cover_url: game.ecos_songs.cover_url ?? "",
-            score: score ?? 0,
-            won,
-          },
-          todaysInProgress: null,
-        };
-      });
+      const todayBucket = queryClient.getQueryData(queryKeys.home.today) as
+        | { todaysGame?: { id?: string } | null }
+        | undefined;
+      const todaysGameId = todayBucket?.todaysGame?.id;
+      if (todaysGameId === game.id) {
+        queryClient.setQueryData(queryKeys.home.today, (prev: unknown) => {
+          const previous = (prev ?? {}) as Record<string, unknown>;
+          return {
+            ...previous,
+            todaysCompletedResult: {
+              title: game.ecos_songs.title,
+              artist_name: game.ecos_songs.artist_name,
+              cover_url: game.ecos_songs.cover_url ?? "",
+              score: score ?? 0,
+              won,
+            },
+            todaysInProgress: null,
+          };
+        });
+      }
 
       // Home queda actualizada de forma optimista: evitamos refetch inmediato
       // para que la vuelta a Home sea instantánea.
@@ -560,6 +566,7 @@ export function GameClient({ game, userId }: Props) {
       } else {
         let serverCorrectArtist = correctArtist;
         let serverCorrectAlbum = correctAlbum;
+        let validateSucceeded = true;
 
         if (!isGuest) {
           try {
@@ -577,12 +584,28 @@ export function GameClient({ game, userId }: Props) {
                 finalize: currentAttempt >= maxAttempts,
               }),
             });
-            const data = await res.json();
-            serverCorrectArtist = data.correctArtist ?? correctArtist;
-            serverCorrectAlbum = data.correctAlbum ?? correctAlbum;
+            const data = (await res.json()) as {
+              correctArtist?: boolean;
+              correctAlbum?: boolean;
+              error?: string;
+            };
+            if (!res.ok) {
+              validateSucceeded = false;
+              toast.error(
+                typeof data.error === "string" ? data.error : t("saveResultError")
+              );
+            } else {
+              serverCorrectArtist = data.correctArtist ?? correctArtist;
+              serverCorrectAlbum = data.correctAlbum ?? correctAlbum;
+            }
           } catch {
-            // continuar
+            validateSucceeded = false;
+            toast.error(t("saveResultError"));
           }
+        }
+
+        if (!validateSucceeded) {
+          return;
         }
 
         const guessEntry = {
@@ -598,7 +621,6 @@ export function GameClient({ game, userId }: Props) {
           setLost();
           applyGameCompletionUpdates(false, 0);
           if (isGuest) {
-            const finalGuesses = [...useGameStore.getState().guesses, guessEntry];
             saveProgress({
               gameId: game.id,
               gameDate: game.date,
@@ -608,20 +630,19 @@ export function GameClient({ game, userId }: Props) {
               title: game.ecos_songs.title,
               artist_name: game.ecos_songs.artist_name,
               cover_url: game.ecos_songs.cover_url ?? undefined,
-              guesses: finalGuesses,
+              guesses: useGameStore.getState().guesses,
               phase: "lost",
             });
           }
         } else {
           if (isGuest) {
-            const updatedGuesses = [...useGameStore.getState().guesses, guessEntry];
             saveProgress({
               gameId: game.id,
               gameDate: game.date,
               played: false,
               won: false,
               score: null,
-              guesses: updatedGuesses,
+              guesses: useGameStore.getState().guesses,
               phase: "playing",
             });
           }
@@ -721,18 +742,26 @@ export function GameClient({ game, userId }: Props) {
           type="button"
           onClick={async () => {
             gameAudioPlayerRef.current?.stopIfPlaying();
-            addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
             if (!isGuest && userId) {
               try {
-                await fetch("/api/skip-attempt", {
+                const res = await fetch("/api/skip-attempt", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ gameId: game.id, attemptNumber: currentAttempt }),
                 });
+                const data = (await res.json().catch(() => ({}))) as { error?: string };
+                if (!res.ok) {
+                  toast.error(
+                    typeof data.error === "string" ? data.error : t("saveResultError")
+                  );
+                  return;
+                }
               } catch {
-                // fallback: progreso en cliente
+                toast.error(t("saveResultError"));
+                return;
               }
             }
+            addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
             if (currentAttempt >= maxAttempts) {
               setLost();
               applyGameCompletionUpdates(false, 0);
