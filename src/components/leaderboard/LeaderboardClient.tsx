@@ -105,7 +105,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     entries.length === 0 && (isLoading || isFetching);
 
   return (
-    <div className="flex min-h-full flex-col min-h-[calc(100dvh-5rem)]">
+    <div className="flex min-h-0 w-full flex-1 flex-col">
       <header
         className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 pt-safe backdrop-blur-md"
         style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}
@@ -127,7 +127,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
       </header>
 
       <div
-        className="flex min-h-0 flex-1 flex-col touch-pan-y min-h-[calc(100dvh-8rem)]"
+        className="flex min-h-0 flex-1 flex-col touch-pan-y"
         style={{ touchAction: "pan-y" }}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
@@ -182,7 +182,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           {showListSkeleton ? (
             <RankingPodiumAndListSkeleton />
           ) : entries.length === 0 ? (
@@ -206,8 +206,9 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
               t={t}
             />
           )}
+          {/* Relleno táctil: con pocas filas, el hueco bajo la lista debe seguir disparando el swipe */}
+          <div className="min-h-0 w-full flex-1" aria-hidden />
         </div>
-        <div className="min-h-24 flex-shrink-0" aria-hidden />
       </div>
     </div>
   );

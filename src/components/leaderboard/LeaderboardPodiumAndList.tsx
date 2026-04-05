@@ -100,7 +100,7 @@ export function LeaderboardPodiumAndList({
           </div>
         </div>
 
-        <div className="flex flex-col gap-1 pb-28">
+        <div className="flex flex-col gap-1 pb-4">
           {allListEntries.map((entry, i) => (
             <motion.div
               key={entry.user_id}

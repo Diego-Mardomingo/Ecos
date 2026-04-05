@@ -15,7 +15,7 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
   return (
     <>
       <main
-        className={`flex-1 overflow-y-auto min-h-0 ${showNav ? "pt-6 pt-safe pb-24" : "pt-0 pb-6"}`}
+        className={`flex flex-1 flex-col overflow-y-auto min-h-0 ${showNav ? "pt-6 pt-safe pb-24" : "pt-0 pb-6"}`}
         data-scroll-root
       >
         {children}

@@ -55,7 +55,7 @@ export function RankingPodiumAndListSkeleton() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-1 pb-28">
+        <div className="flex flex-col gap-1 pb-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="rounded-2xl bg-card">
               <div className={leaderboardRowGridClass}>
@@ -78,7 +78,6 @@ export function RankingPodiumAndListSkeleton() {
           ))}
         </div>
       </div>
-      <div className="min-h-24 flex-shrink-0" aria-hidden />
     </div>
   );
 }
@@ -87,7 +86,7 @@ export function RankingPodiumAndListSkeleton() {
 export function RankingSkeleton() {
   return (
     <div
-      className="flex min-h-full min-h-[calc(100dvh-5rem)] flex-col"
+      className="flex min-h-0 w-full flex-1 flex-col"
       aria-busy
       aria-label="Loading"
     >
