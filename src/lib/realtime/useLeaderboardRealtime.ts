@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { queryKeys } from "@/lib/hooks/queries";
 
 /**
  * Suscripción a cambios para actualizar el ranking en tiempo real.
@@ -10,13 +11,17 @@ import { createClient } from "@/lib/supabase/client";
  * Si ecos_leaderboard es tabla (no vista), también escucha UPDATE.
  * Migración: ALTER PUBLICATION supabase_realtime ADD TABLE ecos_scores;
  */
-export function useLeaderboardRealtime() {
+export function useLeaderboardRealtime(
+  _activePeriod: "weekly" | "monthly" | "global"
+) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     const supabase = createClient();
     const invalidate = () =>
-      queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.ranking.all,
+      });
 
     const channel = supabase
       .channel("leaderboard-changes")

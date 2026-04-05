@@ -6,7 +6,6 @@ import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { motion } from "framer-motion";
-import Link from "next/link";
 import Image from "next/image";
 import confetti from "canvas-confetti";
 import { useTheme } from "next-themes";
@@ -31,6 +30,7 @@ import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import { cn } from "@/lib/utils";
 import { PlayGameSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import { Link } from "@/i18n/navigation";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -358,13 +358,47 @@ export function GameClient({ game, userId }: Props) {
   const dateFnsLocale = locale === "es" ? es : enUS;
   const isGuest = !userId;
 
-  const invalidateOnGameComplete = useCallback(() => {
-    if (!isGuest) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard });
-      queryClient.invalidateQueries({ queryKey: queryKeys.profile });
-    }
-  }, [isGuest, queryClient]);
+  const applyGameCompletionUpdates = useCallback(
+    (won: boolean, score: number | null) => {
+      if (isGuest) return;
+
+      queryClient.setQueryData(queryKeys.home.dayStatus(game.id), (prev: unknown) => {
+        const previous = (prev ?? {}) as Record<string, unknown>;
+        return {
+          ...previous,
+          gameId: game.id,
+          played: true,
+          won,
+          score,
+          title: game.ecos_songs.title,
+          artist_name: game.ecos_songs.artist_name,
+          cover_url: game.ecos_songs.cover_url ?? "",
+          inProgress: null,
+        };
+      });
+
+      queryClient.setQueryData(queryKeys.home.today, (prev: unknown) => {
+        const previous = (prev ?? {}) as Record<string, unknown>;
+        return {
+          ...previous,
+          todaysCompletedResult: {
+            title: game.ecos_songs.title,
+            artist_name: game.ecos_songs.artist_name,
+            cover_url: game.ecos_songs.cover_url ?? "",
+            score: score ?? 0,
+            won,
+          },
+          todaysInProgress: null,
+        };
+      });
+
+      // Home queda actualizada de forma optimista: evitamos refetch inmediato
+      // para que la vuelta a Home sea instantánea.
+      queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
+    },
+    [game, isGuest, queryClient]
+  );
 
   const {
     phase,
@@ -517,7 +551,7 @@ export function GameClient({ game, userId }: Props) {
             }
             const totalPoints = data.totalPoints ?? 1000;
             setWon(currentAttempt, totalPoints);
-            invalidateOnGameComplete();
+            applyGameCompletionUpdates(true, totalPoints);
           } catch {
             removeLastGuess();
             toast.error(t("saveResultError"));
@@ -562,7 +596,7 @@ export function GameClient({ game, userId }: Props) {
 
         if (currentAttempt >= maxAttempts) {
           setLost();
-          invalidateOnGameComplete();
+          applyGameCompletionUpdates(false, 0);
           if (isGuest) {
             const finalGuesses = [...useGameStore.getState().guesses, guessEntry];
             saveProgress({
@@ -605,7 +639,7 @@ export function GameClient({ game, userId }: Props) {
       setWon,
       setLost,
       saveProgress,
-      invalidateOnGameComplete,
+      applyGameCompletionUpdates,
       resolvedTheme,
       removeLastGuess,
       t,
@@ -616,9 +650,7 @@ export function GameClient({ game, userId }: Props) {
 
   // Mostrar resumen guardado al reentrar a un juego completado
   if (loadedProgress === "loading") {
-    return (
-      <PlayGameSkeleton footer={<span>{t("loadingGame")}</span>} />
-    );
+    return <PlayGameSkeleton />;
   }
 
   const isResultView =
@@ -703,7 +735,7 @@ export function GameClient({ game, userId }: Props) {
             }
             if (currentAttempt >= maxAttempts) {
               setLost();
-              invalidateOnGameComplete();
+              applyGameCompletionUpdates(false, 0);
               if (isGuest) {
                 const finalGuesses = useGameStore.getState().guesses;
                 saveProgress({

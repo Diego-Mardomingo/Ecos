@@ -1,15 +1,7 @@
-import dynamic from "next/dynamic";
 import { getTranslations } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTodaysGame } from "@/lib/queries/games";
-import { GameLoadingFallback } from "@/components/game/GameLoadingFallback";
-
-const GameClient = dynamic(
-  () => import("@/components/game/GameClient").then((m) => ({ default: m.GameClient })),
-  {
-    loading: () => <GameLoadingFallback />,
-  }
-);
+import { GameClient } from "@/components/game/GameClient";
 
 export default async function PlayPage() {
   const supabase = await createClient();

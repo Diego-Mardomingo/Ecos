@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import type {
   GameWithSong,
   PreviousDayGame,
@@ -11,16 +11,47 @@ import type {
 export type { InProgressProgress, TodaysCompletedResult };
 import type { UserStats } from "@/lib/queries/users";
 
+/** Home «today» / «previous-days»: ventana corta para volver desde otras rutas sin refetch constante. */
+export const HOME_TODAY_STALE_MS = 3 * 60 * 1000;
+export const HOME_PREVIOUS_DAYS_STALE_MS = 3 * 60 * 1000;
+/** Muchas claves mensuales: evitar el gcTime global corto (10 min) para no descartar el histórico prefetch. */
+export const HOME_PREVIOUS_DAYS_GC_MS = 24 * 60 * 60 * 1000;
+/** Estado por día en la lista: alineado con home; evita refetch al expandir mes. */
+export const HOME_DAY_STATUS_STALE_MS = 3 * 60 * 1000;
+/** Ranking social: fresco, pero evitando refetch excesivo al navegar entre tabs. */
+export const RANKING_STALE_MS = 2 * 60 * 1000;
+/** Perfil: datos de usuario relativamente estables durante una sesión. */
+export const PROFILE_STALE_MS = 3 * 60 * 1000;
+
 export const queryKeys = {
-  home: ["home"] as const,
-  game: (id: string) => ["game", id] as const,
-  leaderboard: (period: string) => ["leaderboard", period] as const,
-  leaderboardHistorySummaries: (granularity: string) =>
-    ["leaderboard-history-summaries", granularity] as const,
-  leaderboardHistoryDetail: (granularity: string, anchor: string) =>
-    ["leaderboard-history-detail", granularity, anchor] as const,
-  userStats: (userId: string) => ["user-stats", userId] as const,
-  profile: ["profile"] as const,
+  home: {
+    all: ["home"] as const,
+    today: ["home", "today"] as const,
+    previousDaysAll: ["home", "previous-days", "all"] as const,
+    previousDays: (monthKey: string) =>
+      ["home", "previous-days", monthKey] as const,
+    dayStatus: (gameId: string) => ["home", "day-status", gameId] as const,
+    userStats: (userId: string | null) =>
+      ["home", "user-stats", userId ?? "guest"] as const,
+  },
+  game: {
+    all: ["game"] as const,
+    byId: (id: string) => ["game", id] as const,
+    progress: (id: string) => ["game-progress", id] as const,
+  },
+  ranking: {
+    all: ["ranking"] as const,
+    period: (period: string) => ["ranking", "period", period] as const,
+    historySummaries: (granularity: string) =>
+      ["ranking", "history", "summaries", granularity] as const,
+    historyDetail: (granularity: string, anchor: string) =>
+      ["ranking", "history", "detail", granularity, anchor] as const,
+  },
+  profile: {
+    all: ["profile"] as const,
+    section: (section: "core" | "stats", userId: string | null) =>
+      ["profile", "section", section, userId ?? "me"] as const,
+  },
   search: (q: string) => ["search", q] as const,
 };
 
@@ -42,6 +73,43 @@ export interface HomeData {
     weekly: RankingStatsPeriod;
     monthly: RankingStatsPeriod;
   };
+}
+
+export interface HomeTodayData {
+  todaysGame: GameWithSong | null;
+  todaysCompletedResult: TodaysCompletedResult | null;
+  todaysInProgress: InProgressProgress | null;
+  userId: string | null;
+}
+
+export interface HomePreviousDaysData {
+  previousDays: PreviousDayGame[];
+  userId: string | null;
+  month?: string;
+  nextMonth?: string | null;
+  hasMoreOlder?: boolean;
+}
+
+export interface HomeUserStatsData {
+  userStats: UserStats | null;
+  rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
+  rankingStats?: {
+    global: RankingStatsPeriod;
+    weekly: RankingStatsPeriod;
+    monthly: RankingStatsPeriod;
+  };
+  userId: string | null;
+}
+
+export interface HomeDayStatusData {
+  gameId: string;
+  played: boolean;
+  won: boolean;
+  score: number | null;
+  title: string;
+  artist_name: string;
+  cover_url: string;
+  inProgress: InProgressProgress | null;
 }
 
 export interface RankingData {
@@ -69,9 +137,31 @@ interface ProfileData {
   stats: UserStats | null;
 }
 
+interface ProfileCoreData {
+  profile: ProfileData["profile"];
+  userId: string | null;
+}
+
+interface ProfileStatsData {
+  stats: UserStats | null;
+  userId: string | null;
+}
+
+export async function fetchProfileCoreData(): Promise<ProfileCoreData> {
+  const res = await fetch("/api/profile/core");
+  if (!res.ok) throw new Error("Failed to fetch profile core");
+  return res.json();
+}
+
+export async function fetchProfileStatsData(): Promise<ProfileStatsData> {
+  const res = await fetch("/api/profile/stats");
+  if (!res.ok) throw new Error("Failed to fetch profile stats");
+  return res.json();
+}
+
 export function useHomeData(initialData?: HomeData) {
   return useQuery({
-    queryKey: queryKeys.home,
+    queryKey: queryKeys.home.all,
     queryFn: async (): Promise<HomeData> => {
       const res = await fetch("/api/home", { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch home data");
@@ -81,9 +171,87 @@ export function useHomeData(initialData?: HomeData) {
   });
 }
 
+export async function fetchHomePreviousDaysData(
+  month: string
+): Promise<HomePreviousDaysData> {
+  const res = await fetch(
+    `/api/home/previous-days?month=${encodeURIComponent(month)}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) throw new Error("Failed to fetch previous days");
+  return res.json();
+}
+
+export async function fetchHomeTodayData(): Promise<HomeTodayData> {
+  const res = await fetch("/api/home/today", { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch home today data");
+  return res.json();
+}
+
+export function useHomeToday(initialData?: HomeTodayData) {
+  return useQuery({
+    queryKey: queryKeys.home.today,
+    queryFn: fetchHomeTodayData,
+    initialData,
+    staleTime: HOME_TODAY_STALE_MS,
+  });
+}
+
+export function useHomePreviousDays(
+  month: string,
+  initialData?: HomePreviousDaysData
+) {
+  return useQuery({
+    queryKey: queryKeys.home.previousDays(month),
+    queryFn: () => fetchHomePreviousDaysData(month),
+    initialData,
+    staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+    gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+  });
+}
+
+export function useHomeUserStats(
+  userId: string | null,
+  initialData?: HomeUserStatsData
+) {
+  return useQuery({
+    queryKey: queryKeys.home.userStats(userId),
+    queryFn: fetchHomeUserStatsData,
+    initialData,
+    enabled: userId != null,
+    staleTime: HOME_TODAY_STALE_MS,
+  });
+}
+
+export async function fetchHomeUserStatsData(): Promise<HomeUserStatsData> {
+  const res = await fetch("/api/home/user-stats", { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch home user stats");
+  return res.json();
+}
+
+export function useHomeDayStatus(
+  gameId: string,
+  initialData?: HomeDayStatusData,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.home.dayStatus(gameId),
+    queryFn: async (): Promise<HomeDayStatusData> => {
+      const res = await fetch(`/api/home/day/${gameId}/status`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Failed to fetch day status");
+      return res.json();
+    },
+    initialData,
+    enabled: (options?.enabled ?? true) && !!gameId,
+    staleTime: HOME_DAY_STATUS_STALE_MS,
+  });
+}
+
 export function useGameById(gameId: string, initialData?: GameWithSong | null) {
   return useQuery({
-    queryKey: queryKeys.game(gameId),
+    queryKey: queryKeys.game.byId(gameId),
     queryFn: async (): Promise<GameWithSong | null> => {
       const res = await fetch(`/api/game/${gameId}`);
       if (!res.ok) {
@@ -110,14 +278,19 @@ export function useLeaderboard(
     (period === "global" ? legacyInitialData : undefined);
 
   return useQuery({
-    queryKey: queryKeys.leaderboard(period),
-    queryFn: async (): Promise<RankingData> => {
-      const res = await fetch(`/api/ranking?period=${period}`);
-      if (!res.ok) throw new Error("Failed to fetch leaderboard");
-      return res.json();
-    },
+    queryKey: queryKeys.ranking.period(period),
+    queryFn: () => fetchLeaderboardPeriodData(period),
     initialData,
+    staleTime: RANKING_STALE_MS,
   });
+}
+
+export async function fetchLeaderboardPeriodData(
+  period: "weekly" | "monthly" | "global"
+): Promise<RankingData> {
+  const res = await fetch(`/api/ranking?period=${period}`);
+  if (!res.ok) throw new Error("Failed to fetch leaderboard");
+  return res.json();
 }
 
 export interface LeaderboardHistorySummary {
@@ -143,7 +316,7 @@ export function useLeaderboardHistorySummaries(
   >
 ) {
   return useQuery({
-    queryKey: queryKeys.leaderboardHistorySummaries(granularity),
+    queryKey: queryKeys.ranking.historySummaries(granularity),
     queryFn: async (): Promise<LeaderboardHistorySummary[]> => {
       const url =
         granularity === "monthly"
@@ -170,7 +343,7 @@ export function useLeaderboardHistoryDetail(
     /^\d{4}-\d{2}-\d{2}$/.test(anchor);
 
   return useQuery({
-    queryKey: queryKeys.leaderboardHistoryDetail(granularity, anchor),
+    queryKey: queryKeys.ranking.historyDetail(granularity, anchor),
     queryFn: async (): Promise<LeaderboardHistoryDetailData> => {
       const res = await fetch(
         `/api/ranking/history/detail?granularity=${granularity}&anchor=${encodeURIComponent(anchor)}`
@@ -187,17 +360,46 @@ export function useProfile(
   initialData?: ProfileData,
   options?: { enabled?: boolean }
 ) {
-  return useQuery({
-    queryKey: queryKeys.profile,
-    queryFn: async (): Promise<ProfileData> => {
-      const res = await fetch("/api/profile");
-      if (!res.ok) throw new Error("Failed to fetch profile");
-      return res.json();
-    },
-    initialData,
-    retry: false,
-    enabled: options?.enabled ?? true,
+  const initialCoreData: ProfileCoreData | undefined = initialData
+    ? { profile: initialData.profile, userId: initialData.profile.id }
+    : undefined;
+  const initialStatsData: ProfileStatsData | undefined = initialData
+    ? { stats: initialData.stats, userId: initialData.profile.id }
+    : undefined;
+
+  const [coreQuery, statsQuery] = useQueries({
+    queries: [
+      {
+        queryKey: queryKeys.profile.section("core", null),
+        queryFn: fetchProfileCoreData,
+        initialData: initialCoreData,
+        retry: false,
+        enabled: options?.enabled ?? true,
+        staleTime: PROFILE_STALE_MS,
+      },
+      {
+        queryKey: queryKeys.profile.section("stats", null),
+        queryFn: fetchProfileStatsData,
+        initialData: initialStatsData,
+        retry: false,
+        enabled: options?.enabled ?? true,
+        staleTime: PROFILE_STALE_MS,
+      },
+    ],
   });
+
+  const data =
+    coreQuery.data && statsQuery.data
+      ? { profile: coreQuery.data.profile, stats: statsQuery.data.stats }
+      : undefined;
+
+  return {
+    data,
+    isLoading: coreQuery.isLoading || statsQuery.isLoading,
+    isFetching: coreQuery.isFetching || statsQuery.isFetching,
+    isError: coreQuery.isError || statsQuery.isError,
+    error: coreQuery.error ?? statsQuery.error,
+  };
 }
 
 export interface EcosSong {

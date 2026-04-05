@@ -1,22 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import { useGameById } from "@/lib/hooks/queries";
 import type { GameWithSong } from "@/lib/queries/games";
-import { PlayGameSkeleton } from "@/components/skeletons";
-
-function PlayGameLoading() {
-  const t = useTranslations("game");
-  return <PlayGameSkeleton footer={<span>{t("loadingGame")}</span>} />;
-}
-
-const GameClient = dynamic(
-  () => import("@/components/game/GameClient").then((m) => ({ default: m.GameClient })),
-  {
-    loading: () => <PlayGameLoading />,
-  }
-);
+import { GameClient } from "@/components/game/GameClient";
 
 interface Props {
   gameId: string;

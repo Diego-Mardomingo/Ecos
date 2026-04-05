@@ -4,7 +4,12 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Link } from "@/i18n/navigation";
-import { useLeaderboard } from "@/lib/hooks/queries";
+import {
+  fetchLeaderboardPeriodData,
+  queryKeys,
+  RANKING_STALE_MS,
+  useLeaderboard,
+} from "@/lib/hooks/queries";
 import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
 import { cn } from "@/lib/utils";
 import {
@@ -13,6 +18,7 @@ import {
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import type { RankingData } from "@/lib/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 const SWIPE_THRESHOLD = 50;
 const RANKING_PERIOD_STORAGE_KEY = "ecos-ranking-period";
@@ -32,6 +38,7 @@ const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   const t = useTranslations("ranking");
   const locale = useLocale();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
   const isFirstSaveRun = useRef(true);
@@ -52,12 +59,32 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     localStorage.setItem(RANKING_PERIOD_STORAGE_KEY, activeTab);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!initialByPeriod) return;
+    for (const period of PERIOD_ORDER) {
+      const payload = initialByPeriod[period];
+      if (!payload) continue;
+      queryClient.setQueryData(queryKeys.ranking.period(period), payload);
+    }
+  }, [initialByPeriod, queryClient]);
+
+  useEffect(() => {
+    for (const period of PERIOD_ORDER) {
+      if (period === activeTab) continue;
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.ranking.period(period),
+        queryFn: () => fetchLeaderboardPeriodData(period),
+        staleTime: RANKING_STALE_MS,
+      });
+    }
+  }, [activeTab, queryClient]);
+
   const { data, isLoading, isFetching } = useLeaderboard(
     activeTab,
     initialByPeriod,
     initialData
   );
-  useLeaderboardRealtime();
+  useLeaderboardRealtime(activeTab);
   const entries = data?.entries ?? [];
 
   const lastUserIdRef = useRef<string | null>(null);
@@ -101,8 +128,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
         ? "calc(33.333% + 2px)"
         : "calc(66.666% + 2px)";
 
-  const showListSkeleton =
-    entries.length === 0 && (isLoading || isFetching);
+  const showListSkeleton = entries.length === 0 && isLoading;
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
@@ -180,6 +206,13 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
               </button>
             ))}
           </div>
+          {isFetching && entries.length > 0 ? (
+            <div className="mt-2 flex justify-center" aria-hidden>
+              <span className="material-symbols-outlined animate-spin text-base text-muted-foreground">
+                progress_activity
+              </span>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">

@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
@@ -15,8 +13,20 @@ import {
   getTomorrowMadridDate,
 } from "@/lib/date-utils";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
-import { useQueryClient } from "@tanstack/react-query";
-import { useHomeData, queryKeys, type HomeData } from "@/lib/hooks/queries";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import {
+  useHomeToday,
+  useHomePreviousDays,
+  useHomeUserStats,
+  queryKeys,
+  fetchHomePreviousDaysData,
+  HOME_DAY_STATUS_STALE_MS,
+  HOME_PREVIOUS_DAYS_GC_MS,
+  HOME_PREVIOUS_DAYS_STALE_MS,
+  type HomeData,
+  type HomeDayStatusData,
+  type HomePreviousDaysData,
+} from "@/lib/hooks/queries";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import { HomeSkeleton } from "@/components/skeletons";
@@ -49,6 +59,7 @@ import {
   CarouselItem,
   type CarouselApi,
 } from "@/components/ui/carousel";
+import { Link, useRouter } from "@/i18n/navigation";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
 const ABOUT_HOW_TO_PLAY_ICONS = [
@@ -64,12 +75,38 @@ const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
 const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
 const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
 const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
+/**
+ * Solo red de seguridad si la API devolviera nextMonth de forma errónea.
+ * El histórico real termina cuando nextMonth es null.
+ */
+const MAX_PREFETCH_HISTORY_MONTHS_SAFETY = 600;
 /** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
 const PREVIOUS_DAY_COLORS = [
   "hsl(0, 55%, 40%)",   /* rojo */
   "hsl(200, 50%, 40%)", /* azul */
   "hsl(140, 45%, 35%)", /* verde */
 ] as const;
+
+function previousMonthKey(monthKey: string): string | null {
+  const [y, m] = monthKey.split("-").map(Number);
+  if (!y || !m || m < 1 || m > 12) return null;
+  const prevDate = new Date(Date.UTC(y, m - 2, 1));
+  return `${prevDate.getUTCFullYear()}-${String(prevDate.getUTCMonth() + 1).padStart(
+    2,
+    "0"
+  )}`;
+}
+
+function mergePreviousDays(
+  current: PreviousDayGame[],
+  incoming: PreviousDayGame[]
+): PreviousDayGame[] {
+  if (incoming.length === 0) return current;
+  const map = new Map<string, PreviousDayGame>();
+  for (const day of current) map.set(day.id, day);
+  for (const day of incoming) map.set(day.id, day);
+  return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
 
 function previousDayColor(gameNumber: number): string {
   return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
@@ -91,7 +128,148 @@ interface Props {
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data, isLoading, refetch } = useHomeData(initialData);
+  const currentMonthKey = getMadridDate().slice(0, 7);
+  const initialTodayData = initialData
+    ? {
+        todaysGame: initialData.todaysGame,
+        todaysCompletedResult: initialData.todaysCompletedResult ?? null,
+        todaysInProgress: initialData.todaysGame
+          ? (initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null)
+          : null,
+        userId: initialData.userId,
+      }
+    : undefined;
+  const initialPreviousDaysData = initialData
+    ? {
+        previousDays: initialData.previousDays,
+        userId: initialData.userId,
+        month: currentMonthKey,
+        nextMonth: previousMonthKey(currentMonthKey),
+        hasMoreOlder: true,
+      }
+    : undefined;
+  const initialUserStatsData = initialData
+    ? {
+        userStats: initialData.userStats ?? null,
+        rankingRanks: initialData.rankingRanks,
+        rankingStats: initialData.rankingStats,
+        userId: initialData.userId,
+      }
+    : undefined;
+
+  const {
+    data: todayData,
+    isPending: isTodayPending,
+    refetch: refetchToday,
+  } = useHomeToday(initialTodayData);
+  const {
+    data: previousDaysData,
+    isPending: isPreviousDaysPending,
+    refetch: refetchPreviousDays,
+  } = useHomePreviousDays(currentMonthKey, initialPreviousDaysData);
+
+  const resolvedUserId =
+    todayData?.userId ??
+    previousDaysData?.userId ??
+    initialData?.userId ??
+    null;
+
+  const { data: homeUserStatsData } = useHomeUserStats(
+    resolvedUserId,
+    initialUserStatsData
+  );
+  const getCachedPreviousDays = useCallback((): PreviousDayGame[] => {
+    const allBucket = queryClient.getQueryData<HomePreviousDaysData>(
+      queryKeys.home.previousDaysAll
+    );
+    if (allBucket?.previousDays?.length) return allBucket.previousDays;
+
+    const monthBuckets = queryClient.getQueriesData<HomePreviousDaysData>({
+      queryKey: ["home", "previous-days"],
+    });
+    let merged: PreviousDayGame[] = [];
+    for (const [key, value] of monthBuckets) {
+      if (Array.isArray(key) && key[2] === "all") continue;
+      if (value?.previousDays?.length) {
+        merged = mergePreviousDays(merged, value.previousDays);
+      }
+    }
+    return merged;
+  }, [queryClient]);
+  const [previousDaysMerged, setPreviousDaysMerged] = useState<PreviousDayGame[]>(
+    () => {
+      const cached = getCachedPreviousDays();
+      if (cached.length > 0) return cached;
+      return initialData?.previousDays ?? [];
+    }
+  );
+  const prefetchStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (!previousDaysData?.previousDays) return;
+    setPreviousDaysMerged((prev) => {
+      const merged = mergePreviousDays(prev, previousDaysData.previousDays);
+      queryClient.setQueryData(queryKeys.home.previousDaysAll, {
+        previousDays: merged,
+        userId: previousDaysData.userId ?? resolvedUserId ?? null,
+        month: previousDaysData.month,
+        nextMonth: previousDaysData.nextMonth ?? null,
+        hasMoreOlder: previousDaysData.hasMoreOlder,
+      } satisfies HomePreviousDaysData);
+      return merged;
+    });
+  }, [previousDaysData, queryClient, resolvedUserId]);
+
+  useEffect(() => {
+    if (prefetchStartedRef.current) return;
+    const startMonth = previousDaysData?.nextMonth ?? null;
+    if (!startMonth) return;
+    prefetchStartedRef.current = true;
+
+    let cancelled = false;
+    const run = async () => {
+      let monthCursor: string | null = startMonth;
+      let count = 0;
+      while (
+        !cancelled &&
+        monthCursor &&
+        count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
+      ) {
+        try {
+          const payload: HomePreviousDaysData = await queryClient.fetchQuery({
+            queryKey: queryKeys.home.previousDays(monthCursor),
+            queryFn: () => fetchHomePreviousDaysData(monthCursor!),
+            staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+            gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+          });
+          setPreviousDaysMerged((prev) => {
+            const merged = mergePreviousDays(prev, payload.previousDays ?? []);
+            const previousAll =
+              queryClient.getQueryData<HomePreviousDaysData>(
+                queryKeys.home.previousDaysAll
+              );
+            queryClient.setQueryData(queryKeys.home.previousDaysAll, {
+              previousDays: merged,
+              userId: previousAll?.userId ?? resolvedUserId ?? null,
+              nextMonth: payload.nextMonth ?? null,
+              hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
+              month: previousAll?.month,
+            } satisfies HomePreviousDaysData);
+            return merged;
+          });
+          monthCursor = payload.nextMonth ?? null;
+        } catch {
+          break;
+        }
+        count += 1;
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [previousDaysData?.nextMonth, queryClient, resolvedUserId]);
   const prefetchedNextRef = useRef<HomeData | null>(null);
   const hasPrefetchedRef = useRef(false);
 
@@ -109,22 +287,48 @@ export function HomeClient({ initialData }: Props) {
 
   const handleCountdownZero = useCallback(() => {
     if (prefetchedNextRef.current) {
-      queryClient.setQueryData(queryKeys.home, prefetchedNextRef.current);
+      const payload = prefetchedNextRef.current;
+      const monthKey = getMadridDate().slice(0, 7);
+      queryClient.setQueryData(queryKeys.home.all, payload);
+      queryClient.setQueryData(queryKeys.home.today, {
+        todaysGame: payload.todaysGame,
+        todaysCompletedResult: payload.todaysCompletedResult ?? null,
+        todaysInProgress: payload.todaysGame
+          ? (payload.inProgressByGameId?.[payload.todaysGame.id] ?? null)
+          : null,
+        userId: payload.userId,
+      });
+      const prevBlock: HomePreviousDaysData = {
+        previousDays: payload.previousDays,
+        userId: payload.userId,
+        month: monthKey,
+        nextMonth: previousMonthKey(monthKey),
+        hasMoreOlder: true,
+      };
+      queryClient.setQueryData(queryKeys.home.previousDays(monthKey), prevBlock);
+      queryClient.setQueryData(queryKeys.home.previousDaysAll, prevBlock);
+      if (payload.userId) {
+        queryClient.setQueryData(queryKeys.home.userStats(payload.userId), {
+          userStats: payload.userStats,
+          rankingRanks: payload.rankingRanks,
+          rankingStats: payload.rankingStats,
+          userId: payload.userId,
+        });
+      }
       prefetchedNextRef.current = null;
       // No refetch: la respuesta podría ser del día anterior y sobrescribiría la UI correcta.
     } else {
-      refetch();
+      refetchToday();
+      refetchPreviousDays();
     }
-  }, [queryClient, refetch]);
+  }, [queryClient, refetchToday, refetchPreviousDays]);
 
-  const todaysGame = data?.todaysGame ?? null;
-  const userStats = data?.userStats ?? null;
-  const userId = data?.userId ?? null;
-  const previousDays = data?.previousDays ?? [];
-  const inProgressByGameId = data?.inProgressByGameId ?? {};
-  const todaysCompletedResult = data?.todaysCompletedResult ?? null;
-  const rankingRanks = data?.rankingRanks;
-  const rankingStats = data?.rankingStats;
+  const todaysGame = todayData?.todaysGame ?? null;
+  const userId = resolvedUserId;
+  const previousDays = previousDaysMerged;
+  const todaysServerInProgress = todayData?.todaysInProgress ?? null;
+  const todaysCompletedResult = todayData?.todaysCompletedResult ?? null;
+  const rankingStats = homeUserStatsData?.rankingStats;
 
   const t = useTranslations("home");
   const tc = useTranslations("common");
@@ -173,8 +377,8 @@ export function HomeClient({ initialData }: Props) {
 
   // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
   useEffect(() => {
-    if (userId || Object.keys(inProgressByGameId).length === 0) return;
-    for (const prog of Object.values(inProgressByGameId)) {
+    if (userId || !todaysServerInProgress) return;
+    for (const prog of [todaysServerInProgress]) {
       const full: GameProgress = {
         ...prog,
         played: false,
@@ -183,15 +387,15 @@ export function HomeClient({ initialData }: Props) {
       };
       saveProgress(full);
     }
-  }, [userId, inProgressByGameId, saveProgress]);
+  }, [userId, todaysServerInProgress, saveProgress]);
 
   // Hoy: servidor (inProgressByGameId) tiene prioridad para usuarios autenticados
   const todaysLocalOrServer = todaysGame
-    ? (userId && inProgressByGameId[todaysGame.id]
-        ? inProgressByGameId[todaysGame.id]
+    ? (userId && todaysServerInProgress
+        ? todaysServerInProgress
         : byGameId[todaysGame.id])
     : undefined;
-  const todaysProgress = todaysLocalOrServer;
+  const todaysProgress = todaysLocalOrServer as GameProgress | undefined;
   const todaysCompleted =
     (todaysProgress && (todaysProgress.phase === "won" || todaysProgress.phase === "lost")) || !!todaysCompletedResult;
   const todaysDisplayCover = todaysCompleted
@@ -235,7 +439,13 @@ export function HomeClient({ initialData }: Props) {
     }
   };
 
-  if (isLoading && !data) {
+  // isPending = aún no hay datos en caché (no confundir con refetch en background).
+  // Con initialData del RSC o datos en QueryClient al volver atrás, no debe mostrarse skeleton.
+  if (
+    (isTodayPending || isPreviousDaysPending) &&
+    !todayData &&
+    !previousDaysData
+  ) {
     return <HomeSkeleton />;
   }
 
@@ -623,7 +833,7 @@ export function HomeClient({ initialData }: Props) {
       <PreviousDaysSection
         previousDays={previousDays}
         userId={userId}
-        inProgressByGameId={inProgressByGameId}
+        inProgressByGameId={initialData?.inProgressByGameId}
         onNavigateToGame={undefined}
       />
     </div>
@@ -998,6 +1208,50 @@ function PreviousDaysSection({
   const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([currentMonthKey]));
   const hasRestoredRef = useRef(false);
 
+  const dayStatusQueries = useQueries({
+    queries: previousDays.map((day) => {
+      const [y, m] = day.date.split("-").map(Number);
+      const monthKey = `${y}-${String(m).padStart(2, "0")}`;
+      const visibleByFilter =
+        filterYear === null && filterMonth === null
+          ? openMonths.has(monthKey)
+          : (filterYear === null || y === filterYear) &&
+            (filterMonth === null || filterMonth === m - 1);
+
+      return {
+        queryKey: queryKeys.home.dayStatus(day.id),
+        queryFn: async (): Promise<HomeDayStatusData> => {
+          const res = await fetch(`/api/home/day/${day.id}/status`, {
+            cache: "no-store",
+          });
+          if (!res.ok) throw new Error("Failed to fetch day status");
+          return res.json();
+        },
+        staleTime: HOME_DAY_STATUS_STALE_MS,
+        enabled: !!userId && visibleByFilter,
+        initialData: {
+          gameId: day.id,
+          played: day.played,
+          won: day.won,
+          score: day.score,
+          title: day.title,
+          artist_name: day.artist_name,
+          cover_url: day.cover_url,
+          inProgress: inProgressByGameId?.[day.id] ?? null,
+        } satisfies HomeDayStatusData,
+      };
+    }),
+  });
+
+  const dayStatusByGameId = useMemo(() => {
+    const map = new Map<string, HomeDayStatusData>();
+    previousDays.forEach((day, index) => {
+      const status = dayStatusQueries[index]?.data;
+      if (status) map.set(day.id, status);
+    });
+    return map;
+  }, [previousDays, dayStatusQueries]);
+
   // Restaurar todo desde sessionStorage al montar (solo cliente); marcar restaurado para no pisar en los efectos de persist
   useEffect(() => {
     try {
@@ -1139,16 +1393,19 @@ function PreviousDaysSection({
   }, [availableMonthYearPairs, filterYear]);
 
   const renderDayCard = (day: PreviousDayGame) => {
-            // Usuarios autenticados: servidor (day, inProgressByGameId) es fuente de verdad.
-            // Invitados: gameProgressStore.
-            const serverInProgress = userId ? inProgressByGameId[day.id] : undefined;
+            const status = userId ? dayStatusByGameId.get(day.id) : null;
+            // Usuarios autenticados: cada tarjeta tiene su propia query por gameId.
+            // Invitados: gameProgressStore local.
+            const serverInProgress = userId ? status?.inProgress ?? undefined : undefined;
             const localProgress = (serverInProgress ?? byGameId[day.id]) as GameProgress | undefined;
-            const played = userId ? day.played : !!localProgress;
-            const serverHasResult = userId && day.played && day.score != null;
-            const displayTitle = played ? (localProgress?.title ?? day.title) : "";
-            const displayCover = played ? (localProgress?.cover_url ?? day.cover_url) : "";
-            const displayScore = played ? (serverHasResult ? day.score : (localProgress?.score ?? day.score)) : null;
-            const won = played && (serverHasResult ? day.won : (localProgress?.won ?? day.won));
+            const played = userId ? (status?.played ?? day.played) : !!localProgress;
+            const serverScore = status?.score ?? day.score;
+            const serverWon = status?.won ?? day.won;
+            const serverHasResult = userId && played && serverScore != null;
+            const displayTitle = played ? (localProgress?.title ?? status?.title ?? day.title) : "";
+            const displayCover = played ? (localProgress?.cover_url ?? status?.cover_url ?? day.cover_url) : "";
+            const displayScore = played ? (serverHasResult ? serverScore : (localProgress?.score ?? serverScore)) : null;
+            const won = played && (serverHasResult ? serverWon : (localProgress?.won ?? serverWon));
             const completed = played && displayScore !== null;
             const inProgress =
               !serverHasResult &&
@@ -1298,7 +1555,9 @@ function PreviousDaysSection({
   return (
     <section>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">{t("previousDays")}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">{t("previousDays")}</h2>
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex h-9 items-center rounded-lg border border-border bg-muted/30 p-0.5">
             <button

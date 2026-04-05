@@ -24,7 +24,7 @@ interface Profile {
   show_avatar_in_rankings: boolean;
   created_at: string;
   email: string;
-  role?: string | null;
+  role: string | null;
 }
 
 interface Props {
