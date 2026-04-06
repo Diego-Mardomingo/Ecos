@@ -406,6 +406,11 @@ export function GameClient({ game, userId }: Props) {
     [game, isGuest, queryClient]
   );
 
+  const invalidateHomeCaches = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(game.id) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.home.today });
+  }, [queryClient, game.id]);
+
   const {
     phase,
     currentAttempt,
@@ -417,7 +422,8 @@ export function GameClient({ game, userId }: Props) {
     startGame,
     loadProgress,
     addGuess,
-    removeLastGuess,
+    revertLastGuessAfterFailedSync,
+    revertWinAfterFailedSync,
     setWon,
     setLost,
     gameId,
@@ -426,6 +432,8 @@ export function GameClient({ game, userId }: Props) {
   const { getProgress, saveProgress, removeProgress } = useGameProgressStore();
   const [loadedProgress, setLoadedProgress] = useState<GameProgress | null | "loading">("loading");
   const gameAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
+  /** Evita segundo intento/salto mientras la sync con el servidor está en curso. */
+  const syncInFlightRef = useRef(false);
 
   // Cargar progreso guardado o iniciar partida nueva
   useEffect(() => {
@@ -480,8 +488,9 @@ export function GameClient({ game, userId }: Props) {
   }, [game.id, game.date, gameId, phase, isGuest, getProgress, saveProgress, removeProgress, startGame, loadProgress, loadedProgress]);
 
   const handleGuess = useCallback(
-    async (song: EcosSong) => {
+    (song: EcosSong) => {
       if (phase !== "playing") return;
+      if (!isGuest && syncInFlightRef.current) return;
 
       const guessText = `${song.title} - ${song.artist_name}`;
       const isCorrect =
@@ -531,88 +540,130 @@ export function GameClient({ game, userId }: Props) {
             correctAttempt: currentAttempt,
           });
         } else {
-          try {
-            const res = await fetch("/api/validate-guess", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                gameId: game.id,
-                userId,
-                attemptNumber: currentAttempt,
-                guessText,
-                songId: song.id,
-                guessArtistName: song.artist_name,
-                guessAlbumTitle: song.album_title ?? undefined,
-                finalize: true,
-              }),
-            });
-            const data = (await res.json()) as {
-              error?: string;
-              totalPoints?: number;
-            };
-            if (!res.ok) {
-              throw new Error(
-                typeof data.error === "string" ? data.error : "save_failed"
-              );
+          syncInFlightRef.current = true;
+          const optimisticScore = calculateScore(currentAttempt, 0).totalPoints;
+          setWon(currentAttempt, optimisticScore);
+          applyGameCompletionUpdates(true, optimisticScore);
+
+          void (async () => {
+            try {
+              const res = await fetch("/api/validate-guess", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  gameId: game.id,
+                  userId,
+                  attemptNumber: currentAttempt,
+                  guessText,
+                  songId: song.id,
+                  guessArtistName: song.artist_name,
+                  guessAlbumTitle: song.album_title ?? undefined,
+                  finalize: true,
+                }),
+              });
+              const data = (await res.json()) as {
+                error?: string;
+                totalPoints?: number;
+              };
+              if (!res.ok) {
+                toast.error(
+                  typeof data.error === "string" ? data.error : t("saveResultError")
+                );
+                revertWinAfterFailedSync();
+                invalidateHomeCaches();
+                return;
+              }
+              const serverPoints = data.totalPoints ?? optimisticScore;
+              if (serverPoints !== optimisticScore) {
+                setWon(currentAttempt, serverPoints);
+                applyGameCompletionUpdates(true, serverPoints);
+              }
+            } catch {
+              toast.error(t("saveResultError"));
+              revertWinAfterFailedSync();
+              invalidateHomeCaches();
+            } finally {
+              syncInFlightRef.current = false;
             }
-            const totalPoints = data.totalPoints ?? 1000;
-            setWon(currentAttempt, totalPoints);
-            applyGameCompletionUpdates(true, totalPoints);
-          } catch {
-            removeLastGuess();
-            toast.error(t("saveResultError"));
-          }
+          })();
         }
       } else {
-        let serverCorrectArtist = correctArtist;
-        let serverCorrectAlbum = correctAlbum;
-        let validateSucceeded = true;
-
         if (!isGuest) {
-          try {
-            const res = await fetch("/api/validate-guess", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                gameId: game.id,
-                userId,
-                attemptNumber: currentAttempt,
-                guessText,
-                songId: song.id,
-                guessArtistName: song.artist_name,
-                guessAlbumTitle: song.album_title ?? undefined,
-                finalize: currentAttempt >= maxAttempts,
-              }),
-            });
-            const data = (await res.json()) as {
-              correctArtist?: boolean;
-              correctAlbum?: boolean;
-              error?: string;
-            };
-            if (!res.ok) {
-              validateSucceeded = false;
-              toast.error(
-                typeof data.error === "string" ? data.error : t("saveResultError")
-              );
-            } else {
-              serverCorrectArtist = data.correctArtist ?? correctArtist;
-              serverCorrectAlbum = data.correctAlbum ?? correctAlbum;
-            }
-          } catch {
-            validateSucceeded = false;
-            toast.error(t("saveResultError"));
-          }
-        }
+          syncInFlightRef.current = true;
 
-        if (!validateSucceeded) {
+          const guessEntry = {
+            text: guessText,
+            correct: false,
+            correctArtist,
+            correctAlbum,
+            attemptNumber: currentAttempt,
+          };
+          addGuess(guessEntry);
+          const lostNow = currentAttempt >= maxAttempts;
+          if (lostNow) {
+            setLost();
+            applyGameCompletionUpdates(false, 0);
+          }
+
+          void (async () => {
+            try {
+              const res = await fetch("/api/validate-guess", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  gameId: game.id,
+                  userId,
+                  attemptNumber: currentAttempt,
+                  guessText,
+                  songId: song.id,
+                  guessArtistName: song.artist_name,
+                  guessAlbumTitle: song.album_title ?? undefined,
+                  finalize: currentAttempt >= maxAttempts,
+                }),
+              });
+              const data = (await res.json()) as {
+                correctArtist?: boolean;
+                correctAlbum?: boolean;
+                error?: string;
+              };
+              if (!res.ok) {
+                toast.error(
+                  typeof data.error === "string" ? data.error : t("saveResultError")
+                );
+                revertLastGuessAfterFailedSync();
+                invalidateHomeCaches();
+                return;
+              }
+              const srvA = data.correctArtist ?? correctArtist;
+              const srvB = data.correctAlbum ?? correctAlbum;
+              if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
+                const gs = useGameStore.getState().guesses;
+                const last = gs[gs.length - 1];
+                if (last && last.text === guessText && !last.correct) {
+                  useGameStore.setState({
+                    guesses: [
+                      ...gs.slice(0, -1),
+                      { ...last, correctArtist: srvA, correctAlbum: srvB },
+                    ],
+                  });
+                }
+              }
+            } catch {
+              toast.error(t("saveResultError"));
+              revertLastGuessAfterFailedSync();
+              invalidateHomeCaches();
+            } finally {
+              syncInFlightRef.current = false;
+            }
+          })();
           return;
         }
 
         const guessEntry = {
           text: guessText,
           correct: false,
-          correctArtist: serverCorrectArtist,
-          correctAlbum: serverCorrectAlbum,
+          correctArtist,
+          correctAlbum,
           attemptNumber: currentAttempt,
         };
         addGuess(guessEntry);
@@ -620,32 +671,28 @@ export function GameClient({ game, userId }: Props) {
         if (currentAttempt >= maxAttempts) {
           setLost();
           applyGameCompletionUpdates(false, 0);
-          if (isGuest) {
-            saveProgress({
-              gameId: game.id,
-              gameDate: game.date,
-              played: true,
-              won: false,
-              score: null,
-              title: game.ecos_songs.title,
-              artist_name: game.ecos_songs.artist_name,
-              cover_url: game.ecos_songs.cover_url ?? undefined,
-              guesses: useGameStore.getState().guesses,
-              phase: "lost",
-            });
-          }
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: true,
+            won: false,
+            score: null,
+            title: game.ecos_songs.title,
+            artist_name: game.ecos_songs.artist_name,
+            cover_url: game.ecos_songs.cover_url ?? undefined,
+            guesses: useGameStore.getState().guesses,
+            phase: "lost",
+          });
         } else {
-          if (isGuest) {
-            saveProgress({
-              gameId: game.id,
-              gameDate: game.date,
-              played: false,
-              won: false,
-              score: null,
-              guesses: useGameStore.getState().guesses,
-              phase: "playing",
-            });
-          }
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: false,
+            won: false,
+            score: null,
+            guesses: useGameStore.getState().guesses,
+            phase: "playing",
+          });
         }
       }
     },
@@ -662,7 +709,9 @@ export function GameClient({ game, userId }: Props) {
       saveProgress,
       applyGameCompletionUpdates,
       resolvedTheme,
-      removeLastGuess,
+      revertWinAfterFailedSync,
+      revertLastGuessAfterFailedSync,
+      invalidateHomeCaches,
       t,
     ]
   );
@@ -740,59 +789,74 @@ export function GameClient({ game, userId }: Props) {
         </h1>
         <button
           type="button"
-          onClick={async () => {
+          onClick={() => {
             gameAudioPlayerRef.current?.stopIfPlaying();
+            if (phase !== "playing") return;
+            if (!isGuest && syncInFlightRef.current) return;
+
             if (!isGuest && userId) {
-              try {
-                const res = await fetch("/api/skip-attempt", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ gameId: game.id, attemptNumber: currentAttempt }),
-                });
-                const data = (await res.json().catch(() => ({}))) as { error?: string };
-                if (!res.ok) {
-                  toast.error(
-                    typeof data.error === "string" ? data.error : t("saveResultError")
-                  );
-                  return;
-                }
-              } catch {
-                toast.error(t("saveResultError"));
-                return;
+              syncInFlightRef.current = true;
+              const lostNow = currentAttempt >= maxAttempts;
+              addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
+              if (lostNow) {
+                setLost();
+                applyGameCompletionUpdates(false, 0);
               }
+              void (async () => {
+                try {
+                  const res = await fetch("/api/skip-attempt", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ gameId: game.id, attemptNumber: currentAttempt }),
+                  });
+                  const data = (await res.json().catch(() => ({}))) as { error?: string };
+                  if (!res.ok) {
+                    toast.error(
+                      typeof data.error === "string" ? data.error : t("saveResultError")
+                    );
+                    revertLastGuessAfterFailedSync();
+                    invalidateHomeCaches();
+                    return;
+                  }
+                } catch {
+                  toast.error(t("saveResultError"));
+                  revertLastGuessAfterFailedSync();
+                  invalidateHomeCaches();
+                } finally {
+                  syncInFlightRef.current = false;
+                }
+              })();
+              return;
             }
+
             addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
             if (currentAttempt >= maxAttempts) {
               setLost();
               applyGameCompletionUpdates(false, 0);
-              if (isGuest) {
-                const finalGuesses = useGameStore.getState().guesses;
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: true,
-                  won: false,
-                  score: null,
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url ?? undefined,
-                  guesses: finalGuesses,
-                  phase: "lost",
-                });
-              }
+              const finalGuesses = useGameStore.getState().guesses;
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: true,
+                won: false,
+                score: null,
+                title: game.ecos_songs.title,
+                artist_name: game.ecos_songs.artist_name,
+                cover_url: game.ecos_songs.cover_url ?? undefined,
+                guesses: finalGuesses,
+                phase: "lost",
+              });
             } else {
-              if (isGuest) {
-                const updatedGuesses = useGameStore.getState().guesses;
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: false,
-                  won: false,
-                  score: null,
-                  guesses: updatedGuesses,
-                  phase: "playing",
-                });
-              }
+              const updatedGuesses = useGameStore.getState().guesses;
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: false,
+                won: false,
+                score: null,
+                guesses: updatedGuesses,
+                phase: "playing",
+              });
             }
           }}
           className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
@@ -1113,7 +1177,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.1 }}
+        transition={{ duration: 0.2 }}
         className="relative h-44 w-44 overflow-hidden rounded-2xl shadow-2xl"
       >
         {song.cover_url ? (
@@ -1126,7 +1190,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
+        transition={{ duration: 0.2 }}
         className="space-y-1"
       >
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -1162,7 +1226,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.3 }}
+        transition={{ duration: 0.2 }}
         className="w-full rounded-2xl"
         style={{ paddingTop: "0.25rem", paddingBottom: "2.5rem", paddingLeft: "1.25rem", paddingRight: "1.25rem" }}
       >
@@ -1226,7 +1290,7 @@ function ResultScreen({
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.35 }}
+          transition={{ duration: 0.2 }}
           className="w-full overflow-hidden rounded-2xl bg-gradient-to-br from-brand/20 to-brand/5 p-4"
         >
           <div className="mb-3 flex items-center gap-2">
@@ -1260,7 +1324,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.4 }}
+        transition={{ duration: 0.2 }}
         className="flex w-full flex-col gap-3"
       >
         <Link
