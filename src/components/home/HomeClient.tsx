@@ -125,6 +125,9 @@ interface Props {
   };
 }
 
+/** Alineado con `duration-200` del Dialog; evita flash del formulario durante la animación de cierre. */
+const REPORT_FEEDBACK_DIALOG_EXIT_MS = 250;
+
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -342,6 +345,7 @@ export function HomeClient({ initialData }: Props) {
   const [reportMessage, setReportMessage] = useState("");
   const [reportEmail, setReportEmail] = useState("");
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const reportStatusResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleReportSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -371,8 +375,27 @@ export function HomeClient({ initialData }: Props) {
   );
 
   const handleReportOpenChange = useCallback((open: boolean) => {
+    if (reportStatusResetTimeoutRef.current !== null) {
+      clearTimeout(reportStatusResetTimeoutRef.current);
+      reportStatusResetTimeoutRef.current = null;
+    }
     setReportOpen(open);
-    if (!open) setReportStatus("idle");
+    if (open) {
+      setReportStatus("idle");
+    } else {
+      reportStatusResetTimeoutRef.current = setTimeout(() => {
+        reportStatusResetTimeoutRef.current = null;
+        setReportStatus("idle");
+      }, REPORT_FEEDBACK_DIALOG_EXIT_MS);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (reportStatusResetTimeoutRef.current !== null) {
+        clearTimeout(reportStatusResetTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
