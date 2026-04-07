@@ -19,6 +19,7 @@ import {
   useHomePreviousDays,
   useHomeUserStats,
   prefetchGameById,
+  prefetchGameProgressById,
   primeHomeDayStatusCache,
   queryKeys,
   fetchHomePreviousDaysData,
@@ -84,6 +85,11 @@ const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
  * El histórico real termina cuando nextMonth es null.
  */
 const MAX_PREFETCH_HISTORY_MONTHS_SAFETY = 600;
+const PREFETCH_BATCH_SIZE = 8;
+const HOME_PREFETCH_STRATEGY: "sequential" | "full-parallel" =
+  process.env.NEXT_PUBLIC_HOME_PREFETCH_STRATEGY === "sequential"
+    ? "sequential"
+    : "full-parallel";
 /** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
 const PREVIOUS_DAY_COLORS = [
   "hsl(0, 55%, 40%)",   /* rojo */
@@ -122,6 +128,17 @@ function mergeInProgressByGameId(
 
 function previousDayColor(gameNumber: number): string {
   return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
+}
+
+async function runBatched<T>(
+  items: T[],
+  worker: (item: T) => Promise<unknown>,
+  batchSize: number = PREFETCH_BATCH_SIZE
+) {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const chunk = items.slice(i, i + batchSize);
+    await Promise.allSettled(chunk.map((item) => worker(item)));
+  }
 }
 
 interface Props {
@@ -212,6 +229,7 @@ export function HomeClient({ initialData }: Props) {
   >(() => (initialDataAligned ? initialData?.inProgressByGameId ?? {} : {}));
   const prefetchStartedRef = useRef(false);
   const prefetchedGameIdsRef = useRef<Set<string>>(new Set());
+  const prefetchedProgressIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!previousDaysData?.previousDays) return;
@@ -249,69 +267,195 @@ export function HomeClient({ initialData }: Props) {
   useEffect(() => {
     if (prefetchStartedRef.current) return;
     const startMonth = previousDaysData?.nextMonth ?? null;
-    if (!startMonth) return;
+    if (HOME_PREFETCH_STRATEGY === "sequential" && !startMonth) return;
     prefetchStartedRef.current = true;
 
     let cancelled = false;
     const run = async () => {
-      let monthCursor: string | null = startMonth;
-      let count = 0;
-      while (
-        !cancelled &&
-        monthCursor &&
-        count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
-      ) {
-        try {
-          const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-            queryKey: queryKeys.home.previousDays(monthCursor!, cacheUserId),
-            queryFn: () => fetchHomePreviousDaysData(monthCursor!),
-            staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-            gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-          });
-          setInProgressByGameId((prevInProgress) => {
-            const mergedInProgress = mergeInProgressByGameId(
-              prevInProgress,
-              payload.inProgressByGameId
-            );
-            primeHomeDayStatusCache(
-              queryClient,
-              payload.previousDays ?? [],
-              mergedInProgress
-            );
-            return mergedInProgress;
-          });
-          setPreviousDaysMerged((prev) => {
-            const merged = mergePreviousDays(prev, payload.previousDays ?? []);
-            const previousAll =
-              queryClient.getQueryData<HomePreviousDaysData>(
-                queryKeys.home.previousDaysAll(cacheUserId)
-              );
-            queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-              previousDays: merged,
-              userId: previousAll?.userId ?? resolvedUserId ?? null,
-              nextMonth: payload.nextMonth ?? null,
-              hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
-              month: previousAll?.month,
-              inProgressByGameId: mergeInProgressByGameId(
-                previousAll?.inProgressByGameId ?? {},
+      if (HOME_PREFETCH_STRATEGY === "sequential") {
+        let monthCursor: string | null = startMonth;
+        let count = 0;
+        while (
+          !cancelled &&
+          monthCursor &&
+          count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
+        ) {
+          try {
+            const payload: HomePreviousDaysData = await queryClient.fetchQuery({
+              queryKey: queryKeys.home.previousDays(monthCursor, cacheUserId),
+              queryFn: () => fetchHomePreviousDaysData(monthCursor!),
+              staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+              gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+            });
+            setInProgressByGameId((prevInProgress) => {
+              const mergedInProgress = mergeInProgressByGameId(
+                prevInProgress,
                 payload.inProgressByGameId
-              ),
-            } satisfies HomePreviousDaysData);
-            return merged;
-          });
-          monthCursor = payload.nextMonth ?? null;
-        } catch {
-          break;
+              );
+              primeHomeDayStatusCache(
+                queryClient,
+                payload.previousDays ?? [],
+                mergedInProgress
+              );
+              return mergedInProgress;
+            });
+            setPreviousDaysMerged((prev) => {
+              const merged = mergePreviousDays(prev, payload.previousDays ?? []);
+              const previousAll =
+                queryClient.getQueryData<HomePreviousDaysData>(
+                  queryKeys.home.previousDaysAll(cacheUserId)
+                );
+              queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+                previousDays: merged,
+                userId: previousAll?.userId ?? resolvedUserId ?? null,
+                nextMonth: payload.nextMonth ?? null,
+                hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
+                month: previousAll?.month,
+                inProgressByGameId: mergeInProgressByGameId(
+                  previousAll?.inProgressByGameId ?? {},
+                  payload.inProgressByGameId
+                ),
+              } satisfies HomePreviousDaysData);
+              return merged;
+            });
+            monthCursor = payload.nextMonth ?? null;
+          } catch {
+            break;
+          }
+          count += 1;
         }
-        count += 1;
+        return;
       }
+
+      const monthsRes = await fetch("/api/home/months", { cache: "no-store" }).catch(
+        () => null
+      );
+      if (!monthsRes?.ok || cancelled) {
+        let monthCursor: string | null = startMonth;
+        let count = 0;
+        while (
+          !cancelled &&
+          monthCursor &&
+          count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
+        ) {
+          try {
+            const payload: HomePreviousDaysData = await queryClient.fetchQuery({
+              queryKey: queryKeys.home.previousDays(monthCursor, cacheUserId),
+              queryFn: () => fetchHomePreviousDaysData(monthCursor!),
+              staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+              gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+            });
+            setInProgressByGameId((prevInProgress) => {
+              const mergedInProgress = mergeInProgressByGameId(
+                prevInProgress,
+                payload.inProgressByGameId
+              );
+              primeHomeDayStatusCache(
+                queryClient,
+                payload.previousDays ?? [],
+                mergedInProgress
+              );
+              return mergedInProgress;
+            });
+            setPreviousDaysMerged((prev) => {
+              const merged = mergePreviousDays(prev, payload.previousDays ?? []);
+              const previousAll =
+                queryClient.getQueryData<HomePreviousDaysData>(
+                  queryKeys.home.previousDaysAll(cacheUserId)
+                );
+              queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+                previousDays: merged,
+                userId: previousAll?.userId ?? resolvedUserId ?? null,
+                nextMonth: payload.nextMonth ?? null,
+                hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
+                month: previousAll?.month,
+                inProgressByGameId: mergeInProgressByGameId(
+                  previousAll?.inProgressByGameId ?? {},
+                  payload.inProgressByGameId
+                ),
+              } satisfies HomePreviousDaysData);
+              return merged;
+            });
+            monthCursor = payload.nextMonth ?? null;
+          } catch {
+            break;
+          }
+          count += 1;
+        }
+        return;
+      }
+      const monthsPayload = (await monthsRes.json()) as { monthKeys?: string[] };
+      const monthKeys = (monthsPayload.monthKeys ?? []).filter(Boolean);
+      if (monthKeys.length === 0 || cancelled) return;
+
+      const monthResults: Array<{ monthKey: string; payload: HomePreviousDaysData }> = [];
+      await runBatched(monthKeys, async (monthKey) => {
+        const payload: HomePreviousDaysData = await queryClient.fetchQuery({
+          queryKey: queryKeys.home.previousDays(monthKey, cacheUserId),
+          queryFn: () => fetchHomePreviousDaysData(monthKey),
+          staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+          gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+        });
+        monthResults.push({ monthKey, payload });
+      });
+      if (cancelled || monthResults.length === 0) return;
+
+      const allPreviousDays = monthResults.flatMap((entry) => entry.payload.previousDays ?? []);
+      const allInProgress = monthResults.reduce<Record<string, InProgressProgress>>(
+        (acc, entry) => mergeInProgressByGameId(acc, entry.payload.inProgressByGameId),
+        {}
+      );
+
+      setInProgressByGameId((prevInProgress) => {
+        const mergedInProgress = mergeInProgressByGameId(prevInProgress, allInProgress);
+        primeHomeDayStatusCache(queryClient, allPreviousDays, mergedInProgress);
+        setPreviousDaysMerged((prev) => {
+          const merged = mergePreviousDays(prev, allPreviousDays);
+          const previousAll =
+            queryClient.getQueryData<HomePreviousDaysData>(
+              queryKeys.home.previousDaysAll(cacheUserId)
+            );
+          queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+            previousDays: merged,
+            userId: previousAll?.userId ?? resolvedUserId ?? null,
+            month: previousAll?.month ?? currentMonthKey,
+            nextMonth: null,
+            hasMoreOlder: false,
+            inProgressByGameId: mergedInProgress,
+          } satisfies HomePreviousDaysData);
+          return merged;
+        });
+        return mergedInProgress;
+      });
+
+      const allGameIds = Array.from(
+        new Set(allPreviousDays.map((day) => day.id))
+      );
+      await runBatched(allGameIds, async (gameId) => {
+        if (!prefetchedGameIdsRef.current.has(gameId)) {
+          prefetchedGameIdsRef.current.add(gameId);
+          router.prefetch(`/play/${gameId}`);
+          await prefetchGameById(queryClient, gameId).catch(() => undefined);
+        }
+        if (!cacheUserId) return;
+        if (prefetchedProgressIdsRef.current.has(gameId)) return;
+        prefetchedProgressIdsRef.current.add(gameId);
+        await prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
+      });
     };
 
     void run();
     return () => {
       cancelled = true;
     };
-  }, [previousDaysData?.nextMonth, queryClient, resolvedUserId, cacheUserId]);
+  }, [
+    previousDaysData?.nextMonth,
+    queryClient,
+    resolvedUserId,
+    cacheUserId,
+    currentMonthKey,
+    router,
+  ]);
 
   useEffect(() => {
     router.prefetch("/play");
@@ -324,16 +468,21 @@ export function HomeClient({ initialData }: Props) {
     if (currentMonthGameIds.length === 0) return;
 
     const run = async () => {
-      for (const gameId of currentMonthGameIds) {
-        if (prefetchedGameIdsRef.current.has(gameId)) continue;
-        prefetchedGameIdsRef.current.add(gameId);
-        router.prefetch(`/play/${gameId}`);
-        await prefetchGameById(queryClient, gameId).catch(() => undefined);
-      }
+      await runBatched(currentMonthGameIds, async (gameId) => {
+        if (!prefetchedGameIdsRef.current.has(gameId)) {
+          prefetchedGameIdsRef.current.add(gameId);
+          router.prefetch(`/play/${gameId}`);
+          await prefetchGameById(queryClient, gameId).catch(() => undefined);
+        }
+        if (!cacheUserId) return;
+        if (prefetchedProgressIdsRef.current.has(gameId)) return;
+        prefetchedProgressIdsRef.current.add(gameId);
+        await prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
+      });
     };
 
     void run();
-  }, [previousDaysMerged, currentMonthKey, queryClient, router]);
+  }, [previousDaysMerged, currentMonthKey, queryClient, router, cacheUserId]);
   const prefetchedNextRef = useRef<HomeData | null>(null);
   const hasPrefetchedRef = useRef(false);
 
@@ -508,6 +657,11 @@ export function HomeClient({ initialData }: Props) {
   const todaysInProgress = todaysProgress?.phase === "playing" && (todaysProgress?.guesses?.length ?? 0) > 0;
   const todaysGuesses = todaysProgress?.guesses ?? [];
   const todaysWon = todaysCompletedResult?.won ?? todaysProgress?.phase === "won";
+
+  const markPlayNavigationStart = useCallback(() => {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem("ecos_play_nav_start_ms", String(performance.now()));
+  }, []);
 
   const handleShareHome = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -704,8 +858,16 @@ export function HomeClient({ initialData }: Props) {
             role="button"
             tabIndex={0}
             whileTap={{ scale: 0.99 }}
-            onClick={() => router.push("/play")}
-            onKeyDown={(e) => e.key === "Enter" && router.push("/play")}
+            onClick={() => {
+              markPlayNavigationStart();
+              router.push("/play");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                markPlayNavigationStart();
+                router.push("/play");
+              }
+            }}
             className="absolute inset-0 origin-center will-change-transform"
           >
           {/* Fondo: cover con blur cuando completado, sino oscuro */}
@@ -929,7 +1091,7 @@ export function HomeClient({ initialData }: Props) {
         previousDays={previousDays}
         userId={userId}
         inProgressByGameId={inProgressByGameId}
-        onNavigateToGame={undefined}
+        onNavigateToGame={markPlayNavigationStart}
       />
     </div>
   );

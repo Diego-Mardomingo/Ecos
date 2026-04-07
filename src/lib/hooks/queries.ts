@@ -1,12 +1,19 @@
 "use client";
 
-import { useQuery, useQueries, type QueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueries,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import type {
   GameWithSong,
   PreviousDayGame,
   InProgressProgress,
   TodaysCompletedResult,
 } from "@/lib/queries/games";
+import type { GameProgress } from "@/lib/store/gameProgressStore";
 
 export type { InProgressProgress, TodaysCompletedResult };
 import type { UserStats } from "@/lib/queries/users";
@@ -121,10 +128,75 @@ export interface HomeDayStatusData {
   inProgress: InProgressProgress | null;
 }
 
+export interface GameProgressData {
+  progress: GameProgress | null;
+}
+
 interface SongSnapshot {
   title: string;
   artist_name: string;
   cover_url: string | null;
+}
+
+interface GameCacheSnapshot {
+  dayStatus: HomeDayStatusData | undefined;
+  today: HomeTodayData | undefined;
+}
+
+type GameMutationEvent = "attemptSaved" | "gameCompleted";
+
+type QueryDiagnosticRecord = {
+  key: string;
+  count: number;
+  lastEvent: string;
+  lastAt: number;
+};
+
+export interface ValidateGuessRequest {
+  gameId: string;
+  userId: string;
+  attemptNumber: number;
+  guessText: string;
+  songId: string;
+  guessArtistName?: string;
+  guessAlbumTitle?: string;
+  finalize?: boolean;
+}
+
+export interface ValidateGuessResponse {
+  correct?: boolean;
+  correctArtist?: boolean;
+  correctAlbum?: boolean;
+  totalPoints?: number;
+  error?: string;
+}
+
+export interface SkipAttemptRequest {
+  gameId: string;
+  attemptNumber: number;
+}
+
+export interface SkipAttemptResponse {
+  ok?: boolean;
+  error?: string;
+}
+
+function trackQueryDiagnostic(queryKey: readonly unknown[], event: string) {
+  if (process.env.NODE_ENV !== "development") return;
+  if (typeof window === "undefined") return;
+
+  const globalRef = window as Window & {
+    __ecosQueryDiagnostics?: Record<string, QueryDiagnosticRecord>;
+  };
+  const key = JSON.stringify(queryKey);
+  const map = (globalRef.__ecosQueryDiagnostics ??= {});
+  const prev = map[key];
+  map[key] = {
+    key,
+    count: (prev?.count ?? 0) + 1,
+    lastEvent: event,
+    lastAt: Date.now(),
+  };
 }
 
 export interface RankingData {
@@ -205,6 +277,19 @@ export async function fetchGameById(gameId: string): Promise<GameWithSong | null
   if (!res.ok) {
     if (res.status === 404) return null;
     throw new Error("Failed to fetch game");
+  }
+  return res.json();
+}
+
+export async function fetchGameProgressById(
+  gameId: string
+): Promise<GameProgressData> {
+  const res = await fetch(`/api/game-progress/${gameId}`, { cache: "no-store" });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 404) {
+      return { progress: null };
+    }
+    throw new Error("Failed to fetch game progress");
   }
   return res.json();
 }
@@ -290,12 +375,37 @@ export function useGameById(gameId: string, initialData?: GameWithSong | null) {
   });
 }
 
+export function useGameProgressById(
+  gameId: string,
+  options?: { enabled?: boolean; initialData?: GameProgressData }
+) {
+  return useQuery({
+    queryKey: queryKeys.game.progress(gameId),
+    queryFn: () => fetchGameProgressById(gameId),
+    enabled: (options?.enabled ?? true) && !!gameId,
+    initialData: options?.initialData,
+    staleTime: 60 * 1000,
+  });
+}
+
 export function prefetchGameById(queryClient: QueryClient, gameId: string) {
   if (!gameId) return Promise.resolve();
   return queryClient.prefetchQuery({
     queryKey: queryKeys.game.byId(gameId),
     queryFn: () => fetchGameById(gameId),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function prefetchGameProgressById(
+  queryClient: QueryClient,
+  gameId: string
+) {
+  if (!gameId) return Promise.resolve();
+  return queryClient.prefetchQuery({
+    queryKey: queryKeys.game.progress(gameId),
+    queryFn: () => fetchGameProgressById(gameId),
+    staleTime: 60 * 1000,
   });
 }
 
@@ -377,15 +487,8 @@ export function applyOptimisticCompletionCaches(
   queryClient.setQueryData(queryKeys.home.dayStatus(gameId), (prev: unknown) => {
     const previous = (prev ?? {}) as Partial<HomeDayStatusData>;
     return {
-      gameId,
-      played: true,
-      won,
-      score,
-      title: song.title,
-      artist_name: song.artist_name,
-      cover_url: normalizeCoverUrl(song.cover_url),
-      inProgress: null,
       ...previous,
+      gameId,
       played: true,
       won,
       score,
@@ -413,6 +516,34 @@ export function applyOptimisticCompletionCaches(
   });
 }
 
+function takeGameCacheSnapshot(
+  queryClient: QueryClient,
+  userId: string | null,
+  gameId: string
+): GameCacheSnapshot {
+  return {
+    dayStatus: queryClient.getQueryData<HomeDayStatusData>(
+      queryKeys.home.dayStatus(gameId)
+    ),
+    today: userId
+      ? queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId))
+      : undefined,
+  };
+}
+
+function restoreGameCacheSnapshot(
+  queryClient: QueryClient,
+  userId: string | null,
+  gameId: string,
+  snapshot: GameCacheSnapshot | undefined
+) {
+  if (!snapshot) return;
+  queryClient.setQueryData(queryKeys.home.dayStatus(gameId), snapshot.dayStatus);
+  if (userId) {
+    queryClient.setQueryData(queryKeys.home.today(userId), snapshot.today);
+  }
+}
+
 export async function invalidateAfterGameMutation(
   queryClient: QueryClient,
   input: {
@@ -422,12 +553,18 @@ export async function invalidateAfterGameMutation(
   }
 ) {
   const { userId, gameId, includeHome = true } = input;
+  trackQueryDiagnostic(queryKeys.ranking.all, "invalidateAfterGameMutation");
+  trackQueryDiagnostic(queryKeys.profile.all, "invalidateAfterGameMutation");
   const tasks: Array<Promise<unknown>> = [
     queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.profile.all }),
   ];
 
   if (userId) {
+    trackQueryDiagnostic(
+      queryKeys.home.userStats(userId),
+      "invalidateAfterGameMutation"
+    );
     tasks.push(
       queryClient.invalidateQueries({
         queryKey: queryKeys.home.userStats(userId),
@@ -436,6 +573,15 @@ export async function invalidateAfterGameMutation(
   }
 
   if (includeHome) {
+    trackQueryDiagnostic(
+      queryKeys.home.dayStatus(gameId),
+      "invalidateAfterGameMutation"
+    );
+    trackQueryDiagnostic(
+      queryKeys.home.previousDaysAll(userId),
+      "invalidateAfterGameMutation"
+    );
+    trackQueryDiagnostic(["home", "previous-days"], "invalidateAfterGameMutation");
     tasks.push(
       queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(gameId) }),
       queryClient.invalidateQueries({
@@ -446,6 +592,7 @@ export async function invalidateAfterGameMutation(
       })
     );
     if (userId) {
+      trackQueryDiagnostic(queryKeys.home.today(userId), "invalidateAfterGameMutation");
       tasks.push(
         queryClient.invalidateQueries({ queryKey: queryKeys.home.today(userId) })
       );
@@ -453,6 +600,225 @@ export async function invalidateAfterGameMutation(
   }
 
   await Promise.all(tasks);
+}
+
+export async function invalidateAfterGameEvent(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    event: GameMutationEvent;
+  }
+) {
+  const { userId, gameId, event } = input;
+
+  if (event === "attemptSaved") {
+    trackQueryDiagnostic(queryKeys.home.dayStatus(gameId), "attemptSaved");
+    const tasks: Array<Promise<unknown>> = [
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.home.dayStatus(gameId),
+      }),
+    ];
+    if (userId) {
+      trackQueryDiagnostic(queryKeys.home.today(userId), "attemptSaved");
+      tasks.push(
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.home.today(userId),
+        })
+      );
+    }
+    await Promise.all(tasks);
+    return;
+  }
+
+  await invalidateAfterGameMutation(queryClient, {
+    userId,
+    gameId,
+    includeHome: true,
+  });
+}
+
+interface GameMutationBaseInput {
+  userId: string | null;
+  gameId: string;
+  song: SongSnapshot;
+  event: GameMutationEvent;
+}
+
+interface ValidateGuessMutationInput extends GameMutationBaseInput {
+  request: ValidateGuessRequest;
+  optimistic:
+    | {
+        type: "inProgress";
+        inProgress: InProgressProgress;
+      }
+    | {
+        type: "completion";
+        won: boolean;
+        score: number | null;
+      };
+}
+
+interface SkipAttemptMutationInput extends GameMutationBaseInput {
+  request: SkipAttemptRequest;
+  optimistic:
+    | {
+        type: "inProgress";
+        inProgress: InProgressProgress;
+      }
+    | {
+        type: "completion";
+        won: boolean;
+        score: number | null;
+      };
+}
+
+export function useValidateGuessMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    ValidateGuessResponse,
+    Error,
+    ValidateGuessMutationInput,
+    GameCacheSnapshot
+  >({
+    mutationKey: ["game", "validate-guess"],
+    mutationFn: async ({ request }) => {
+      const res = await fetch("/api/validate-guess", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      const data = (await res.json()) as ValidateGuessResponse;
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Failed to validate guess"
+        );
+      }
+      return data;
+    },
+    onMutate: async (variables) => {
+      const { userId, gameId, optimistic, song } = variables;
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: queryKeys.home.dayStatus(gameId),
+        }),
+        userId
+          ? queryClient.cancelQueries({
+              queryKey: queryKeys.home.today(userId),
+            })
+          : Promise.resolve(),
+      ]);
+
+      const snapshot = takeGameCacheSnapshot(queryClient, userId, gameId);
+      if (optimistic.type === "completion") {
+        applyOptimisticCompletionCaches(queryClient, {
+          userId,
+          gameId,
+          won: optimistic.won,
+          score: optimistic.score,
+          song,
+        });
+      } else {
+        applyOptimisticInProgressCaches(queryClient, {
+          userId,
+          gameId,
+          inProgress: optimistic.inProgress,
+          song,
+        });
+      }
+      return snapshot;
+    },
+    onError: (_error, variables, context) => {
+      restoreGameCacheSnapshot(
+        queryClient,
+        variables.userId,
+        variables.gameId,
+        context
+      );
+    },
+    onSettled: async (_data, _error, variables) => {
+      await invalidateAfterGameEvent(queryClient, {
+        userId: variables.userId,
+        gameId: variables.gameId,
+        event: variables.event,
+      });
+    },
+  });
+}
+
+export function useSkipAttemptMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    SkipAttemptResponse,
+    Error,
+    SkipAttemptMutationInput,
+    GameCacheSnapshot
+  >({
+    mutationKey: ["game", "skip-attempt"],
+    mutationFn: async ({ request }) => {
+      const res = await fetch("/api/skip-attempt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      const data = (await res.json()) as SkipAttemptResponse;
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Failed to skip attempt"
+        );
+      }
+      return data;
+    },
+    onMutate: async (variables) => {
+      const { userId, gameId, optimistic, song } = variables;
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: queryKeys.home.dayStatus(gameId),
+        }),
+        userId
+          ? queryClient.cancelQueries({
+              queryKey: queryKeys.home.today(userId),
+            })
+          : Promise.resolve(),
+      ]);
+
+      const snapshot = takeGameCacheSnapshot(queryClient, userId, gameId);
+      if (optimistic.type === "completion") {
+        applyOptimisticCompletionCaches(queryClient, {
+          userId,
+          gameId,
+          won: optimistic.won,
+          score: optimistic.score,
+          song,
+        });
+      } else {
+        applyOptimisticInProgressCaches(queryClient, {
+          userId,
+          gameId,
+          inProgress: optimistic.inProgress,
+          song,
+        });
+      }
+      return snapshot;
+    },
+    onError: (_error, variables, context) => {
+      restoreGameCacheSnapshot(
+        queryClient,
+        variables.userId,
+        variables.gameId,
+        context
+      );
+    },
+    onSettled: async (_data, _error, variables) => {
+      await invalidateAfterGameEvent(queryClient, {
+        userId: variables.userId,
+        gameId: variables.gameId,
+        event: variables.event,
+      });
+    },
+  });
 }
 
 export function useLeaderboard(

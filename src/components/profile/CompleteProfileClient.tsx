@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/hooks/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 
 // Permite letras, números, _, espacios y emojis (3-50 caracteres)
 const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
@@ -14,6 +14,7 @@ const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
 export function CompleteProfileClient() {
   const t = useTranslations("profile.completeProfile");
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") ?? "/profile";
 
@@ -54,6 +55,7 @@ export function CompleteProfileClient() {
       return;
     }
 
+    await queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
     router.push(redirectTo);
   };
 

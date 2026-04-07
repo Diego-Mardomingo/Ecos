@@ -8,9 +8,13 @@ import { repairOrphanScoreIfNeeded } from "@/lib/ecos-finalize-helpers";
  * Returns saved progress for a game (guesses + score) for the current user.
  */
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ gameId: string }> }
 ) {
+  const privateCacheHeaders = {
+    "Cache-Control": "private, max-age=15, stale-while-revalidate=30",
+  } as const;
+
   try {
     const { gameId } = await params;
 
@@ -27,25 +31,29 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: guesses } = await supabase
-      .from("ecos_guesses")
-      .select("guess_text, correct, correct_artist, correct_album, attempt_number")
-      .eq("user_id", user.id)
-      .eq("game_id", gameId)
-      .order("attempt_number", { ascending: true });
+    const [guessesResult, scoreResult, gameResult] = await Promise.all([
+      supabase
+        .from("ecos_guesses")
+        .select("guess_text, correct, correct_artist, correct_album, attempt_number")
+        .eq("user_id", user.id)
+        .eq("game_id", gameId)
+        .order("attempt_number", { ascending: true }),
+      supabase
+        .from("ecos_scores")
+        .select("points, guesses_used, correct")
+        .eq("user_id", user.id)
+        .eq("game_id", gameId)
+        .maybeSingle(),
+      supabase
+        .from("ecos_games")
+        .select("date, ecos_songs(title, artist_name, cover_url)")
+        .eq("id", gameId)
+        .single(),
+    ]);
 
-    let { data: score } = await supabase
-      .from("ecos_scores")
-      .select("points, guesses_used, correct")
-      .eq("user_id", user.id)
-      .eq("game_id", gameId)
-      .maybeSingle();
-
-    const { data: game } = await supabase
-      .from("ecos_games")
-      .select("date, ecos_songs(title, artist_name, cover_url)")
-      .eq("id", gameId)
-      .single();
+    const guesses = guessesResult.data;
+    let score = scoreResult.data;
+    const game = gameResult.data;
 
     if (!score && (guesses?.length ?? 0) > 0) {
       const svc = createServiceClient();
@@ -81,7 +89,7 @@ export async function GET(
 
     if (!score) {
       if (mappedGuesses.length === 0) {
-        return NextResponse.json({ progress: null });
+        return NextResponse.json({ progress: null }, { headers: privateCacheHeaders });
       }
       return NextResponse.json({
         progress: {
@@ -93,7 +101,7 @@ export async function GET(
           guesses: mappedGuesses,
           phase: "playing" as const,
         },
-      });
+      }, { headers: privateCacheHeaders });
     }
 
     const progress = {
@@ -110,7 +118,7 @@ export async function GET(
       correctAttempt: score.correct ? score.guesses_used : undefined,
     };
 
-    return NextResponse.json({ progress });
+    return NextResponse.json({ progress }, { headers: privateCacheHeaders });
   } catch (err) {
     console.error("game-progress error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
