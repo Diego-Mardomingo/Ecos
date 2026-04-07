@@ -18,12 +18,15 @@ import {
   useHomeToday,
   useHomePreviousDays,
   useHomeUserStats,
+  prefetchGameById,
+  primeHomeDayStatusCache,
   queryKeys,
   fetchHomePreviousDaysData,
   HOME_DAY_STATUS_STALE_MS,
   HOME_PREVIOUS_DAYS_GC_MS,
   HOME_PREVIOUS_DAYS_STALE_MS,
   type HomeData,
+  type InProgressProgress,
   type HomeDayStatusData,
   type HomePreviousDaysData,
 } from "@/lib/hooks/queries";
@@ -109,6 +112,14 @@ function mergePreviousDays(
   return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
+function mergeInProgressByGameId(
+  current: Record<string, InProgressProgress>,
+  incoming?: Record<string, InProgressProgress>
+): Record<string, InProgressProgress> {
+  if (!incoming) return current;
+  return { ...current, ...incoming };
+}
+
 function previousDayColor(gameNumber: number): string {
   return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
 }
@@ -159,6 +170,7 @@ export function HomeClient({ initialData }: Props) {
           month: currentMonthKey,
           nextMonth: previousMonthKey(currentMonthKey),
           hasMoreOlder: true,
+          inProgressByGameId: initialData.inProgressByGameId,
         }
       : undefined;
   const initialUserStatsData =
@@ -195,22 +207,44 @@ export function HomeClient({ initialData }: Props) {
   const [previousDaysMerged, setPreviousDaysMerged] = useState<PreviousDayGame[]>(
     () => (initialDataAligned ? initialData?.previousDays ?? [] : [])
   );
+  const [inProgressByGameId, setInProgressByGameId] = useState<
+    Record<string, InProgressProgress>
+  >(() => (initialDataAligned ? initialData?.inProgressByGameId ?? {} : {}));
   const prefetchStartedRef = useRef(false);
+  const prefetchedGameIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!previousDaysData?.previousDays) return;
-    setPreviousDaysMerged((prev) => {
-      const merged = mergePreviousDays(prev, previousDaysData.previousDays);
-      queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-        previousDays: merged,
-        userId: previousDaysData.userId ?? resolvedUserId ?? null,
-        month: previousDaysData.month,
-        nextMonth: previousDaysData.nextMonth ?? null,
-        hasMoreOlder: previousDaysData.hasMoreOlder,
-      } satisfies HomePreviousDaysData);
-      return merged;
+    setInProgressByGameId((prevInProgress) => {
+      const mergedInProgress = mergeInProgressByGameId(
+        prevInProgress,
+        previousDaysData.inProgressByGameId
+      );
+      primeHomeDayStatusCache(
+        queryClient,
+        previousDaysData.previousDays,
+        mergedInProgress
+      );
+      setPreviousDaysMerged((prev) => {
+        const merged = mergePreviousDays(prev, previousDaysData.previousDays);
+        queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+          previousDays: merged,
+          userId: previousDaysData.userId ?? resolvedUserId ?? null,
+          month: previousDaysData.month,
+          nextMonth: previousDaysData.nextMonth ?? null,
+          hasMoreOlder: previousDaysData.hasMoreOlder,
+          inProgressByGameId: mergedInProgress,
+        } satisfies HomePreviousDaysData);
+        return merged;
+      });
+      return mergedInProgress;
     });
-  }, [previousDaysData, queryClient, resolvedUserId, cacheUserId]);
+  }, [
+    previousDaysData,
+    queryClient,
+    resolvedUserId,
+    cacheUserId,
+  ]);
 
   useEffect(() => {
     if (prefetchStartedRef.current) return;
@@ -234,6 +268,18 @@ export function HomeClient({ initialData }: Props) {
             staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
             gcTime: HOME_PREVIOUS_DAYS_GC_MS,
           });
+          setInProgressByGameId((prevInProgress) => {
+            const mergedInProgress = mergeInProgressByGameId(
+              prevInProgress,
+              payload.inProgressByGameId
+            );
+            primeHomeDayStatusCache(
+              queryClient,
+              payload.previousDays ?? [],
+              mergedInProgress
+            );
+            return mergedInProgress;
+          });
           setPreviousDaysMerged((prev) => {
             const merged = mergePreviousDays(prev, payload.previousDays ?? []);
             const previousAll =
@@ -246,6 +292,10 @@ export function HomeClient({ initialData }: Props) {
               nextMonth: payload.nextMonth ?? null,
               hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
               month: previousAll?.month,
+              inProgressByGameId: mergeInProgressByGameId(
+                previousAll?.inProgressByGameId ?? {},
+                payload.inProgressByGameId
+              ),
             } satisfies HomePreviousDaysData);
             return merged;
           });
@@ -262,6 +312,28 @@ export function HomeClient({ initialData }: Props) {
       cancelled = true;
     };
   }, [previousDaysData?.nextMonth, queryClient, resolvedUserId, cacheUserId]);
+
+  useEffect(() => {
+    router.prefetch("/play");
+  }, [router]);
+
+  useEffect(() => {
+    const currentMonthGameIds = previousDaysMerged
+      .filter((day) => day.date.startsWith(currentMonthKey))
+      .map((day) => day.id);
+    if (currentMonthGameIds.length === 0) return;
+
+    const run = async () => {
+      for (const gameId of currentMonthGameIds) {
+        if (prefetchedGameIdsRef.current.has(gameId)) continue;
+        prefetchedGameIdsRef.current.add(gameId);
+        router.prefetch(`/play/${gameId}`);
+        await prefetchGameById(queryClient, gameId).catch(() => undefined);
+      }
+    };
+
+    void run();
+  }, [previousDaysMerged, currentMonthKey, queryClient, router]);
   const prefetchedNextRef = useRef<HomeData | null>(null);
   const hasPrefetchedRef = useRef(false);
 
@@ -297,12 +369,19 @@ export function HomeClient({ initialData }: Props) {
         month: monthKey,
         nextMonth: previousMonthKey(monthKey),
         hasMoreOlder: true,
+        inProgressByGameId: payload.inProgressByGameId,
       };
       queryClient.setQueryData(
         queryKeys.home.previousDays(monthKey, uid),
         prevBlock
       );
       queryClient.setQueryData(queryKeys.home.previousDaysAll(uid), prevBlock);
+      primeHomeDayStatusCache(
+        queryClient,
+        payload.previousDays,
+        payload.inProgressByGameId
+      );
+      setInProgressByGameId(payload.inProgressByGameId ?? {});
       if (payload.userId) {
         queryClient.setQueryData(queryKeys.home.userStats(payload.userId), {
           userStats: payload.userStats,
@@ -849,7 +928,7 @@ export function HomeClient({ initialData }: Props) {
       <PreviousDaysSection
         previousDays={previousDays}
         userId={userId}
-        inProgressByGameId={initialData?.inProgressByGameId}
+        inProgressByGameId={inProgressByGameId}
         onNavigateToGame={undefined}
       />
     </div>

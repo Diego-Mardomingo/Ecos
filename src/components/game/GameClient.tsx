@@ -12,7 +12,11 @@ import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
-import { queryKeys } from "@/lib/hooks/queries";
+import {
+  applyOptimisticCompletionCaches,
+  applyOptimisticInProgressCaches,
+  invalidateAfterGameMutation,
+} from "@/lib/hooks/queries";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +34,7 @@ import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import { cn } from "@/lib/utils";
 import { PlayGameSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -351,6 +355,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 
 export function GameClient({ game, userId }: Props) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
   const tc = useTranslations("common");
@@ -358,57 +363,43 @@ export function GameClient({ game, userId }: Props) {
   const dateFnsLocale = locale === "es" ? es : enUS;
   const isGuest = !userId;
 
+  useEffect(() => {
+    router.prefetch("/");
+    router.prefetch("/ranking");
+  }, [router]);
+
   const applyGameCompletionUpdates = useCallback(
     (won: boolean, score: number | null) => {
       if (isGuest) return;
-
-      queryClient.setQueryData(queryKeys.home.dayStatus(game.id), (prev: unknown) => {
-        const previous = (prev ?? {}) as Record<string, unknown>;
-        return {
-          ...previous,
-          gameId: game.id,
-          played: true,
-          won,
-          score,
+      applyOptimisticCompletionCaches(queryClient, {
+        userId,
+        gameId: game.id,
+        won,
+        score,
+        song: {
           title: game.ecos_songs.title,
           artist_name: game.ecos_songs.artist_name,
-          cover_url: game.ecos_songs.cover_url ?? "",
-          inProgress: null,
-        };
+          cover_url: game.ecos_songs.cover_url,
+        },
       });
 
-      const todayBucket = queryClient.getQueryData(
-        queryKeys.home.today(userId)
-      ) as { todaysGame?: { id?: string } | null } | undefined;
-      const todaysGameId = todayBucket?.todaysGame?.id;
-      if (todaysGameId === game.id) {
-        queryClient.setQueryData(queryKeys.home.today(userId), (prev: unknown) => {
-          const previous = (prev ?? {}) as Record<string, unknown>;
-          return {
-            ...previous,
-            todaysCompletedResult: {
-              title: game.ecos_songs.title,
-              artist_name: game.ecos_songs.artist_name,
-              cover_url: game.ecos_songs.cover_url ?? "",
-              score: score ?? 0,
-              won,
-            },
-            todaysInProgress: null,
-          };
-        });
-      }
-
-      // Home queda actualizada de forma optimista: evitamos refetch inmediato
-      // para que la vuelta a Home sea instantánea.
-      queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
+      // Mantiene UI optimista instantánea y deja ranking/perfil en stale para reconciliar.
+      void invalidateAfterGameMutation(queryClient, {
+        userId,
+        gameId: game.id,
+        includeHome: false,
+      });
     },
     [game, isGuest, queryClient, userId]
   );
 
   const invalidateHomeCaches = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(game.id) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.home.today(userId) });
+    if (!userId) return;
+    void invalidateAfterGameMutation(queryClient, {
+      userId,
+      gameId: game.id,
+      includeHome: true,
+    });
   }, [queryClient, game.id, userId]);
 
   const {
@@ -578,6 +569,11 @@ export function GameClient({ game, userId }: Props) {
                 setWon(currentAttempt, serverPoints);
                 applyGameCompletionUpdates(true, serverPoints);
               }
+              await invalidateAfterGameMutation(queryClient, {
+                userId,
+                gameId: game.id,
+                includeHome: true,
+              });
             } catch {
               toast.error(t("saveResultError"));
               revertWinAfterFailedSync();
@@ -603,6 +599,23 @@ export function GameClient({ game, userId }: Props) {
           if (lostNow) {
             setLost();
             applyGameCompletionUpdates(false, 0);
+          } else {
+            const optimisticGuesses = [...useGameStore.getState().guesses];
+            applyOptimisticInProgressCaches(queryClient, {
+              userId,
+              gameId: game.id,
+              inProgress: {
+                gameId: game.id,
+                gameDate: game.date,
+                guesses: optimisticGuesses,
+                phase: "playing",
+              },
+              song: {
+                title: game.ecos_songs.title,
+                artist_name: game.ecos_songs.artist_name,
+                cover_url: game.ecos_songs.cover_url,
+              },
+            });
           }
 
           void (async () => {
@@ -648,6 +661,11 @@ export function GameClient({ game, userId }: Props) {
                   });
                 }
               }
+              await invalidateAfterGameMutation(queryClient, {
+                userId,
+                gameId: game.id,
+                includeHome: true,
+              });
             } catch {
               toast.error(t("saveResultError"));
               revertLastGuessAfterFailedSync();
@@ -708,6 +726,7 @@ export function GameClient({ game, userId }: Props) {
       setLost,
       saveProgress,
       applyGameCompletionUpdates,
+      queryClient,
       resolvedTheme,
       revertWinAfterFailedSync,
       revertLastGuessAfterFailedSync,
@@ -801,6 +820,23 @@ export function GameClient({ game, userId }: Props) {
               if (lostNow) {
                 setLost();
                 applyGameCompletionUpdates(false, 0);
+              } else {
+                const optimisticGuesses = [...useGameStore.getState().guesses];
+                applyOptimisticInProgressCaches(queryClient, {
+                  userId,
+                  gameId: game.id,
+                  inProgress: {
+                    gameId: game.id,
+                    gameDate: game.date,
+                    guesses: optimisticGuesses,
+                    phase: "playing",
+                  },
+                  song: {
+                    title: game.ecos_songs.title,
+                    artist_name: game.ecos_songs.artist_name,
+                    cover_url: game.ecos_songs.cover_url,
+                  },
+                });
               }
               void (async () => {
                 try {
@@ -818,6 +854,11 @@ export function GameClient({ game, userId }: Props) {
                     invalidateHomeCaches();
                     return;
                   }
+                  await invalidateAfterGameMutation(queryClient, {
+                    userId,
+                    gameId: game.id,
+                    includeHome: true,
+                  });
                 } catch {
                   toast.error(t("saveResultError"));
                   revertLastGuessAfterFailedSync();

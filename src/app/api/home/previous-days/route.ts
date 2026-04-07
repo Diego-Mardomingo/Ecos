@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getPreviousDays } from "@/lib/queries/games";
+import { getInProgressGames, getPreviousDays } from "@/lib/queries/games";
 import { getMadridDate } from "@/lib/date-utils";
 
 function monthBounds(monthKey: string) {
@@ -45,6 +45,15 @@ export async function GET(request: Request) {
       toDate: bounds.nextMonth,
     });
 
+    const inProgressByGameId =
+      user && previousDays.length > 0
+        ? await getInProgressGames(
+            user.id,
+            null,
+            previousDays.map((day) => day.id)
+          )
+        : {};
+
     const { data: hasOlderRows } = await supabase
       .from("ecos_games")
       .select("id")
@@ -56,6 +65,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       previousDays,
+      inProgressByGameId,
       userId: user?.id ?? null,
       month,
       nextMonth,

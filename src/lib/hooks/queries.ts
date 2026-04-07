@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery, useQueries, type QueryClient } from "@tanstack/react-query";
 import type {
   GameWithSong,
   PreviousDayGame,
@@ -96,6 +96,7 @@ export interface HomePreviousDaysData {
   month?: string;
   nextMonth?: string | null;
   hasMoreOlder?: boolean;
+  inProgressByGameId?: Record<string, InProgressProgress>;
 }
 
 export interface HomeUserStatsData {
@@ -118,6 +119,12 @@ export interface HomeDayStatusData {
   artist_name: string;
   cover_url: string;
   inProgress: InProgressProgress | null;
+}
+
+interface SongSnapshot {
+  title: string;
+  artist_name: string;
+  cover_url: string | null;
 }
 
 export interface RankingData {
@@ -190,6 +197,15 @@ export async function fetchHomePreviousDaysData(
     { cache: "no-store" }
   );
   if (!res.ok) throw new Error("Failed to fetch previous days");
+  return res.json();
+}
+
+export async function fetchGameById(gameId: string): Promise<GameWithSong | null> {
+  const res = await fetch(`/api/game/${gameId}`);
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    throw new Error("Failed to fetch game");
+  }
   return res.json();
 }
 
@@ -267,18 +283,176 @@ export function useHomeDayStatus(
 export function useGameById(gameId: string, initialData?: GameWithSong | null) {
   return useQuery({
     queryKey: queryKeys.game.byId(gameId),
-    queryFn: async (): Promise<GameWithSong | null> => {
-      const res = await fetch(`/api/game/${gameId}`);
-      if (!res.ok) {
-        if (res.status === 404) return null;
-        throw new Error("Failed to fetch game");
-      }
-      return res.json();
-    },
+    queryFn: () => fetchGameById(gameId),
     initialData,
     enabled: !!gameId,
     staleTime: 5 * 60 * 1000,
   });
+}
+
+export function prefetchGameById(queryClient: QueryClient, gameId: string) {
+  if (!gameId) return Promise.resolve();
+  return queryClient.prefetchQuery({
+    queryKey: queryKeys.game.byId(gameId),
+    queryFn: () => fetchGameById(gameId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+function normalizeCoverUrl(coverUrl: string | null | undefined): string {
+  return coverUrl ?? "";
+}
+
+export function primeHomeDayStatusCache(
+  queryClient: QueryClient,
+  previousDays: PreviousDayGame[],
+  inProgressByGameId?: Record<string, InProgressProgress>
+) {
+  for (const day of previousDays) {
+    const inProgress = inProgressByGameId?.[day.id] ?? null;
+    const status: HomeDayStatusData = {
+      gameId: day.id,
+      played: day.played,
+      won: day.won,
+      score: day.score,
+      title: day.title,
+      artist_name: day.artist_name,
+      cover_url: day.cover_url,
+      inProgress,
+    };
+    queryClient.setQueryData(queryKeys.home.dayStatus(day.id), status);
+  }
+}
+
+export function applyOptimisticInProgressCaches(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    inProgress: InProgressProgress;
+    song: SongSnapshot;
+  }
+) {
+  const { userId, gameId, inProgress, song } = input;
+  if (!userId) return;
+
+  queryClient.setQueryData(queryKeys.home.dayStatus(gameId), (prev: unknown) => {
+    const previous = (prev ?? {}) as Partial<HomeDayStatusData>;
+    return {
+      gameId,
+      played: false,
+      won: false,
+      score: null,
+      title: previous.title ?? song.title,
+      artist_name: previous.artist_name ?? song.artist_name,
+      cover_url: previous.cover_url ?? normalizeCoverUrl(song.cover_url),
+      inProgress,
+    } satisfies HomeDayStatusData;
+  });
+
+  queryClient.setQueryData(queryKeys.home.today(userId), (prev: unknown) => {
+    const previous = (prev ?? {}) as HomeTodayData;
+    if (previous.todaysGame?.id !== gameId) return previous;
+    return {
+      ...previous,
+      todaysInProgress: inProgress,
+      todaysCompletedResult: null,
+    } satisfies HomeTodayData;
+  });
+}
+
+export function applyOptimisticCompletionCaches(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    won: boolean;
+    score: number | null;
+    song: SongSnapshot;
+  }
+) {
+  const { userId, gameId, won, score, song } = input;
+  if (!userId) return;
+
+  queryClient.setQueryData(queryKeys.home.dayStatus(gameId), (prev: unknown) => {
+    const previous = (prev ?? {}) as Partial<HomeDayStatusData>;
+    return {
+      gameId,
+      played: true,
+      won,
+      score,
+      title: song.title,
+      artist_name: song.artist_name,
+      cover_url: normalizeCoverUrl(song.cover_url),
+      inProgress: null,
+      ...previous,
+      played: true,
+      won,
+      score,
+      title: song.title,
+      artist_name: song.artist_name,
+      cover_url: normalizeCoverUrl(song.cover_url),
+      inProgress: null,
+    } satisfies HomeDayStatusData;
+  });
+
+  queryClient.setQueryData(queryKeys.home.today(userId), (prev: unknown) => {
+    const previous = (prev ?? {}) as HomeTodayData;
+    if (previous.todaysGame?.id !== gameId) return previous;
+    return {
+      ...previous,
+      todaysCompletedResult: {
+        title: song.title,
+        artist_name: song.artist_name,
+        cover_url: normalizeCoverUrl(song.cover_url),
+        score: score ?? 0,
+        won,
+      },
+      todaysInProgress: null,
+    } satisfies HomeTodayData;
+  });
+}
+
+export async function invalidateAfterGameMutation(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    includeHome?: boolean;
+  }
+) {
+  const { userId, gameId, includeHome = true } = input;
+  const tasks: Array<Promise<unknown>> = [
+    queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.profile.all }),
+  ];
+
+  if (userId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.home.userStats(userId),
+      })
+    );
+  }
+
+  if (includeHome) {
+    tasks.push(
+      queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(gameId) }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.home.previousDaysAll(userId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["home", "previous-days"],
+      })
+    );
+    if (userId) {
+      tasks.push(
+        queryClient.invalidateQueries({ queryKey: queryKeys.home.today(userId) })
+      );
+    }
+  }
+
+  await Promise.all(tasks);
 }
 
 export function useLeaderboard(
