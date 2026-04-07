@@ -97,6 +97,9 @@ const PREVIOUS_DAY_COLORS = [
   "hsl(140, 45%, 35%)", /* verde */
 ] as const;
 
+/** Prioridad en next/image solo para las primeras carátulas del histórico (equilibrio con LCP). */
+const HOME_COVER_IMAGE_PRIORITY_COUNT = 16;
+
 function mergePreviousDays(
   current: PreviousDayGame[],
   incoming: PreviousDayGame[]
@@ -1642,7 +1645,7 @@ function PreviousDaysSection({
     return [...new Set(availableMonthYearPairs.map((p) => p.month))].sort((a, b) => a - b);
   }, [availableMonthYearPairs, filterYear]);
 
-  const renderDayCard = (day: PreviousDayGame) => {
+  const renderDayCard = (day: PreviousDayGame, coverIndex: number) => {
             const status = userId ? dayStatusByGameId.get(day.id) : null;
             // Usuarios autenticados: cada tarjeta tiene su propia query por gameId.
             // Invitados: gameProgressStore local.
@@ -1687,7 +1690,15 @@ function PreviousDaysSection({
                       </p>
                       <div className="relative mb-1.5 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
                         {played && displayCover ? (
-                          <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" sizes="160px" />
+                          <Image
+                            src={displayCover}
+                            alt={displayTitle || "Album"}
+                            fill
+                            className="object-cover"
+                            sizes="160px"
+                            loading="eager"
+                            priority={coverIndex < HOME_COVER_IMAGE_PRIORITY_COUNT}
+                          />
                         ) : (
                           <div
                             className="flex h-full w-full items-center justify-center"
@@ -1726,7 +1737,15 @@ function PreviousDaysSection({
                   {/* Miniatura: carátula real si jugado, placeholder con color estable si no */}
                   <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
                     {played && displayCover ? (
-                      <Image src={displayCover} alt={displayTitle || "Album"} fill className="object-cover" sizes="56px" />
+                      <Image
+                        src={displayCover}
+                        alt={displayTitle || "Album"}
+                        fill
+                        className="object-cover"
+                        sizes="56px"
+                        loading="eager"
+                        priority={coverIndex < HOME_COVER_IMAGE_PRIORITY_COUNT}
+                      />
                     ) : (
                       <div
                         className="flex h-full w-full items-center justify-center"
@@ -1941,8 +1960,8 @@ function PreviousDaysSection({
             viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
           )}
         >
-          {filteredGroupsByMonth[0][1].map((day) => (
-            <div key={day.id}>{renderDayCard(day)}</div>
+          {filteredGroupsByMonth[0][1].map((day, coverIndex) => (
+            <div key={day.id}>{renderDayCard(day, coverIndex)}</div>
           ))}
         </div>
       ) : (
@@ -1979,8 +1998,8 @@ function PreviousDaysSection({
                       viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
                     )}
                   >
-                    {days.map((day) => (
-                      <div key={day.id}>{renderDayCard(day)}</div>
+                    {days.map((day, coverIndex) => (
+                      <div key={day.id}>{renderDayCard(day, coverIndex)}</div>
                     ))}
                   </div>
                 </CollapsibleContent>

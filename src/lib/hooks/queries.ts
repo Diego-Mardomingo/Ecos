@@ -544,6 +544,39 @@ function restoreGameCacheSnapshot(
   }
 }
 
+/**
+ * Resuelve YYYY-MM del juego para invalidar solo la query mensual afectada,
+ * sin disparar refetch de todos los meses prefetcheados en caché.
+ */
+function getMonthKeyForGameFromCaches(
+  queryClient: QueryClient,
+  userId: string | null,
+  gameId: string
+): string | null {
+  if (userId) {
+    const all = queryClient.getQueryData<HomePreviousDaysData>(
+      queryKeys.home.previousDaysAll(userId)
+    );
+    const fromAll = all?.previousDays?.find((d) => d.id === gameId);
+    if (fromAll?.date) return fromAll.date.slice(0, 7);
+  }
+  const today = userId
+    ? queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId))
+    : undefined;
+  if (today?.todaysGame?.id === gameId && today.todaysGame.date) {
+    return today.todaysGame.date.slice(0, 7);
+  }
+  const monthlyEntries = queryClient.getQueriesData<HomePreviousDaysData>({
+    queryKey: ["home", "previous-days"],
+    exact: false,
+  });
+  for (const [, data] of monthlyEntries) {
+    const hit = data?.previousDays?.find((d) => d.id === gameId);
+    if (hit?.date) return hit.date.slice(0, 7);
+  }
+  return null;
+}
+
 export async function invalidateAfterGameMutation(
   queryClient: QueryClient,
   input: {
@@ -573,6 +606,7 @@ export async function invalidateAfterGameMutation(
   }
 
   if (includeHome) {
+    const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
     trackQueryDiagnostic(
       queryKeys.home.dayStatus(gameId),
       "invalidateAfterGameMutation"
@@ -581,15 +615,24 @@ export async function invalidateAfterGameMutation(
       queryKeys.home.previousDaysAll(userId),
       "invalidateAfterGameMutation"
     );
-    trackQueryDiagnostic(["home", "previous-days"], "invalidateAfterGameMutation");
+    if (monthKey) {
+      trackQueryDiagnostic(
+        queryKeys.home.previousDays(monthKey, userId),
+        "invalidateAfterGameMutation"
+      );
+    }
     tasks.push(
       queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(gameId) }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.home.previousDaysAll(userId),
       }),
-      queryClient.invalidateQueries({
-        queryKey: ["home", "previous-days"],
-      })
+      ...(monthKey
+        ? [
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.home.previousDays(monthKey, userId),
+            }),
+          ]
+        : [])
     );
     if (userId) {
       trackQueryDiagnostic(queryKeys.home.today(userId), "invalidateAfterGameMutation");
