@@ -97,16 +97,6 @@ const PREVIOUS_DAY_COLORS = [
   "hsl(140, 45%, 35%)", /* verde */
 ] as const;
 
-function previousMonthKey(monthKey: string): string | null {
-  const [y, m] = monthKey.split("-").map(Number);
-  if (!y || !m || m < 1 || m > 12) return null;
-  const prevDate = new Date(Date.UTC(y, m - 2, 1));
-  return `${prevDate.getUTCFullYear()}-${String(prevDate.getUTCMonth() + 1).padStart(
-    2,
-    "0"
-  )}`;
-}
-
 function mergePreviousDays(
   current: PreviousDayGame[],
   incoming: PreviousDayGame[]
@@ -185,8 +175,8 @@ export function HomeClient({ initialData }: Props) {
           previousDays: initialData.previousDays,
           userId: initialData.userId,
           month: currentMonthKey,
-          nextMonth: previousMonthKey(currentMonthKey),
-          hasMoreOlder: true,
+          nextMonth: null,
+          hasMoreOlder: false,
           inProgressByGameId: initialData.inProgressByGameId,
         }
       : undefined;
@@ -265,6 +255,7 @@ export function HomeClient({ initialData }: Props) {
   ]);
 
   useEffect(() => {
+    if (previousDaysData?.hasMoreOlder === false) return;
     if (prefetchStartedRef.current) return;
     const startMonth = previousDaysData?.nextMonth ?? null;
     if (HOME_PREFETCH_STRATEGY === "sequential" && !startMonth) return;
@@ -450,6 +441,7 @@ export function HomeClient({ initialData }: Props) {
     };
   }, [
     previousDaysData?.nextMonth,
+    previousDaysData?.hasMoreOlder,
     queryClient,
     resolvedUserId,
     cacheUserId,
@@ -516,8 +508,8 @@ export function HomeClient({ initialData }: Props) {
         previousDays: payload.previousDays,
         userId: payload.userId,
         month: monthKey,
-        nextMonth: previousMonthKey(monthKey),
-        hasMoreOlder: true,
+        nextMonth: null,
+        hasMoreOlder: false,
         inProgressByGameId: payload.inProgressByGameId,
       };
       queryClient.setQueryData(
