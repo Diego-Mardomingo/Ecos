@@ -23,13 +23,21 @@ export const RANKING_STALE_MS = 2 * 60 * 1000;
 /** Perfil: datos de usuario relativamente estables durante una sesión. */
 export const PROFILE_STALE_MS = 3 * 60 * 1000;
 
+/** Segmento estable en query keys para invitado vs usuario autenticado. */
+export function homeSessionSegment(userId: string | null): string {
+  return userId ?? "guest";
+}
+
 export const queryKeys = {
   home: {
-    all: ["home"] as const,
-    today: ["home", "today"] as const,
-    previousDaysAll: ["home", "previous-days", "all"] as const,
-    previousDays: (monthKey: string) =>
-      ["home", "previous-days", monthKey] as const,
+    all: (userId: string | null) =>
+      ["home", "all", homeSessionSegment(userId)] as const,
+    today: (userId: string | null) =>
+      ["home", "today", homeSessionSegment(userId)] as const,
+    previousDaysAll: (userId: string | null) =>
+      ["home", "previous-days", "all", homeSessionSegment(userId)] as const,
+    previousDays: (monthKey: string, userId: string | null) =>
+      ["home", "previous-days", monthKey, homeSessionSegment(userId)] as const,
     dayStatus: (gameId: string) => ["home", "day-status", gameId] as const,
     userStats: (userId: string | null) =>
       ["home", "user-stats", userId ?? "guest"] as const,
@@ -50,7 +58,7 @@ export const queryKeys = {
   profile: {
     all: ["profile"] as const,
     section: (section: "core" | "stats", userId: string | null) =>
-      ["profile", "section", section, userId ?? "me"] as const,
+      ["profile", "section", section, homeSessionSegment(userId)] as const,
   },
   search: (q: string) => ["search", q] as const,
 };
@@ -159,9 +167,12 @@ export async function fetchProfileStatsData(): Promise<ProfileStatsData> {
   return res.json();
 }
 
-export function useHomeData(initialData?: HomeData) {
+export function useHomeData(
+  userId: string | null,
+  initialData?: HomeData
+) {
   return useQuery({
-    queryKey: queryKeys.home.all,
+    queryKey: queryKeys.home.all(userId),
     queryFn: async (): Promise<HomeData> => {
       const res = await fetch("/api/home", { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch home data");
@@ -188,9 +199,12 @@ export async function fetchHomeTodayData(): Promise<HomeTodayData> {
   return res.json();
 }
 
-export function useHomeToday(initialData?: HomeTodayData) {
+export function useHomeToday(
+  userId: string | null,
+  initialData?: HomeTodayData
+) {
   return useQuery({
-    queryKey: queryKeys.home.today,
+    queryKey: queryKeys.home.today(userId),
     queryFn: fetchHomeTodayData,
     initialData,
     staleTime: HOME_TODAY_STALE_MS,
@@ -199,10 +213,11 @@ export function useHomeToday(initialData?: HomeTodayData) {
 
 export function useHomePreviousDays(
   month: string,
+  userId: string | null,
   initialData?: HomePreviousDaysData
 ) {
   return useQuery({
-    queryKey: queryKeys.home.previousDays(month),
+    queryKey: queryKeys.home.previousDays(month, userId),
     queryFn: () => fetchHomePreviousDaysData(month),
     initialData,
     staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
@@ -357,48 +372,66 @@ export function useLeaderboardHistoryDetail(
 }
 
 export function useProfile(
+  profileUserId: string | null,
   initialData?: ProfileData,
   options?: { enabled?: boolean }
 ) {
-  const initialCoreData: ProfileCoreData | undefined = initialData
-    ? { profile: initialData.profile, userId: initialData.profile.id }
+  const enabled = options?.enabled ?? true;
+  const useInitial =
+    !!initialData &&
+    profileUserId != null &&
+    initialData.profile.id === profileUserId;
+
+  const initialCoreData: ProfileCoreData | undefined = useInitial
+    ? { profile: initialData!.profile, userId: initialData!.profile.id }
     : undefined;
-  const initialStatsData: ProfileStatsData | undefined = initialData
-    ? { stats: initialData.stats, userId: initialData.profile.id }
+  const initialStatsData: ProfileStatsData | undefined = useInitial
+    ? { stats: initialData!.stats, userId: initialData!.profile.id }
     : undefined;
 
   const [coreQuery, statsQuery] = useQueries({
     queries: [
       {
-        queryKey: queryKeys.profile.section("core", null),
+        queryKey: queryKeys.profile.section("core", profileUserId),
         queryFn: fetchProfileCoreData,
         initialData: initialCoreData,
-        retry: false,
-        enabled: options?.enabled ?? true,
+        retry: 1,
+        enabled,
         staleTime: PROFILE_STALE_MS,
       },
       {
-        queryKey: queryKeys.profile.section("stats", null),
+        queryKey: queryKeys.profile.section("stats", profileUserId),
         queryFn: fetchProfileStatsData,
         initialData: initialStatsData,
-        retry: false,
-        enabled: options?.enabled ?? true,
+        retry: 1,
+        enabled,
         staleTime: PROFILE_STALE_MS,
       },
     ],
   });
 
   const data =
-    coreQuery.data && statsQuery.data
-      ? { profile: coreQuery.data.profile, stats: statsQuery.data.stats }
+    coreQuery.data != null
+      ? {
+          profile: coreQuery.data.profile,
+          stats: statsQuery.data?.stats ?? null,
+        }
       : undefined;
+
+  const isLoading =
+    !coreQuery.data &&
+    !coreQuery.isError &&
+    (coreQuery.isPending || statsQuery.isPending);
 
   return {
     data,
-    isLoading: coreQuery.isLoading || statsQuery.isLoading,
+    isLoading,
     isFetching: coreQuery.isFetching || statsQuery.isFetching,
     isError: coreQuery.isError || statsQuery.isError,
+    coreError: coreQuery.isError,
     error: coreQuery.error ?? statsQuery.error,
+    refetch: () =>
+      Promise.all([coreQuery.refetch(), statsQuery.refetch()]).then(() => undefined),
   };
 }
 

@@ -377,12 +377,12 @@ export function GameClient({ game, userId }: Props) {
         };
       });
 
-      const todayBucket = queryClient.getQueryData(queryKeys.home.today) as
-        | { todaysGame?: { id?: string } | null }
-        | undefined;
+      const todayBucket = queryClient.getQueryData(
+        queryKeys.home.today(userId)
+      ) as { todaysGame?: { id?: string } | null } | undefined;
       const todaysGameId = todayBucket?.todaysGame?.id;
       if (todaysGameId === game.id) {
-        queryClient.setQueryData(queryKeys.home.today, (prev: unknown) => {
+        queryClient.setQueryData(queryKeys.home.today(userId), (prev: unknown) => {
           const previous = (prev ?? {}) as Record<string, unknown>;
           return {
             ...previous,
@@ -403,13 +403,13 @@ export function GameClient({ game, userId }: Props) {
       queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
     },
-    [game, isGuest, queryClient]
+    [game, isGuest, queryClient, userId]
   );
 
   const invalidateHomeCaches = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(game.id) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.home.today });
-  }, [queryClient, game.id]);
+    queryClient.invalidateQueries({ queryKey: queryKeys.home.today(userId) });
+  }, [queryClient, game.id, userId]);
 
   const {
     phase,

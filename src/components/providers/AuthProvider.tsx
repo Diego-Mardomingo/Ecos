@@ -16,7 +16,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
 
-    const applyUserIdTransition = (newUserId: string | null) => {
+    const applyUserIdTransition = async (newUserId: string | null) => {
       if (prevUserIdRef.current === undefined) {
         prevUserIdRef.current = newUserId;
         return;
@@ -25,11 +25,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       prevUserIdRef.current = newUserId;
       queryClient.clear();
       clearSessionScopedClientData();
+      await supabase.auth.getSession();
       router.refresh();
     };
 
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      applyUserIdTransition(user?.id ?? null);
+    void supabase.auth.getUser().then(async ({ data: { user } }) => {
+      await applyUserIdTransition(user?.id ?? null);
       setUser(user);
       setLoading(false);
     });
@@ -38,9 +39,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       const nextId = session?.user?.id ?? null;
-      applyUserIdTransition(nextId);
-      setUser(session?.user ?? null);
-      setLoading(false);
+      void (async () => {
+        await applyUserIdTransition(nextId);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      })();
     });
 
     return () => subscription.unsubscribe();

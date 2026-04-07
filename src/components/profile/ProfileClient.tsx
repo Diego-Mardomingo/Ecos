@@ -16,6 +16,7 @@ import type { UserStats } from "@/lib/queries/users";
 import { LanguageSelector } from "@/components/profile/LanguageSelector";
 import { cn } from "@/lib/utils";
 import { ProfileSkeleton } from "@/components/skeletons";
+import { Button } from "@/components/ui/button";
 
 interface Profile {
   id: string;
@@ -35,7 +36,11 @@ interface Props {
 }
 
 export function ProfileClient({ initialData }: Props) {
-  const { data, isLoading } = useProfile(initialData);
+  const profileUserId = initialData?.profile.id ?? null;
+  const { data, isLoading, coreError, refetch } = useProfile(
+    profileUserId,
+    initialData
+  );
   const profile = data?.profile ?? {
     id: "",
     display_name: "",
@@ -59,6 +64,17 @@ export function ProfileClient({ initialData }: Props) {
 
   if (isLoading && !data) {
     return <ProfileSkeleton />;
+  }
+
+  if (coreError && !data) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 pb-28 pt-12">
+        <p className="text-center text-sm text-muted-foreground">{tc("error")}</p>
+        <Button type="button" variant="secondary" onClick={() => void refetch()}>
+          {tc("retry")}
+        </Button>
+      </div>
+    );
   }
 
   const handleSignOut = async () => {

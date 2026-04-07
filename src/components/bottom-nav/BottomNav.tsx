@@ -42,7 +42,7 @@ export function BottomNav() {
   const queryClient = useQueryClient();
   const t = useTranslations("nav");
   const user = useAuthStore((s) => s.user);
-  const { data } = useProfile(undefined, { enabled: !!user });
+  const { data } = useProfile(user?.id ?? null, undefined, { enabled: !!user });
 
   // Normalizar pathname quitando el prefijo de locale (/en/... → /...)
   const normalizedPath = pathname.replace(/^\/(es|en)/, "") || "/";
@@ -88,20 +88,21 @@ export function BottomNav() {
 
                 if (item.href === "/") {
                   const monthKey = getMadridDate().slice(0, 7);
+                  const uid = user?.id ?? null;
                   void queryClient.prefetchQuery({
-                    queryKey: queryKeys.home.today,
+                    queryKey: queryKeys.home.today(uid),
                     queryFn: fetchHomeTodayData,
                     staleTime: HOME_TODAY_STALE_MS,
                   });
                   void queryClient.prefetchQuery({
-                    queryKey: queryKeys.home.previousDays(monthKey),
+                    queryKey: queryKeys.home.previousDays(monthKey, uid),
                     queryFn: () => fetchHomePreviousDaysData(monthKey),
                     staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
                     gcTime: HOME_PREVIOUS_DAYS_GC_MS,
                   });
-                  if (user?.id) {
+                  if (uid) {
                     void queryClient.prefetchQuery({
-                      queryKey: queryKeys.home.userStats(user.id),
+                      queryKey: queryKeys.home.userStats(uid),
                       queryFn: fetchHomeUserStatsData,
                       staleTime: HOME_TODAY_STALE_MS,
                     });
@@ -120,12 +121,12 @@ export function BottomNav() {
 
                 if (item.href === "/profile" && user) {
                   void queryClient.prefetchQuery({
-                    queryKey: queryKeys.profile.section("core", null),
+                    queryKey: queryKeys.profile.section("core", user.id),
                     queryFn: fetchProfileCoreData,
                     staleTime: PROFILE_STALE_MS,
                   });
                   void queryClient.prefetchQuery({
-                    queryKey: queryKeys.profile.section("stats", null),
+                    queryKey: queryKeys.profile.section("stats", user.id),
                     queryFn: fetchProfileStatsData,
                     staleTime: PROFILE_STALE_MS,
                   });

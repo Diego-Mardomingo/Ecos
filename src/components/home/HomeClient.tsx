@@ -60,6 +60,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 import { Link, useRouter } from "@/i18n/navigation";
+import { useAuthStore } from "@/lib/store/authStore";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
 const ABOUT_HOW_TO_PLAY_ICONS = [
@@ -131,45 +132,55 @@ const REPORT_FEEDBACK_DIALOG_EXIT_MS = 250;
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const authUser = useAuthStore((s) => s.user);
   const currentMonthKey = getMadridDate().slice(0, 7);
-  const initialTodayData = initialData
-    ? {
-        todaysGame: initialData.todaysGame,
-        todaysCompletedResult: initialData.todaysCompletedResult ?? null,
-        todaysInProgress: initialData.todaysGame
-          ? (initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null)
-          : null,
-        userId: initialData.userId,
-      }
-    : undefined;
-  const initialPreviousDaysData = initialData
-    ? {
-        previousDays: initialData.previousDays,
-        userId: initialData.userId,
-        month: currentMonthKey,
-        nextMonth: previousMonthKey(currentMonthKey),
-        hasMoreOlder: true,
-      }
-    : undefined;
-  const initialUserStatsData = initialData
-    ? {
-        userStats: initialData.userStats ?? null,
-        rankingRanks: initialData.rankingRanks,
-        rankingStats: initialData.rankingStats,
-        userId: initialData.userId,
-      }
-    : undefined;
+  /** Sesión efectiva: store primero; si aún no hidrata, coincide con el RSC. */
+  const cacheUserId = authUser?.id ?? initialData?.userId ?? null;
+  const initialDataAligned =
+    initialData != null &&
+    (initialData.userId ?? null) === (cacheUserId ?? null);
+
+  const initialTodayData =
+    initialDataAligned && initialData
+      ? {
+          todaysGame: initialData.todaysGame,
+          todaysCompletedResult: initialData.todaysCompletedResult ?? null,
+          todaysInProgress: initialData.todaysGame
+            ? (initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null)
+            : null,
+          userId: initialData.userId,
+        }
+      : undefined;
+  const initialPreviousDaysData =
+    initialDataAligned && initialData
+      ? {
+          previousDays: initialData.previousDays,
+          userId: initialData.userId,
+          month: currentMonthKey,
+          nextMonth: previousMonthKey(currentMonthKey),
+          hasMoreOlder: true,
+        }
+      : undefined;
+  const initialUserStatsData =
+    initialDataAligned && initialData
+      ? {
+          userStats: initialData.userStats ?? null,
+          rankingRanks: initialData.rankingRanks,
+          rankingStats: initialData.rankingStats,
+          userId: initialData.userId,
+        }
+      : undefined;
 
   const {
     data: todayData,
     isPending: isTodayPending,
     refetch: refetchToday,
-  } = useHomeToday(initialTodayData);
+  } = useHomeToday(cacheUserId, initialTodayData);
   const {
     data: previousDaysData,
     isPending: isPreviousDaysPending,
     refetch: refetchPreviousDays,
-  } = useHomePreviousDays(currentMonthKey, initialPreviousDaysData);
+  } = useHomePreviousDays(currentMonthKey, cacheUserId, initialPreviousDaysData);
 
   const resolvedUserId =
     todayData?.userId ??
@@ -181,30 +192,8 @@ export function HomeClient({ initialData }: Props) {
     resolvedUserId,
     initialUserStatsData
   );
-  const getCachedPreviousDays = useCallback((): PreviousDayGame[] => {
-    const allBucket = queryClient.getQueryData<HomePreviousDaysData>(
-      queryKeys.home.previousDaysAll
-    );
-    if (allBucket?.previousDays?.length) return allBucket.previousDays;
-
-    const monthBuckets = queryClient.getQueriesData<HomePreviousDaysData>({
-      queryKey: ["home", "previous-days"],
-    });
-    let merged: PreviousDayGame[] = [];
-    for (const [key, value] of monthBuckets) {
-      if (Array.isArray(key) && key[2] === "all") continue;
-      if (value?.previousDays?.length) {
-        merged = mergePreviousDays(merged, value.previousDays);
-      }
-    }
-    return merged;
-  }, [queryClient]);
   const [previousDaysMerged, setPreviousDaysMerged] = useState<PreviousDayGame[]>(
-    () => {
-      const cached = getCachedPreviousDays();
-      if (cached.length > 0) return cached;
-      return initialData?.previousDays ?? [];
-    }
+    () => (initialDataAligned ? initialData?.previousDays ?? [] : [])
   );
   const prefetchStartedRef = useRef(false);
 
@@ -212,7 +201,7 @@ export function HomeClient({ initialData }: Props) {
     if (!previousDaysData?.previousDays) return;
     setPreviousDaysMerged((prev) => {
       const merged = mergePreviousDays(prev, previousDaysData.previousDays);
-      queryClient.setQueryData(queryKeys.home.previousDaysAll, {
+      queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
         previousDays: merged,
         userId: previousDaysData.userId ?? resolvedUserId ?? null,
         month: previousDaysData.month,
@@ -221,7 +210,7 @@ export function HomeClient({ initialData }: Props) {
       } satisfies HomePreviousDaysData);
       return merged;
     });
-  }, [previousDaysData, queryClient, resolvedUserId]);
+  }, [previousDaysData, queryClient, resolvedUserId, cacheUserId]);
 
   useEffect(() => {
     if (prefetchStartedRef.current) return;
@@ -240,7 +229,7 @@ export function HomeClient({ initialData }: Props) {
       ) {
         try {
           const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-            queryKey: queryKeys.home.previousDays(monthCursor),
+            queryKey: queryKeys.home.previousDays(monthCursor!, cacheUserId),
             queryFn: () => fetchHomePreviousDaysData(monthCursor!),
             staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
             gcTime: HOME_PREVIOUS_DAYS_GC_MS,
@@ -249,9 +238,9 @@ export function HomeClient({ initialData }: Props) {
             const merged = mergePreviousDays(prev, payload.previousDays ?? []);
             const previousAll =
               queryClient.getQueryData<HomePreviousDaysData>(
-                queryKeys.home.previousDaysAll
+                queryKeys.home.previousDaysAll(cacheUserId)
               );
-            queryClient.setQueryData(queryKeys.home.previousDaysAll, {
+            queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
               previousDays: merged,
               userId: previousAll?.userId ?? resolvedUserId ?? null,
               nextMonth: payload.nextMonth ?? null,
@@ -272,7 +261,7 @@ export function HomeClient({ initialData }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [previousDaysData?.nextMonth, queryClient, resolvedUserId]);
+  }, [previousDaysData?.nextMonth, queryClient, resolvedUserId, cacheUserId]);
   const prefetchedNextRef = useRef<HomeData | null>(null);
   const hasPrefetchedRef = useRef(false);
 
@@ -292,8 +281,9 @@ export function HomeClient({ initialData }: Props) {
     if (prefetchedNextRef.current) {
       const payload = prefetchedNextRef.current;
       const monthKey = getMadridDate().slice(0, 7);
-      queryClient.setQueryData(queryKeys.home.all, payload);
-      queryClient.setQueryData(queryKeys.home.today, {
+      const uid = payload.userId;
+      queryClient.setQueryData(queryKeys.home.all(uid), payload);
+      queryClient.setQueryData(queryKeys.home.today(uid), {
         todaysGame: payload.todaysGame,
         todaysCompletedResult: payload.todaysCompletedResult ?? null,
         todaysInProgress: payload.todaysGame
@@ -308,8 +298,11 @@ export function HomeClient({ initialData }: Props) {
         nextMonth: previousMonthKey(monthKey),
         hasMoreOlder: true,
       };
-      queryClient.setQueryData(queryKeys.home.previousDays(monthKey), prevBlock);
-      queryClient.setQueryData(queryKeys.home.previousDaysAll, prevBlock);
+      queryClient.setQueryData(
+        queryKeys.home.previousDays(monthKey, uid),
+        prevBlock
+      );
+      queryClient.setQueryData(queryKeys.home.previousDaysAll(uid), prevBlock);
       if (payload.userId) {
         queryClient.setQueryData(queryKeys.home.userStats(payload.userId), {
           userStats: payload.userStats,
