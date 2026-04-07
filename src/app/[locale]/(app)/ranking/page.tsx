@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   title: "Ranking",
 };
 
+/** Evita RSC obsoleto en servidor para el snapshot inicial del leaderboard. */
+export const dynamic = "force-dynamic";
+
 export default async function RankingPage() {
   const supabase = await createClient();
   const {

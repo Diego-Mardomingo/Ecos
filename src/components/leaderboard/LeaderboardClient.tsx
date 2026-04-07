@@ -64,7 +64,9 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     for (const period of PERIOD_ORDER) {
       const payload = initialByPeriod[period];
       if (!payload) continue;
-      queryClient.setQueryData(queryKeys.ranking.period(period), payload);
+      const key = queryKeys.ranking.period(period);
+      if (queryClient.getQueryData(key) !== undefined) continue;
+      queryClient.setQueryData(key, payload);
     }
   }, [initialByPeriod, queryClient]);
 
