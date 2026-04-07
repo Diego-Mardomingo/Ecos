@@ -33,6 +33,10 @@ import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Link, useRouter } from "@/i18n/navigation";
+import {
+  PLAY_FROM_HOME_STORAGE_KEY,
+  useNavigateBackToHome,
+} from "@/lib/navigation/useNavigateBackToHome";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -72,6 +76,7 @@ const ResultGameView = memo(function ResultGameView({
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
+  const navigateBackToHome = useNavigateBackToHome();
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
@@ -90,6 +95,7 @@ const ResultGameView = memo(function ResultGameView({
         <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
           <Link
             href="/"
+            onClick={navigateBackToHome}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
             aria-label={tc("back")}
           >
@@ -360,11 +366,26 @@ export function GameClient({ game, userId }: Props) {
   const isGuest = !userId;
   const validateGuessMutation = useValidateGuessMutation();
   const skipAttemptMutation = useSkipAttemptMutation();
+  const navigateBackToHomePlaying = useNavigateBackToHome();
 
   useEffect(() => {
     router.prefetch("/");
     router.prefetch("/ranking");
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nav = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    if (nav?.type === "reload") {
+      try {
+        sessionStorage.removeItem(PLAY_FROM_HOME_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -825,6 +846,7 @@ export function GameClient({ game, userId }: Props) {
       <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
         <Link
           href="/"
+          onClick={navigateBackToHomePlaying}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
           aria-label={tc("back")}
         >
@@ -1134,6 +1156,7 @@ function ResultScreen({
   const [reportSending, setReportSending] = useState(false);
   const [reportSent, setReportSent] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const navigateBackToHome = useNavigateBackToHome();
 
   const handleShare = async () => {
     const shareUrl =
@@ -1398,6 +1421,7 @@ function ResultScreen({
         </Link>
         <Link
           href="/"
+          onClick={navigateBackToHome}
           className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
         >
           <span

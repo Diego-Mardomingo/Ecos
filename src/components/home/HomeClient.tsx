@@ -653,6 +653,7 @@ export function HomeClient({ initialData }: Props) {
   const markPlayNavigationStart = useCallback(() => {
     if (typeof window === "undefined") return;
     sessionStorage.setItem("ecos_play_nav_start_ms", String(performance.now()));
+    sessionStorage.setItem("ecos_play_from_home", "1");
   }, []);
 
   const handleShareHome = async (e: React.MouseEvent) => {
