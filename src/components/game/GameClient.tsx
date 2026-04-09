@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useCallback,
   useState,
   useRef,
@@ -484,7 +485,8 @@ export function GameClient({ game, userId }: Props) {
   /** Evita segundo intento/salto mientras la sync con el servidor está en curso. */
   const syncInFlightRef = useRef(false);
   const lastSkipTapAtRef = useRef(0);
-  const bootstrappedRef = useRef(false);
+  /** Última partida para la que se ejecutó el bootstrap; al cambiar `game.id` debe repetirse. */
+  const bootstrappedGameIdRef = useRef<string | null>(null);
   const lastServerSyncRef = useRef<string | null>(null);
 
   const resolveAuthoritativeProgress = useCallback(
@@ -517,10 +519,16 @@ export function GameClient({ game, userId }: Props) {
     return resolveAuthoritativeProgress(localStoredProgress, serverProgress);
   }, [isGuest, serverProgressData, localStoredProgress, resolveAuthoritativeProgress]);
 
-  // Bootstrap inmediato desde caché local para no bloquear con skeleton.
+  // Al cambiar de ruta /play/[id] sin desmontar, alinear estado local y permitir re-bootstrap.
+  useLayoutEffect(() => {
+    lastServerSyncRef.current = null;
+    setLoadedProgress(getProgress(game.id) ?? null);
+  }, [game.id, getProgress]);
+
+  // Bootstrap inmediato desde caché local para no bloquear con skeleton (se repite por cada `game.id`).
   useEffect(() => {
-    if (bootstrappedRef.current) return;
-    bootstrappedRef.current = true;
+    if (bootstrappedGameIdRef.current === game.id) return;
+    bootstrappedGameIdRef.current = game.id;
 
     if (localStoredProgress?.phase === "playing" && localStoredProgress.guesses.length > 0) {
       loadProgress(

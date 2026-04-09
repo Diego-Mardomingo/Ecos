@@ -1,7 +1,6 @@
-/**
- * Ruta ligera: la home ya hidrata caché de juego/progreso; evitar skeleton largo en navegación.
- * El contenido lo pinta el RSC de la página en cuanto está listo.
- */
+import { GameLoadingFallback } from "@/components/game/GameLoadingFallback";
+
+/** UI de carga mientras llega el RSC de `/play/[gameId]` (navegación cliente). */
 export default function PlayGameLoading() {
-  return null;
+  return <GameLoadingFallback />;
 }

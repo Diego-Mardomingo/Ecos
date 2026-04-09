@@ -1849,8 +1849,14 @@ function PreviousDaysSection({
             const status = userId ? dayStatusByGameId.get(day.id) : null;
             // Usuarios autenticados: cada tarjeta tiene su propia query por gameId.
             // Invitados: gameProgressStore local.
-            const serverInProgress = userId ? status?.inProgress ?? undefined : undefined;
-            const localProgress = (serverInProgress ?? byGameId[day.id]) as GameProgress | undefined;
+            const rawServerInProgress = userId ? status?.inProgress ?? undefined : undefined;
+            const serverInProgress =
+              rawServerInProgress && rawServerInProgress.gameId === day.id
+                ? rawServerInProgress
+                : undefined;
+            const storedForDay =
+              byGameId[day.id]?.gameId === day.id ? byGameId[day.id] : undefined;
+            const localProgress = (serverInProgress ?? storedForDay) as GameProgress | undefined;
             const played = userId ? (status?.played ?? day.played) : !!localProgress;
             const serverScore = status?.score ?? day.score;
             const serverWon = status?.won ?? day.won;
