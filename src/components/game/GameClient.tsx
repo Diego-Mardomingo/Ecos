@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useCallback, useState, useRef, memo, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useCallback,
+  useState,
+  useRef,
+  useMemo,
+  memo,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
@@ -37,6 +46,7 @@ import {
   PLAY_FROM_HOME_STORAGE_KEY,
   useNavigateBackToHome,
 } from "@/lib/navigation/useNavigateBackToHome";
+import { GameLoadingFallback } from "@/components/game/GameLoadingFallback";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -440,10 +450,22 @@ export function GameClient({ game, userId }: Props) {
 
   const { getProgress, saveProgress, removeProgress } = useGameProgressStore();
   const localStoredProgress = getProgress(game.id) ?? null;
-  const { data: serverProgressData } = useGameProgressById(game.id, {
+  const hasLocalDecisiveProgress =
+    (localStoredProgress?.phase === "playing" &&
+      (localStoredProgress.guesses?.length ?? 0) > 0) ||
+    localStoredProgress?.phase === "won" ||
+    localStoredProgress?.phase === "lost";
+
+  const {
+    data: serverProgressData,
+    isPending: isServerProgressPending,
+    isError: isServerProgressError,
+  } = useGameProgressById(game.id, {
     enabled: !isGuest,
     initialData:
-      !isGuest && localStoredProgress ? { progress: localStoredProgress } : undefined,
+      !isGuest && localStoredProgress
+        ? { progress: localStoredProgress }
+        : undefined,
   });
   const [loadedProgress, setLoadedProgress] = useState<GameProgress | null>(
     localStoredProgress
@@ -479,6 +501,12 @@ export function GameClient({ game, userId }: Props) {
     []
   );
 
+  const authoritativeProgress = useMemo(() => {
+    if (isGuest) return null;
+    const serverProgress = serverProgressData?.progress ?? null;
+    return resolveAuthoritativeProgress(localStoredProgress, serverProgress);
+  }, [isGuest, serverProgressData, localStoredProgress, resolveAuthoritativeProgress]);
+
   // Bootstrap inmediato desde caché local para no bloquear con skeleton.
   useEffect(() => {
     if (bootstrappedRef.current) return;
@@ -500,11 +528,25 @@ export function GameClient({ game, userId }: Props) {
       return;
     }
 
+    if (!isGuest && !hasLocalDecisiveProgress) {
+      return;
+    }
+
     if (gameId !== game.id || phase === "idle") {
       startGame(game.id, game.date);
     }
     setLoadedProgress(null);
-  }, [game.id, game.date, gameId, phase, loadProgress, localStoredProgress, startGame]);
+  }, [
+    game.id,
+    game.date,
+    gameId,
+    phase,
+    loadProgress,
+    localStoredProgress,
+    startGame,
+    isGuest,
+    hasLocalDecisiveProgress,
+  ]);
 
   // Revalidación en background para autenticados: reconcilia sin bloquear la UI.
   useEffect(() => {
@@ -581,6 +623,24 @@ export function GameClient({ game, userId }: Props) {
     resolveAuthoritativeProgress,
     saveProgress,
     serverProgressData,
+    startGame,
+  ]);
+
+  useEffect(() => {
+    if (isGuest || hasLocalDecisiveProgress) return;
+    if (!isServerProgressError) return;
+    if (gameId !== game.id || phase === "idle") {
+      startGame(game.id, game.date);
+    }
+    setLoadedProgress(null);
+  }, [
+    isGuest,
+    hasLocalDecisiveProgress,
+    isServerProgressError,
+    game.id,
+    game.date,
+    gameId,
+    phase,
     startGame,
   ]);
 
@@ -850,17 +910,31 @@ export function GameClient({ game, userId }: Props) {
     ]
   );
 
+  const terminalFromAuthoritative =
+    !isGuest &&
+    authoritativeProgress &&
+    (authoritativeProgress.phase === "won" || authoritativeProgress.phase === "lost")
+      ? authoritativeProgress
+      : null;
+
+  if (!isGuest && !hasLocalDecisiveProgress && isServerProgressPending) {
+    return <GameLoadingFallback />;
+  }
+
   const isResultView =
     phase === "won" ||
     phase === "lost" ||
     (loadedProgress &&
-      (loadedProgress.phase === "won" || loadedProgress.phase === "lost"));
+      (loadedProgress.phase === "won" || loadedProgress.phase === "lost")) ||
+    terminalFromAuthoritative !== null;
 
   if (isResultView) {
+    const loadedForResult = terminalFromAuthoritative ?? loadedProgress;
+
     const localHasTerminalResult = phase === "won" || phase === "lost";
     const loadedHasTerminalResult =
-      loadedProgress?.phase === "won" || loadedProgress?.phase === "lost";
-    const loadedGuessesCount = loadedProgress?.guesses.length ?? 0;
+      loadedForResult?.phase === "won" || loadedForResult?.phase === "lost";
+    const loadedGuessesCount = loadedForResult?.guesses.length ?? 0;
     const localGuessesCount = guesses.length;
     const localResultLooksRicher =
       localHasTerminalResult &&
@@ -868,28 +942,28 @@ export function GameClient({ game, userId }: Props) {
         localGuessesCount > loadedGuessesCount ||
         (phase === "won" &&
           correctAttempt != null &&
-          (loadedProgress?.correctAttempt ?? null) == null));
+          (loadedForResult?.correctAttempt ?? null) == null));
     const useLocalResult = localResultLooksRicher;
 
     const resultPhase = useLocalResult
       ? phase
-      : loadedProgress
-        ? loadedProgress.phase
+      : loadedForResult
+        ? loadedForResult.phase
         : phase;
     const resultCorrectAttempt = useLocalResult
       ? correctAttempt
-      : loadedProgress
-        ? loadedProgress.correctAttempt ?? null
+      : loadedForResult
+        ? loadedForResult.correctAttempt ?? null
         : correctAttempt;
     const resultFinalScore = useLocalResult
       ? finalScore
-      : loadedProgress
-        ? loadedProgress.score
+      : loadedForResult
+        ? loadedForResult.score
         : finalScore;
     const resultGuesses = useLocalResult
       ? guesses
-      : loadedProgress
-        ? loadedProgress.guesses
+      : loadedForResult
+        ? loadedForResult.guesses
         : guesses;
 
     return (
