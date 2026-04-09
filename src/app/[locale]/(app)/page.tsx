@@ -10,6 +10,8 @@ import {
 } from "@/lib/queries/games";
 import { getUserDashboardStats } from "@/lib/queries/users";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const supabase = await createClient();
   const {

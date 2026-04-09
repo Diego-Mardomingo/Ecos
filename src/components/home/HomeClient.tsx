@@ -123,6 +123,24 @@ function mergeInProgressByGameId(
   return { ...current, ...incoming };
 }
 
+/** Por juego, conserva el mapa con más intentos (caché RQ tras /play vs snapshot RSC). */
+function mergeInProgressPreferringMoreGuesses(
+  a: Record<string, InProgressProgress>,
+  b: Record<string, InProgressProgress>
+): Record<string, InProgressProgress> {
+  const out: Record<string, InProgressProgress> = { ...a };
+  for (const [id, bProg] of Object.entries(b)) {
+    const aProg = out[id];
+    if (
+      !aProg ||
+      (bProg.guesses?.length ?? 0) > (aProg.guesses?.length ?? 0)
+    ) {
+      out[id] = bProg;
+    }
+  }
+  return out;
+}
+
 function previousDayColor(gameNumber: number): string {
   return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
 }
@@ -225,7 +243,24 @@ export function HomeClient({ initialData }: Props) {
   );
   const [inProgressByGameId, setInProgressByGameId] = useState<
     Record<string, InProgressProgress>
-  >(() => (initialDataAligned ? initialData?.inProgressByGameId ?? {} : {}));
+  >(() => {
+    if (!initialDataAligned || !initialData) return {};
+    const uid = initialData.userId ?? null;
+    if (!uid) return initialData.inProgressByGameId ?? {};
+    const rsc = initialData.inProgressByGameId ?? {};
+    const fromAll =
+      queryClient.getQueryData<HomePreviousDaysData>(
+        queryKeys.home.previousDaysAll(uid)
+      )?.inProgressByGameId ?? {};
+    const fromMonth =
+      queryClient.getQueryData<HomePreviousDaysData>(
+        queryKeys.home.previousDays(currentMonthKey, uid)
+      )?.inProgressByGameId ?? {};
+    return mergeInProgressPreferringMoreGuesses(
+      mergeInProgressPreferringMoreGuesses(rsc, fromAll),
+      fromMonth
+    );
+  });
   const prefetchStartedRef = useRef(false);
   const prefetchedGameIdsRef = useRef<Set<string>>(new Set());
   const prefetchedProgressIdsRef = useRef<Set<string>>(new Set());

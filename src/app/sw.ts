@@ -3,7 +3,20 @@
 /// <reference lib="webworker" />
 import { defaultCache } from "@serwist/turbopack/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import { NetworkOnly, Serwist } from "serwist";
+
+/** Evita que el SW cachee GET a /api (defaultCache usa NetworkFirst + caché 24h), datos de sesión quedarían obsoletos. */
+const apiNetworkOnly = {
+  matcher: ({
+    sameOrigin,
+    url: { pathname },
+  }: {
+    sameOrigin: boolean;
+    url: URL;
+  }) => sameOrigin && pathname.startsWith("/api/"),
+  method: "GET" as const,
+  handler: new NetworkOnly({ networkTimeoutSeconds: 10 }),
+};
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -18,7 +31,7 @@ const serwist = new Serwist({
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: defaultCache,
+  runtimeCaching: [apiNetworkOnly, ...defaultCache],
   fallbacks: {
     entries: [
       {

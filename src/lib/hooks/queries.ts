@@ -310,6 +310,8 @@ export function useHomeToday(
     queryFn: fetchHomeTodayData,
     initialData,
     staleTime: HOME_TODAY_STALE_MS,
+    /** Al remontar la home (p. ej. desde ranking), alinear con servidor tras intentos en /play. */
+    refetchOnMount: "always",
   });
 }
 
@@ -324,6 +326,7 @@ export function useHomePreviousDays(
     initialData,
     staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
     gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+    refetchOnMount: "always",
   });
 }
 
@@ -432,13 +435,40 @@ function normalizeCoverUrl(coverUrl: string | null | undefined): string {
   return coverUrl ?? "";
 }
 
+function guessCountFromInProgress(
+  p: InProgressProgress | null | undefined
+): number {
+  return p?.guesses?.length ?? 0;
+}
+
+/**
+ * No sustituir day-status en caché si el nuevo snapshot (p. ej. RSC) trae menos intentos
+ * que lo ya sincronizado tras jugar en /play.
+ */
 export function primeHomeDayStatusCache(
   queryClient: QueryClient,
   previousDays: PreviousDayGame[],
   inProgressByGameId?: Record<string, InProgressProgress>
 ) {
   for (const day of previousDays) {
-    const inProgress = inProgressByGameId?.[day.id] ?? null;
+    const incomingInProgress = inProgressByGameId?.[day.id] ?? null;
+    const existing = queryClient.getQueryData<HomeDayStatusData>(
+      queryKeys.home.dayStatus(day.id)
+    );
+
+    let resolvedInProgress: InProgressProgress | null = incomingInProgress;
+    if (day.played) {
+      resolvedInProgress = null;
+    } else if (existing?.inProgress) {
+      const existingN = guessCountFromInProgress(existing.inProgress);
+      const incomingN = guessCountFromInProgress(incomingInProgress);
+      if (incomingInProgress == null && existingN > 0) {
+        resolvedInProgress = existing.inProgress;
+      } else if (existingN > incomingN) {
+        resolvedInProgress = existing.inProgress;
+      }
+    }
+
     const status: HomeDayStatusData = {
       gameId: day.id,
       played: day.played,
@@ -447,7 +477,7 @@ export function primeHomeDayStatusCache(
       title: day.title,
       artist_name: day.artist_name,
       cover_url: day.cover_url,
-      inProgress,
+      inProgress: resolvedInProgress,
     };
     queryClient.setQueryData(queryKeys.home.dayStatus(day.id), status);
   }
@@ -672,6 +702,18 @@ export function primePlayQueriesFromHomeInitialData(
   }
 
   for (const [gameId, inProg] of Object.entries(inProgressByGameId ?? {})) {
+    const existing = queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(gameId)
+    );
+    const phase = existing?.progress?.phase;
+    if (phase === "won" || phase === "lost") {
+      continue;
+    }
+    const existingN = existing?.progress?.guesses?.length ?? 0;
+    const newN = inProg.guesses?.length ?? 0;
+    if (existingN > newN) {
+      continue;
+    }
     queryClient.setQueryData(queryKeys.game.progress(gameId), {
       progress: inProgressToGameProgress(gameId, inProg),
     });
