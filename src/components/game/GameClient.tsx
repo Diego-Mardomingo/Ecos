@@ -504,7 +504,13 @@ export function GameClient({ game, userId }: Props) {
 
       if (serverCompleted && !localCompleted) return serverProgress;
       if (localCompleted && !serverCompleted) return localProgress;
-      if (serverCompleted && localCompleted) return serverProgress;
+      if (serverCompleted && localCompleted) {
+        const sLen = serverProgress.guesses?.length ?? 0;
+        const lLen = localProgress.guesses?.length ?? 0;
+        if (sLen > lLen) return serverProgress;
+        if (lLen > sLen) return localProgress;
+        return serverProgress;
+      }
 
       return serverProgress.guesses.length >= localProgress.guesses.length
         ? serverProgress

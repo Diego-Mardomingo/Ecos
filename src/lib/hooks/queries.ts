@@ -379,7 +379,9 @@ export function useGameProgressById(
     queryFn: () => fetchGameProgressById(gameId),
     enabled: (options?.enabled ?? true) && !!gameId,
     initialData: options?.initialData,
-    staleTime: 60 * 1000,
+    /** Siempre pedir datos al montar la partida: el GET incluye intentos y debe ganar a caché incompleta. */
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
   });
 }
 
@@ -656,19 +658,13 @@ export function primePlayQueriesFromHomeInitialData(
     userId: string | null;
     prefetchedGamesById: Record<string, GameWithSong>;
     inProgressByGameId?: Record<string, InProgressProgress>;
+    /** Reservados para la firma (HomeClient); el progreso completado no se hidrata aquí sin intentos. */
     todaysGame: GameWithSong | null;
     todaysCompletedResult: TodaysCompletedResult | null;
     previousDays: PreviousDayGame[];
   }
 ): void {
-  const {
-    userId,
-    prefetchedGamesById,
-    inProgressByGameId,
-    todaysGame,
-    todaysCompletedResult,
-    previousDays,
-  } = input;
+  const { userId, prefetchedGamesById, inProgressByGameId } = input;
   if (!userId) return;
 
   for (const [gameId, game] of Object.entries(prefetchedGamesById)) {
@@ -681,47 +677,9 @@ export function primePlayQueriesFromHomeInitialData(
     });
   }
 
-  if (todaysGame && todaysCompletedResult) {
-    const song = todaysGame.ecos_songs;
-    queryClient.setQueryData(queryKeys.game.progress(todaysGame.id), {
-      progress: completionToGameProgress(
-        todaysGame.id,
-        todaysGame.date,
-        todaysCompletedResult.won,
-        todaysCompletedResult.score,
-        {
-          title: song.title,
-          artist_name: song.artist_name,
-          cover_url: song.cover_url,
-        },
-        undefined,
-        undefined
-      ),
-    });
-  }
-
-  for (const day of previousDays) {
-    if (!day.played) continue;
-    if (inProgressByGameId?.[day.id]) continue;
-    const game = prefetchedGamesById[day.id];
-    if (!game) continue;
-    const song = game.ecos_songs;
-    queryClient.setQueryData(queryKeys.game.progress(day.id), {
-      progress: completionToGameProgress(
-        day.id,
-        game.date,
-        day.won,
-        day.score,
-        {
-          title: day.title || song.title,
-          artist_name: day.artist_name || song.artist_name,
-          cover_url: day.cover_url || song.cover_url || "",
-        },
-        [],
-        undefined
-      ),
-    });
-  }
+  // No hidratar partidas completadas aquí: solo tenemos puntuación/resumen en RSC, no la lista de
+  // intentos. Rellenar la caché con guesses:[] hacía que useGameProgressById quedara «fresco» 60s
+  // sin refetch y el detalle del juego no mostraba intentos previos.
 }
 
 /**
