@@ -64,3 +64,9 @@ supabase/
 .pnpm-store/
 
 ECOS_CURSOR.md
+
+# agents
+.agents/
+
+# skills
+skills-lock.json

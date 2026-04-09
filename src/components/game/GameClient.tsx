@@ -25,9 +25,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useSkipAttemptMutation,
   useValidateGuessMutation,
+  useReportGameMutation,
   useGameProgressById,
   queryKeys,
   type GameProgressData,
+  type ReportGameInput,
 } from "@/lib/hooks/queries";
 import {
   Dialog,
@@ -1353,8 +1355,8 @@ function ResultScreen({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>("");
   const [reportDesc, setReportDesc] = useState("");
-  const [reportSending, setReportSending] = useState(false);
   const [reportSent, setReportSent] = useState(false);
+  const reportMutation = useReportGameMutation();
   const [shareCopied, setShareCopied] = useState(false);
   const navigateBackToHome = useNavigateBackToHome();
 
@@ -1424,27 +1426,25 @@ function ResultScreen({
     }
   };
 
-  const handleReport = async () => {
+  const handleReport = () => {
     if (!reportReason) return;
-    setReportSending(true);
-    try {
-      const res = await fetch("/api/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gameId,
-          songId: song.id,
-          reason: reportReason,
-          description: reportDesc || undefined,
-        }),
-      });
-      if (res.ok) {
-        setReportSent(true);
-        setReportOpen(false);
+    reportMutation.mutate(
+      {
+        gameId,
+        songId: song.id,
+        reason: reportReason as ReportGameInput["reason"],
+        description: reportDesc.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setReportSent(true);
+          setReportOpen(false);
+        },
+        onError: () => {
+          toast.error(tc("error"));
+        },
       }
-    } finally {
-      setReportSending(false);
-    }
+    );
   };
 
   return (
@@ -1688,11 +1688,12 @@ function ResultScreen({
                         </div>
                       )}
                       <button
+                        type="button"
                         onClick={handleReport}
-                        disabled={!reportReason || reportSending}
+                        disabled={!reportReason || reportMutation.isPending}
                         className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50"
                       >
-                        {reportSending ? t("report.sending") : t("report.submit")}
+                        {reportMutation.isPending ? t("report.sending") : t("report.submit")}
                       </button>
                     </>
                   )}

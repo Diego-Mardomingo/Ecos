@@ -962,6 +962,7 @@ export function useValidateGuessMutation() {
     GameCacheSnapshot
   >({
     mutationKey: ["game", "validate-guess"],
+    meta: { skipGlobalErrorToast: true },
     mutationFn: async ({ request }) => {
       const res = await fetch("/api/validate-guess", {
         method: "POST",
@@ -1040,6 +1041,7 @@ export function useSkipAttemptMutation() {
     GameCacheSnapshot
   >({
     mutationKey: ["game", "skip-attempt"],
+    meta: { skipGlobalErrorToast: true },
     mutationFn: async ({ request }) => {
       const res = await fetch("/api/skip-attempt", {
         method: "POST",
@@ -1104,6 +1106,97 @@ export function useSkipAttemptMutation() {
         gameId: variables.gameId,
         event: variables.event,
       });
+    },
+  });
+}
+
+export interface UpdateProfileInput {
+  username: string;
+  avatar_url?: string;
+  show_avatar_in_rankings?: boolean;
+}
+
+export function useUpdateProfileMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: ["profile", "update"],
+    meta: { skipGlobalErrorToast: true },
+    mutationFn: async (input: UpdateProfileInput) => {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(
+          typeof json.error === "string" ? json.error : "Failed to update profile"
+        );
+      }
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
+    },
+  });
+}
+
+export interface SubmitFeedbackInput {
+  type: "bug" | "error" | "suggestion";
+  message: string;
+  email?: string;
+}
+
+export function useSubmitFeedbackMutation() {
+  return useMutation({
+    mutationKey: ["feedback", "submit"],
+    meta: { skipGlobalErrorToast: true },
+    mutationFn: async (input: SubmitFeedbackInput) => {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(
+          typeof json.error === "string" ? json.error : "Failed to submit feedback"
+        );
+      }
+    },
+  });
+}
+
+export interface ReportGameInput {
+  gameId: string;
+  songId: string;
+  reason:
+    | "bad_audio"
+    | "wrong_video"
+    | "intro_problem"
+    | "explicit_content"
+    | "other";
+  description?: string;
+}
+
+export function useReportGameMutation() {
+  return useMutation({
+    mutationKey: ["game", "report"],
+    meta: { skipGlobalErrorToast: true },
+    mutationFn: async (input: ReportGameInput) => {
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(
+          typeof json.error === "string" ? json.error : "Failed to save report"
+        );
+      }
+      return json;
     },
   });
 }

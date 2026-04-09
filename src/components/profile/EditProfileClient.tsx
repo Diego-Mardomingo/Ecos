@@ -2,10 +2,9 @@
 
 import { useState, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@/i18n/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { queryKeys } from "@/lib/hooks/queries";
+import { useUpdateProfileMutation } from "@/lib/hooks/queries";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +27,8 @@ interface Props {
 
 export function EditProfileClient({ profile }: Props) {
   const t = useTranslations("profile.editProfilePage");
-  const queryClient = useQueryClient();
   const router = useRouter();
+  const updateProfile = useUpdateProfileMutation();
 
   const [username, setUsername] = useState(profile.username ?? profile.display_name ?? "");
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url ?? "");
@@ -37,7 +36,6 @@ export function EditProfileClient({ profile }: Props) {
     profile.show_avatar_in_rankings
   );
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,7 +68,7 @@ export function EditProfileClient({ profile }: Props) {
     setAvatarUrl(data.publicUrl);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const trimmed = username.trim();
     if (!trimmed) {
       setError(t("usernameRequired"));
@@ -82,32 +80,26 @@ export function EditProfileClient({ profile }: Props) {
     }
 
     setError(null);
-    setSaving(true);
 
-    const res = await fetch("/api/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    updateProfile.mutate(
+      {
         username: trimmed,
         avatar_url: avatarUrl || undefined,
         show_avatar_in_rankings: showAvatarInRankings,
-      }),
-    });
-
-    const json = await res.json();
-    setSaving(false);
-
-    if (!res.ok) {
-      if (json.error === "username_taken") {
-        setError(t("usernameTaken"));
-      } else {
-        setError(json.error ?? "Error al guardar");
+      },
+      {
+        onSuccess: () => {
+          router.push("/profile");
+        },
+        onError: (err) => {
+          if (err instanceof Error && err.message === "username_taken") {
+            setError(t("usernameTaken"));
+          } else {
+            setError(err instanceof Error ? err.message : "Error al guardar");
+          }
+        },
       }
-      return;
-    }
-
-    queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
-    router.push("/profile");
+    );
   };
 
   return (
@@ -196,10 +188,10 @@ export function EditProfileClient({ profile }: Props) {
 
         <Button
           onClick={handleSave}
-          disabled={saving}
+          disabled={updateProfile.isPending}
           className="w-full rounded-xl py-3 font-semibold"
         >
-          {saving ? t("saving") : t("save")}
+          {updateProfile.isPending ? t("saving") : t("save")}
         </Button>
       </div>
     </div>

@@ -11,7 +11,13 @@
     "points": "pts",
     "days": "days",
     "day": "day",
-    "enter": "Sign in"
+    "enter": "Sign in",
+    "offline": "You're offline. Some features may be unavailable."
+  },
+  "pullToRefresh": {
+    "pull": "Pull to refresh",
+    "release": "Release to refresh",
+    "refreshing": "Refreshing…"
   },
   "nav": {
     "home": "Home",

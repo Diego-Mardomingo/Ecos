@@ -26,6 +26,7 @@ import {
   homeSessionSegment,
   queryKeys,
   fetchHomePreviousDaysData,
+  useSubmitFeedbackMutation,
   HOME_DAY_STATUS_STALE_MS,
   HOME_PREVIOUS_DAYS_GC_MS,
   HOME_PREVIOUS_DAYS_STALE_MS,
@@ -708,32 +709,33 @@ export function HomeClient({ initialData }: Props) {
   const [reportEmail, setReportEmail] = useState("");
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
   const reportStatusResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submitFeedback = useSubmitFeedbackMutation();
 
   const handleReportSubmit = useCallback(
-    async (e: React.FormEvent) => {
+    (e: React.FormEvent) => {
       e.preventDefault();
       const message = reportMessage.trim();
       if (!message) return;
       setReportStatus("sending");
-      try {
-        const res = await fetch("/api/feedback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: reportType,
-            message,
-            email: reportEmail.trim() || undefined,
-          }),
-        });
-        if (!res.ok) throw new Error("Failed");
-        setReportStatus("success");
-        setReportMessage("");
-        setReportEmail("");
-      } catch {
-        setReportStatus("error");
-      }
+      submitFeedback.mutate(
+        {
+          type: reportType,
+          message,
+          email: reportEmail.trim() || undefined,
+        },
+        {
+          onSuccess: () => {
+            setReportStatus("success");
+            setReportMessage("");
+            setReportEmail("");
+          },
+          onError: () => {
+            setReportStatus("error");
+          },
+        }
+      );
     },
-    [reportType, reportMessage, reportEmail]
+    [reportType, reportMessage, reportEmail, submitFeedback]
   );
 
   const handleReportOpenChange = useCallback((open: boolean) => {
@@ -862,7 +864,7 @@ export function HomeClient({ initialData }: Props) {
   }
 
   const headerActionButtonClass =
-    "inline-flex h-9 max-w-[min(100%,11rem)] shrink-0 items-center gap-1 rounded-xl border border-border bg-muted px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground sm:max-w-none sm:gap-1.5 sm:px-2.5 sm:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[415px]:h-9 min-[415px]:w-auto min-[415px]:max-w-[min(100%,11rem)] min-[415px]:justify-start min-[415px]:gap-1.5 min-[415px]:px-2.5 min-[415px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
@@ -884,12 +886,12 @@ export function HomeClient({ initialData }: Props) {
           <span className="shrink-0 text-lg font-bold leading-none tracking-tight">{tc("appName")}</span>
           <HeaderBrandWaveform />
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 min-[415px]:gap-2">
           <Dialog>
             <DialogTrigger asChild>
               <button type="button" className={headerActionButtonClass} aria-label={t("aboutTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand sm:text-xl">info</span>
-                <span className="truncate">{t("headerInfoButton")}</span>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand min-[415px]:text-xl">info</span>
+                <span className="hidden truncate min-[415px]:inline">{t("headerInfoButton")}</span>
               </button>
             </DialogTrigger>
             <DialogContent className="max-w-md gap-0 overflow-y-auto sm:max-w-md">
@@ -935,8 +937,8 @@ export function HomeClient({ initialData }: Props) {
           <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
             <DialogTrigger asChild>
               <button type="button" className={headerActionButtonClass} aria-label={t("reportTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand sm:text-xl">bug_report</span>
-                <span className="truncate">{t("headerReportButton")}</span>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand min-[415px]:text-xl">bug_report</span>
+                <span className="hidden truncate min-[415px]:inline">{t("headerReportButton")}</span>
               </button>
             </DialogTrigger>
             <DialogContent className="max-w-sm">
@@ -991,8 +993,8 @@ export function HomeClient({ initialData }: Props) {
                   {reportStatus === "error" && (
                     <p className="text-sm text-destructive">{t("reportError")}</p>
                   )}
-                  <Button type="submit" className="w-full" disabled={reportStatus === "sending"}>
-                    {reportStatus === "sending" ? t("reportSending") : t("reportSubmit")}
+                  <Button type="submit" className="w-full" disabled={submitFeedback.isPending}>
+                    {submitFeedback.isPending ? t("reportSending") : t("reportSubmit")}
                   </Button>
                 </form>
               )}
