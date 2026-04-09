@@ -232,27 +232,26 @@ export function HomeClient({ initialData }: Props) {
 
   const todaysCompletedResultEffective = useMemo(() => {
     if (!initialDataAligned) return todayData?.todaysCompletedResult ?? null;
-    return (
-      todayData?.todaysCompletedResult ??
-      initialData?.todaysCompletedResult ??
-      null
-    );
-  }, [
-    initialDataAligned,
-    todayData?.todaysCompletedResult,
-    initialData?.todaysCompletedResult,
-  ]);
+    // Con datos de React Query, null es válido (no completado); no usar ?? hacia RSC.
+    if (todayData !== undefined) {
+      return todayData.todaysCompletedResult ?? null;
+    }
+    return initialData?.todaysCompletedResult ?? null;
+  }, [initialDataAligned, todayData, initialData?.todaysCompletedResult]);
 
   const todaysServerInProgressEffective = useMemo(() => {
-    const fromQuery = todayData?.todaysInProgress ?? null;
+    if (todaysCompletedResultEffective) return null;
     const fromRsc =
       initialDataAligned && initialData?.todaysGame
         ? initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null
         : null;
-    if (todaysCompletedResultEffective) return null;
-    return fromQuery ?? fromRsc;
+    // todaysInProgress === null del API no debe sustituirse por inProgress obsoleto del RSC.
+    if (todayData !== undefined) {
+      return todayData.todaysInProgress ?? null;
+    }
+    return fromRsc;
   }, [
-    todayData?.todaysInProgress,
+    todayData,
     initialDataAligned,
     initialData?.todaysGame,
     initialData?.inProgressByGameId,
