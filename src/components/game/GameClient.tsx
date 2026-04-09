@@ -40,6 +40,8 @@ import {
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
+/** Ventana corta para ignorar dobles taps accidentales en “Saltar intento”. */
+const SKIP_BUTTON_DOUBLE_TAP_GUARD_MS = 500;
 
 const CONFETTI_COLORS_DARK = ["#2bee79", "#ffffff", "#0a2015"] as const;
 const CONFETTI_COLORS_LIGHT = ["#059669", "#ffffff", "#f8fafc"] as const;
@@ -449,6 +451,7 @@ export function GameClient({ game, userId }: Props) {
   const gameAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
   /** Evita segundo intento/salto mientras la sync con el servidor está en curso. */
   const syncInFlightRef = useRef(false);
+  const lastSkipTapAtRef = useRef(0);
   const bootstrappedRef = useRef(false);
   const lastServerSyncRef = useRef<string | null>(null);
 
@@ -663,6 +666,11 @@ export function GameClient({ game, userId }: Props) {
                   type: "completion",
                   won: true,
                   score: optimisticScore,
+                  completedProgress: {
+                    gameDate: game.date,
+                    guesses: [...useGameStore.getState().guesses],
+                    correctAttempt: currentAttempt,
+                  },
                 },
               });
               const serverPoints = data.totalPoints ?? optimisticScore;
@@ -730,7 +738,15 @@ export function GameClient({ game, userId }: Props) {
                   finalize: currentAttempt >= maxAttempts,
                 },
                 optimistic: lostNow
-                  ? { type: "completion", won: false, score: 0 }
+                  ? {
+                      type: "completion",
+                      won: false,
+                      score: 0,
+                      completedProgress: {
+                        gameDate: game.date,
+                        guesses: optimisticGuesses,
+                      },
+                    }
                   : {
                       type: "inProgress",
                       inProgress: {
@@ -841,11 +857,40 @@ export function GameClient({ game, userId }: Props) {
       (loadedProgress.phase === "won" || loadedProgress.phase === "lost"));
 
   if (isResultView) {
-    const resultPhase = loadedProgress ? loadedProgress.phase : phase;
-    const resultCorrectAttempt =
-      loadedProgress ? loadedProgress.correctAttempt ?? null : correctAttempt;
-    const resultFinalScore = loadedProgress ? loadedProgress.score : finalScore;
-    const resultGuesses = loadedProgress ? loadedProgress.guesses : guesses;
+    const localHasTerminalResult = phase === "won" || phase === "lost";
+    const loadedHasTerminalResult =
+      loadedProgress?.phase === "won" || loadedProgress?.phase === "lost";
+    const loadedGuessesCount = loadedProgress?.guesses.length ?? 0;
+    const localGuessesCount = guesses.length;
+    const localResultLooksRicher =
+      localHasTerminalResult &&
+      (!loadedHasTerminalResult ||
+        localGuessesCount > loadedGuessesCount ||
+        (phase === "won" &&
+          correctAttempt != null &&
+          (loadedProgress?.correctAttempt ?? null) == null));
+    const useLocalResult = localResultLooksRicher;
+
+    const resultPhase = useLocalResult
+      ? phase
+      : loadedProgress
+        ? loadedProgress.phase
+        : phase;
+    const resultCorrectAttempt = useLocalResult
+      ? correctAttempt
+      : loadedProgress
+        ? loadedProgress.correctAttempt ?? null
+        : correctAttempt;
+    const resultFinalScore = useLocalResult
+      ? finalScore
+      : loadedProgress
+        ? loadedProgress.score
+        : finalScore;
+    const resultGuesses = useLocalResult
+      ? guesses
+      : loadedProgress
+        ? loadedProgress.guesses
+        : guesses;
 
     return (
       <ResultGameView
@@ -897,6 +942,10 @@ export function GameClient({ game, userId }: Props) {
             if (!isGuest && syncInFlightRef.current) return;
 
             if (!isGuest && userId) {
+              const now = Date.now();
+              if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
+              lastSkipTapAtRef.current = now;
+
               syncInFlightRef.current = true;
               const lostNow = currentAttempt >= maxAttempts;
               addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
@@ -917,7 +966,15 @@ export function GameClient({ game, userId }: Props) {
                     },
                     request: { gameId: game.id, attemptNumber: currentAttempt },
                     optimistic: lostNow
-                      ? { type: "completion", won: false, score: 0 }
+                      ? {
+                          type: "completion",
+                          won: false,
+                          score: 0,
+                          completedProgress: {
+                            gameDate: game.date,
+                            guesses: optimisticGuesses,
+                          },
+                        }
                       : {
                           type: "inProgress",
                           inProgress: {
@@ -951,6 +1008,10 @@ export function GameClient({ game, userId }: Props) {
               })();
               return;
             }
+
+            const now = Date.now();
+            if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
+            lastSkipTapAtRef.current = now;
 
             addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
             if (currentAttempt >= maxAttempts) {

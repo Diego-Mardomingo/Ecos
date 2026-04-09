@@ -490,6 +490,8 @@ export function applyOptimisticInProgressCaches(
   queryClient.setQueryData(queryKeys.game.progress(gameId), {
     progress: inProgressToGameProgress(gameId, inProgress),
   });
+
+  patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
 }
 
 export function applyOptimisticCompletionCaches(
@@ -500,9 +502,14 @@ export function applyOptimisticCompletionCaches(
     won: boolean;
     score: number | null;
     song: SongSnapshot;
+    completedProgress?: {
+      gameDate?: string;
+      guesses?: GameProgress["guesses"];
+      correctAttempt?: number;
+    };
   }
 ) {
-  const { userId, gameId, won, score, song } = input;
+  const { userId, gameId, won, score, song, completedProgress } = input;
   if (!userId) return;
 
   queryClient.setQueryData(queryKeys.home.dayStatus(gameId), (prev: unknown) => {
@@ -543,12 +550,23 @@ export function applyOptimisticCompletionCaches(
     queryKeys.home.today(userId)
   );
   const gameDate =
+    completedProgress?.gameDate ??
     prevProgress?.progress?.gameDate ??
     (prevToday?.todaysGame?.id === gameId ? prevToday.todaysGame?.date : undefined) ??
     "";
   queryClient.setQueryData(queryKeys.game.progress(gameId), {
-    progress: completionToGameProgress(gameId, gameDate, won, score, song),
+    progress: completionToGameProgress(
+      gameId,
+      gameDate,
+      won,
+      score,
+      song,
+      completedProgress?.guesses,
+      completedProgress?.correctAttempt
+    ),
   });
+
+  patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
 }
 
 function takeGameCacheSnapshot(
@@ -609,7 +627,9 @@ function completionToGameProgress(
   gameDate: string,
   won: boolean,
   score: number | null,
-  song: SongSnapshot
+  song: SongSnapshot,
+  guesses?: GameProgress["guesses"],
+  correctAttempt?: number
 ): GameProgress {
   return {
     gameId,
@@ -620,8 +640,9 @@ function completionToGameProgress(
     title: song.title,
     artist_name: song.artist_name,
     cover_url: normalizeCoverUrl(song.cover_url),
-    guesses: [],
+    guesses: guesses ?? [],
     phase: won ? "won" : "lost",
+    correctAttempt: won ? (correctAttempt ?? undefined) : undefined,
   };
 }
 
@@ -826,6 +847,11 @@ interface ValidateGuessMutationInput extends GameMutationBaseInput {
         type: "completion";
         won: boolean;
         score: number | null;
+        completedProgress?: {
+          gameDate?: string;
+          guesses?: GameProgress["guesses"];
+          correctAttempt?: number;
+        };
       };
 }
 
@@ -840,6 +866,11 @@ interface SkipAttemptMutationInput extends GameMutationBaseInput {
         type: "completion";
         won: boolean;
         score: number | null;
+        completedProgress?: {
+          gameDate?: string;
+          guesses?: GameProgress["guesses"];
+          correctAttempt?: number;
+        };
       };
 }
 
@@ -891,6 +922,7 @@ export function useValidateGuessMutation() {
           won: optimistic.won,
           score: optimistic.score,
           song,
+          completedProgress: optimistic.completedProgress,
         });
       } else {
         applyOptimisticInProgressCaches(queryClient, {
@@ -968,6 +1000,7 @@ export function useSkipAttemptMutation() {
           won: optimistic.won,
           score: optimistic.score,
           song,
+          completedProgress: optimistic.completedProgress,
         });
       } else {
         applyOptimisticInProgressCaches(queryClient, {
