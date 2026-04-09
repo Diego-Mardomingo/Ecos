@@ -601,7 +601,7 @@ function restoreGameCacheSnapshot(
   queryClient.setQueryData(queryKeys.game.progress(gameId), snapshot.progress);
 }
 
-function inProgressToGameProgress(
+export function inProgressToGameProgress(
   gameId: string,
   inProgress: InProgressProgress
 ): GameProgress {
@@ -622,7 +622,7 @@ function inProgressToGameProgress(
   };
 }
 
-function completionToGameProgress(
+export function completionToGameProgress(
   gameId: string,
   gameDate: string,
   won: boolean,
@@ -644,6 +644,84 @@ function completionToGameProgress(
     phase: won ? "won" : "lost",
     correctAttempt: won ? (correctAttempt ?? undefined) : undefined,
   };
+}
+
+/**
+ * Hidrata cachés de React Query para `/play/[gameId]` con lo ya cargado en el RSC de la home
+ * (navegación instantánea para usuarios logueados).
+ */
+export function primePlayQueriesFromHomeInitialData(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    prefetchedGamesById: Record<string, GameWithSong>;
+    inProgressByGameId?: Record<string, InProgressProgress>;
+    todaysGame: GameWithSong | null;
+    todaysCompletedResult: TodaysCompletedResult | null;
+    previousDays: PreviousDayGame[];
+  }
+): void {
+  const {
+    userId,
+    prefetchedGamesById,
+    inProgressByGameId,
+    todaysGame,
+    todaysCompletedResult,
+    previousDays,
+  } = input;
+  if (!userId) return;
+
+  for (const [gameId, game] of Object.entries(prefetchedGamesById)) {
+    queryClient.setQueryData(queryKeys.game.byId(gameId), game);
+  }
+
+  for (const [gameId, inProg] of Object.entries(inProgressByGameId ?? {})) {
+    queryClient.setQueryData(queryKeys.game.progress(gameId), {
+      progress: inProgressToGameProgress(gameId, inProg),
+    });
+  }
+
+  if (todaysGame && todaysCompletedResult) {
+    const song = todaysGame.ecos_songs;
+    queryClient.setQueryData(queryKeys.game.progress(todaysGame.id), {
+      progress: completionToGameProgress(
+        todaysGame.id,
+        todaysGame.date,
+        todaysCompletedResult.won,
+        todaysCompletedResult.score,
+        {
+          title: song.title,
+          artist_name: song.artist_name,
+          cover_url: song.cover_url,
+        },
+        undefined,
+        undefined
+      ),
+    });
+  }
+
+  for (const day of previousDays) {
+    if (!day.played) continue;
+    if (inProgressByGameId?.[day.id]) continue;
+    const game = prefetchedGamesById[day.id];
+    if (!game) continue;
+    const song = game.ecos_songs;
+    queryClient.setQueryData(queryKeys.game.progress(day.id), {
+      progress: completionToGameProgress(
+        day.id,
+        game.date,
+        day.won,
+        day.score,
+        {
+          title: day.title || song.title,
+          artist_name: day.artist_name || song.artist_name,
+          cover_url: day.cover_url || song.cover_url || "",
+        },
+        [],
+        undefined
+      ),
+    });
+  }
 }
 
 /**

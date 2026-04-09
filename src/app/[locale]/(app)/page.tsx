@@ -5,6 +5,8 @@ import {
   getPreviousDaysCached,
   getInProgressGames,
   getTodaysCompletedResult,
+  getGamesWithSongByIds,
+  type GameWithSong,
 } from "@/lib/queries/games";
 import { getUserDashboardStats } from "@/lib/queries/users";
 
@@ -35,6 +37,21 @@ export default async function HomePage() {
     user && todaysGame ? getTodaysCompletedResult(user.id, todaysGame.id) : null,
   ]);
 
+  const gameIdsForPrefetch =
+    user != null
+      ? [
+          ...(todaysGame?.id ? [todaysGame.id] : []),
+          ...(previousDays ?? []).map((d) => d.id),
+        ]
+      : [];
+  const gamesList =
+    user != null && gameIdsForPrefetch.length > 0
+      ? await getGamesWithSongByIds(gameIdsForPrefetch)
+      : [];
+  const prefetchedGamesById: Record<string, GameWithSong> = Object.fromEntries(
+    gamesList.map((g) => [g.id, g])
+  );
+
   return (
     <HomeClient
       initialData={{
@@ -46,6 +63,7 @@ export default async function HomePage() {
         todaysCompletedResult: todaysCompletedResult ?? null,
         rankingRanks,
         rankingStats,
+        prefetchedGamesById,
       }}
     />
   );

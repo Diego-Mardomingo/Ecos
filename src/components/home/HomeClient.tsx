@@ -22,6 +22,7 @@ import {
   prefetchGameProgressById,
   prefetchHomeDayStatusById,
   primeHomeDayStatusCache,
+  primePlayQueriesFromHomeInitialData,
   homeSessionSegment,
   queryKeys,
   fetchHomePreviousDaysData,
@@ -34,7 +35,7 @@ import {
   type HomeDayStatusData,
   type HomePreviousDaysData,
 } from "@/lib/hooks/queries";
-import type { PreviousDayGame } from "@/lib/queries/games";
+import type { PreviousDayGame, GameWithSong } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import { HomeSkeleton } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -139,7 +140,7 @@ async function runBatched<T>(
 
 interface Props {
   initialData?: {
-    todaysGame: import("@/lib/queries/games").GameWithSong | null;
+    todaysGame: GameWithSong | null;
     userStats: import("@/lib/queries/users").UserStats | null;
     userId: string | null;
     previousDays: PreviousDayGame[];
@@ -147,6 +148,8 @@ interface Props {
     todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
     rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
     rankingStats?: HomeData["rankingStats"];
+    /** Juegos completos para hidratar `useGameById` / navegación a `/play/[id]`. */
+    prefetchedGamesById?: Record<string, GameWithSong>;
   };
 }
 
@@ -278,6 +281,23 @@ export function HomeClient({ initialData }: Props) {
     initialData?.todaysCompletedResult,
     initialData?.todaysGame,
     queryClient,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!initialDataAligned || !cacheUserId || !initialData) return;
+    primePlayQueriesFromHomeInitialData(queryClient, {
+      userId: cacheUserId,
+      prefetchedGamesById: initialData.prefetchedGamesById ?? {},
+      inProgressByGameId: initialData.inProgressByGameId,
+      todaysGame: initialData.todaysGame ?? null,
+      todaysCompletedResult: initialData.todaysCompletedResult ?? null,
+      previousDays: initialData.previousDays ?? [],
+    });
+  }, [
+    initialDataAligned,
+    cacheUserId,
+    queryClient,
+    initialData,
   ]);
 
   const orderedGameIdsForPrefetch = useMemo(() => {
@@ -755,6 +775,23 @@ export function HomeClient({ initialData }: Props) {
     sessionStorage.setItem("ecos_play_from_home", "1");
   }, []);
 
+  const prefetchTodayPlay = useCallback(() => {
+    const tg = todayData?.todaysGame ?? initialData?.todaysGame;
+    if (!tg?.id) return;
+    router.prefetch("/play");
+    void prefetchGameById(queryClient, tg.id).catch(() => undefined);
+    if (cacheUserId) {
+      void prefetchGameProgressById(queryClient, tg.id).catch(() => undefined);
+    }
+    void prefetchHomeDayStatusById(queryClient, tg.id).catch(() => undefined);
+  }, [
+    todayData?.todaysGame,
+    initialData?.todaysGame,
+    router,
+    queryClient,
+    cacheUserId,
+  ]);
+
   const handleShareHome = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -950,6 +987,8 @@ export function HomeClient({ initialData }: Props) {
             role="button"
             tabIndex={0}
             whileTap={{ scale: 0.99 }}
+            onMouseEnter={prefetchTodayPlay}
+            onFocus={prefetchTodayPlay}
             onClick={() => {
               markPlayNavigationStart();
               router.push("/play");
@@ -1591,11 +1630,25 @@ function PreviousDaysSection({
   inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
   onNavigateToGame?: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const byGameId = useGameProgressStore((s) => s.byGameId);
+
+  const prefetchPlayRoute = useCallback(
+    (gameId: string) => {
+      router.prefetch(`/play/${gameId}`);
+      void prefetchGameById(queryClient, gameId).catch(() => undefined);
+      if (userId) {
+        void prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
+      }
+      void prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
+    },
+    [queryClient, router, userId]
+  );
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
@@ -1820,6 +1873,8 @@ function PreviousDaysSection({
                 key={day.id}
                 href={`/play/${day.id}`}
                 onClick={onNavigateToGame}
+                onMouseEnter={() => prefetchPlayRoute(day.id)}
+                onFocus={() => prefetchPlayRoute(day.id)}
               >
                 <motion.div
                   whileTap={{ scale: 0.99 }}

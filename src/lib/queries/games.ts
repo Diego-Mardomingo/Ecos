@@ -62,6 +62,14 @@ async function getTodaysGameWithClient(
   return data as unknown as GameWithSong;
 }
 
+const GAME_WITH_SONG_SELECT = `
+  id, date, game_number,
+  ecos_songs (
+    id, title, artist_name, album_title,
+    cover_url, youtube_id, preview_url, genre, release_date
+  )
+`;
+
 export async function getTodaysGame(
   effectiveDate?: string
 ): Promise<GameWithSong | null> {
@@ -73,20 +81,31 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("ecos_games")
-    .select(
-      `
-      id, date, game_number,
-      ecos_songs (
-        id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre, release_date
-      )
-    `
-    )
+    .select(GAME_WITH_SONG_SELECT)
     .eq("id", gameId)
     .single();
 
   if (error || !data) return null;
   return data as unknown as GameWithSong;
+}
+
+/**
+ * Carga varios juegos con el mismo shape que {@link getGameById} (p. ej. hidratar caché desde la home).
+ */
+export async function getGamesWithSongByIds(
+  gameIds: string[]
+): Promise<GameWithSong[]> {
+  const unique = [...new Set(gameIds.filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ecos_games")
+    .select(GAME_WITH_SONG_SELECT)
+    .in("id", unique);
+
+  if (error || !data?.length) return [];
+  return data as unknown as GameWithSong[];
 }
 
 async function getPreviousDaysWithClient(

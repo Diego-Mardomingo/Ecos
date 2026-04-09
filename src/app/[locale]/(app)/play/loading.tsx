@@ -1,5 +1,4 @@
-import { PlayRouteSkeleton } from "@/components/skeletons";
-
+/** Ver `play/[gameId]/loading.tsx`: minimizar UI intermedia en transición a /play. */
 export default function PlayLoading() {
-  return <PlayRouteSkeleton />;
+  return null;
 }

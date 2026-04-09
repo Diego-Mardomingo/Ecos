@@ -20,10 +20,13 @@ import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useSkipAttemptMutation,
   useValidateGuessMutation,
   useGameProgressById,
+  queryKeys,
+  type GameProgressData,
 } from "@/lib/hooks/queries";
 import {
   Dialog,
@@ -369,6 +372,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 });
 
 export function GameClient({ game, userId }: Props) {
+  const queryClient = useQueryClient();
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
@@ -456,16 +460,22 @@ export function GameClient({ game, userId }: Props) {
     localStoredProgress?.phase === "won" ||
     localStoredProgress?.phase === "lost";
 
+  const initialDataGameProgress = useMemo((): GameProgressData | undefined => {
+    if (isGuest) return undefined;
+    if (localStoredProgress) return { progress: localStoredProgress };
+    const fromCache = queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(game.id)
+    );
+    return fromCache ?? undefined;
+  }, [isGuest, localStoredProgress, queryClient, game.id]);
+
   const {
     data: serverProgressData,
     isPending: isServerProgressPending,
     isError: isServerProgressError,
   } = useGameProgressById(game.id, {
     enabled: !isGuest,
-    initialData:
-      !isGuest && localStoredProgress
-        ? { progress: localStoredProgress }
-        : undefined,
+    initialData: initialDataGameProgress,
   });
   const [loadedProgress, setLoadedProgress] = useState<GameProgress | null>(
     localStoredProgress
