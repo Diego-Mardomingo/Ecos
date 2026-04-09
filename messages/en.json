@@ -14,11 +14,6 @@
     "enter": "Sign in",
     "offline": "You're offline. Some features may be unavailable."
   },
-  "pullToRefresh": {
-    "pull": "Pull to refresh",
-    "release": "Release to refresh",
-    "refreshing": "Refreshing…"
-  },
   "nav": {
     "home": "Home",
     "ranking": "Ranking",

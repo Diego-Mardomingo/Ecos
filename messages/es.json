@@ -14,11 +14,6 @@
     "enter": "Entrar",
     "offline": "Sin conexión. Algunas funciones pueden no estar disponibles."
   },
-  "pullToRefresh": {
-    "pull": "Tira para actualizar",
-    "release": "Suelta para actualizar",
-    "refreshing": "Actualizando…"
-  },
   "nav": {
     "home": "Inicio",
     "ranking": "Ranking",
