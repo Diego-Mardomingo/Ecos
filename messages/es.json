@@ -34,6 +34,8 @@
     "todaysChallenge": "Reto de Hoy",
     "challengeAvailable": "Reto de hoy disponible",
     "playNow": "Jugar ahora",
+    "headerInfoButton": "Cómo jugar",
+    "headerReportButton": "Reportar",
     "aboutTitle": "¿Qué es ECOS?",
     "aboutTagline": "🎵 ¿Reconoces la canción?",
     "aboutBody": "Un reto diario en donde tienes que adivinar la canción que se reproduce en el menor número de intentos posibles.",

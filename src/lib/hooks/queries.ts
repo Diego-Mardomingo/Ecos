@@ -141,6 +141,7 @@ interface SongSnapshot {
 interface GameCacheSnapshot {
   dayStatus: HomeDayStatusData | undefined;
   today: HomeTodayData | undefined;
+  progress: GameProgressData | undefined;
 }
 
 type GameMutationEvent = "attemptSaved" | "gameCompleted";
@@ -352,13 +353,7 @@ export function useHomeDayStatus(
 ) {
   return useQuery({
     queryKey: queryKeys.home.dayStatus(gameId),
-    queryFn: async (): Promise<HomeDayStatusData> => {
-      const res = await fetch(`/api/home/day/${gameId}/status`, {
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error("Failed to fetch day status");
-      return res.json();
-    },
+    queryFn: () => fetchHomeDayStatusById(gameId),
     initialData,
     enabled: (options?.enabled ?? true) && !!gameId,
     staleTime: HOME_DAY_STATUS_STALE_MS,
@@ -406,6 +401,28 @@ export function prefetchGameProgressById(
     queryKey: queryKeys.game.progress(gameId),
     queryFn: () => fetchGameProgressById(gameId),
     staleTime: 60 * 1000,
+  });
+}
+
+export async function fetchHomeDayStatusById(
+  gameId: string
+): Promise<HomeDayStatusData> {
+  const res = await fetch(`/api/home/day/${gameId}/status`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Failed to fetch day status");
+  return res.json();
+}
+
+export function prefetchHomeDayStatusById(
+  queryClient: QueryClient,
+  gameId: string
+) {
+  if (!gameId) return Promise.resolve();
+  return queryClient.prefetchQuery({
+    queryKey: queryKeys.home.dayStatus(gameId),
+    queryFn: () => fetchHomeDayStatusById(gameId),
+    staleTime: HOME_DAY_STATUS_STALE_MS,
   });
 }
 
@@ -469,6 +486,10 @@ export function applyOptimisticInProgressCaches(
       todaysCompletedResult: null,
     } satisfies HomeTodayData;
   });
+
+  queryClient.setQueryData(queryKeys.game.progress(gameId), {
+    progress: inProgressToGameProgress(gameId, inProgress),
+  });
 }
 
 export function applyOptimisticCompletionCaches(
@@ -514,6 +535,20 @@ export function applyOptimisticCompletionCaches(
       todaysInProgress: null,
     } satisfies HomeTodayData;
   });
+
+  const prevProgress = queryClient.getQueryData<GameProgressData>(
+    queryKeys.game.progress(gameId)
+  );
+  const prevToday = queryClient.getQueryData<HomeTodayData>(
+    queryKeys.home.today(userId)
+  );
+  const gameDate =
+    prevProgress?.progress?.gameDate ??
+    (prevToday?.todaysGame?.id === gameId ? prevToday.todaysGame?.date : undefined) ??
+    "";
+  queryClient.setQueryData(queryKeys.game.progress(gameId), {
+    progress: completionToGameProgress(gameId, gameDate, won, score, song),
+  });
 }
 
 function takeGameCacheSnapshot(
@@ -528,6 +563,9 @@ function takeGameCacheSnapshot(
     today: userId
       ? queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId))
       : undefined,
+    progress: queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(gameId)
+    ),
   };
 }
 
@@ -541,6 +579,187 @@ function restoreGameCacheSnapshot(
   queryClient.setQueryData(queryKeys.home.dayStatus(gameId), snapshot.dayStatus);
   if (userId) {
     queryClient.setQueryData(queryKeys.home.today(userId), snapshot.today);
+  }
+  queryClient.setQueryData(queryKeys.game.progress(gameId), snapshot.progress);
+}
+
+function inProgressToGameProgress(
+  gameId: string,
+  inProgress: InProgressProgress
+): GameProgress {
+  return {
+    gameId,
+    gameDate: inProgress.gameDate,
+    played: false,
+    won: false,
+    score: null,
+    guesses: inProgress.guesses.map((g) => ({
+      text: g.text,
+      correct: g.correct,
+      correctArtist: g.correctArtist,
+      correctAlbum: g.correctAlbum,
+      attemptNumber: g.attemptNumber,
+    })),
+    phase: "playing",
+  };
+}
+
+function completionToGameProgress(
+  gameId: string,
+  gameDate: string,
+  won: boolean,
+  score: number | null,
+  song: SongSnapshot
+): GameProgress {
+  return {
+    gameId,
+    gameDate,
+    played: true,
+    won,
+    score: score ?? 0,
+    title: song.title,
+    artist_name: song.artist_name,
+    cover_url: normalizeCoverUrl(song.cover_url),
+    guesses: [],
+    phase: won ? "won" : "lost",
+  };
+}
+
+/**
+ * Tras refetch de day-status, alinea la lista agregada en caché (sin invalidar todo el histórico).
+ */
+export function patchHomePreviousDaysAllFromDayStatus(
+  queryClient: QueryClient,
+  userId: string | null,
+  gameId: string
+) {
+  if (!userId) return;
+  const dayStatus = queryClient.getQueryData<HomeDayStatusData>(
+    queryKeys.home.dayStatus(gameId)
+  );
+  if (!dayStatus) return;
+
+  queryClient.setQueryData(
+    queryKeys.home.previousDaysAll(userId),
+    (prev: HomePreviousDaysData | undefined) => {
+      if (!prev?.previousDays) return prev;
+      const idx = prev.previousDays.findIndex((d) => d.id === gameId);
+      let nextDays = prev.previousDays;
+      if (idx >= 0) {
+        nextDays = [...prev.previousDays];
+        nextDays[idx] = {
+          ...nextDays[idx],
+          played: dayStatus.played,
+          won: dayStatus.won,
+          score: dayStatus.score,
+          title: dayStatus.title,
+          artist_name: dayStatus.artist_name,
+          cover_url: dayStatus.cover_url,
+        };
+      }
+      const nextInProgress: Record<string, InProgressProgress> = {
+        ...(prev.inProgressByGameId ?? {}),
+      };
+      if (dayStatus.played) {
+        delete nextInProgress[gameId];
+      } else if (dayStatus.inProgress) {
+        nextInProgress[gameId] = dayStatus.inProgress;
+      } else {
+        delete nextInProgress[gameId];
+      }
+      return {
+        ...prev,
+        previousDays: nextDays,
+        inProgressByGameId: nextInProgress,
+      };
+    }
+  );
+
+  const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
+  if (monthKey) {
+    queryClient.setQueryData(
+      queryKeys.home.previousDays(monthKey, userId),
+      (prev: HomePreviousDaysData | undefined) => {
+        if (!prev?.previousDays) return prev;
+        const mIdx = prev.previousDays.findIndex((d) => d.id === gameId);
+        if (mIdx < 0) return prev;
+        const nextDays = [...prev.previousDays];
+        nextDays[mIdx] = {
+          ...nextDays[mIdx],
+          played: dayStatus.played,
+          won: dayStatus.won,
+          score: dayStatus.score,
+          title: dayStatus.title,
+          artist_name: dayStatus.artist_name,
+          cover_url: dayStatus.cover_url,
+        };
+        const nextInProgress: Record<string, InProgressProgress> = {
+          ...(prev.inProgressByGameId ?? {}),
+        };
+        if (dayStatus.played) {
+          delete nextInProgress[gameId];
+        } else if (dayStatus.inProgress) {
+          nextInProgress[gameId] = dayStatus.inProgress;
+        } else {
+          delete nextInProgress[gameId];
+        }
+        return {
+          ...prev,
+          previousDays: nextDays,
+          inProgressByGameId: nextInProgress,
+        };
+      }
+    );
+  }
+}
+
+/**
+ * Refetch granular post-intento: progreso del juego, estado del día, home hoy, mes afectado; parchea agregados.
+ */
+export async function syncQueriesAfterGameEvent(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    event: GameMutationEvent;
+  }
+) {
+  const { userId, gameId, event } = input;
+
+  await queryClient.refetchQueries({
+    queryKey: queryKeys.game.progress(gameId),
+  });
+  await queryClient.refetchQueries({
+    queryKey: queryKeys.home.dayStatus(gameId),
+  });
+
+  if (userId) {
+    await queryClient.refetchQueries({
+      queryKey: queryKeys.home.today(userId),
+    });
+  }
+
+  const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
+  if (userId && monthKey) {
+    await queryClient.refetchQueries({
+      queryKey: queryKeys.home.previousDays(monthKey, userId),
+    });
+  }
+
+  patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
+
+  if (event === "gameCompleted") {
+    trackQueryDiagnostic(queryKeys.ranking.all, "syncQueriesAfterGameEvent");
+    trackQueryDiagnostic(queryKeys.profile.all, "syncQueriesAfterGameEvent");
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.all }),
+      userId
+        ? queryClient.invalidateQueries({
+            queryKey: queryKeys.home.userStats(userId),
+          })
+        : Promise.resolve(),
+    ]);
   }
 }
 
@@ -577,74 +796,7 @@ function getMonthKeyForGameFromCaches(
   return null;
 }
 
-export async function invalidateAfterGameMutation(
-  queryClient: QueryClient,
-  input: {
-    userId: string | null;
-    gameId: string;
-    includeHome?: boolean;
-  }
-) {
-  const { userId, gameId, includeHome = true } = input;
-  trackQueryDiagnostic(queryKeys.ranking.all, "invalidateAfterGameMutation");
-  trackQueryDiagnostic(queryKeys.profile.all, "invalidateAfterGameMutation");
-  const tasks: Array<Promise<unknown>> = [
-    queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.profile.all }),
-  ];
-
-  if (userId) {
-    trackQueryDiagnostic(
-      queryKeys.home.userStats(userId),
-      "invalidateAfterGameMutation"
-    );
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.home.userStats(userId),
-      })
-    );
-  }
-
-  if (includeHome) {
-    const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
-    trackQueryDiagnostic(
-      queryKeys.home.dayStatus(gameId),
-      "invalidateAfterGameMutation"
-    );
-    trackQueryDiagnostic(
-      queryKeys.home.previousDaysAll(userId),
-      "invalidateAfterGameMutation"
-    );
-    if (monthKey) {
-      trackQueryDiagnostic(
-        queryKeys.home.previousDays(monthKey, userId),
-        "invalidateAfterGameMutation"
-      );
-    }
-    tasks.push(
-      queryClient.invalidateQueries({ queryKey: queryKeys.home.dayStatus(gameId) }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.home.previousDaysAll(userId),
-      }),
-      ...(monthKey
-        ? [
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.home.previousDays(monthKey, userId),
-            }),
-          ]
-        : [])
-    );
-    if (userId) {
-      trackQueryDiagnostic(queryKeys.home.today(userId), "invalidateAfterGameMutation");
-      tasks.push(
-        queryClient.invalidateQueries({ queryKey: queryKeys.home.today(userId) })
-      );
-    }
-  }
-
-  await Promise.all(tasks);
-}
-
+/** Alias retrocompatible: sincroniza caché granular tras intento o fin de partida. */
 export async function invalidateAfterGameEvent(
   queryClient: QueryClient,
   input: {
@@ -653,32 +805,7 @@ export async function invalidateAfterGameEvent(
     event: GameMutationEvent;
   }
 ) {
-  const { userId, gameId, event } = input;
-
-  if (event === "attemptSaved") {
-    trackQueryDiagnostic(queryKeys.home.dayStatus(gameId), "attemptSaved");
-    const tasks: Array<Promise<unknown>> = [
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.home.dayStatus(gameId),
-      }),
-    ];
-    if (userId) {
-      trackQueryDiagnostic(queryKeys.home.today(userId), "attemptSaved");
-      tasks.push(
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.home.today(userId),
-        })
-      );
-    }
-    await Promise.all(tasks);
-    return;
-  }
-
-  await invalidateAfterGameMutation(queryClient, {
-    userId,
-    gameId,
-    includeHome: true,
-  });
+  await syncQueriesAfterGameEvent(queryClient, input);
 }
 
 interface GameMutationBaseInput {
@@ -745,6 +872,9 @@ export function useValidateGuessMutation() {
       await Promise.all([
         queryClient.cancelQueries({
           queryKey: queryKeys.home.dayStatus(gameId),
+        }),
+        queryClient.cancelQueries({
+          queryKey: queryKeys.game.progress(gameId),
         }),
         userId
           ? queryClient.cancelQueries({
@@ -819,6 +949,9 @@ export function useSkipAttemptMutation() {
       await Promise.all([
         queryClient.cancelQueries({
           queryKey: queryKeys.home.dayStatus(gameId),
+        }),
+        queryClient.cancelQueries({
+          queryKey: queryKeys.game.progress(gameId),
         }),
         userId
           ? queryClient.cancelQueries({

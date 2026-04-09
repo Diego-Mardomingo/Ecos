@@ -34,6 +34,8 @@
     "todaysChallenge": "Today's Challenge",
     "challengeAvailable": "Today's challenge available",
     "playNow": "Play Now",
+    "headerInfoButton": "How to play",
+    "headerReportButton": "Feedback",
     "aboutTitle": "What is ECOS?",
     "aboutTagline": "🎵 Recognize the song?",
     "aboutBody": "A daily challenge: guess the track that is playing in as few attempts as possible.",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { motion } from "framer-motion";
@@ -20,13 +20,16 @@ import {
   useHomeUserStats,
   prefetchGameById,
   prefetchGameProgressById,
+  prefetchHomeDayStatusById,
   primeHomeDayStatusCache,
+  homeSessionSegment,
   queryKeys,
   fetchHomePreviousDaysData,
   HOME_DAY_STATUS_STALE_MS,
   HOME_PREVIOUS_DAYS_GC_MS,
   HOME_PREVIOUS_DAYS_STALE_MS,
   type HomeData,
+  type HomeTodayData,
   type InProgressProgress,
   type HomeDayStatusData,
   type HomePreviousDaysData,
@@ -223,6 +226,95 @@ export function HomeClient({ initialData }: Props) {
   const prefetchStartedRef = useRef(false);
   const prefetchedGameIdsRef = useRef<Set<string>>(new Set());
   const prefetchedProgressIdsRef = useRef<Set<string>>(new Set());
+
+  const todaysCompletedResultEffective = useMemo(() => {
+    if (!initialDataAligned) return todayData?.todaysCompletedResult ?? null;
+    return (
+      todayData?.todaysCompletedResult ??
+      initialData?.todaysCompletedResult ??
+      null
+    );
+  }, [
+    initialDataAligned,
+    todayData?.todaysCompletedResult,
+    initialData?.todaysCompletedResult,
+  ]);
+
+  const todaysServerInProgressEffective = useMemo(() => {
+    const fromQuery = todayData?.todaysInProgress ?? null;
+    const fromRsc =
+      initialDataAligned && initialData?.todaysGame
+        ? initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null
+        : null;
+    if (todaysCompletedResultEffective) return null;
+    return fromQuery ?? fromRsc;
+  }, [
+    todayData?.todaysInProgress,
+    initialDataAligned,
+    initialData?.todaysGame,
+    initialData?.inProgressByGameId,
+    todaysCompletedResultEffective,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!initialDataAligned || !cacheUserId || !initialData?.todaysCompletedResult) return;
+    const cached = queryClient.getQueryData<HomeTodayData>(
+      queryKeys.home.today(cacheUserId)
+    );
+    if (cached?.todaysCompletedResult) return;
+    queryClient.setQueryData(queryKeys.home.today(cacheUserId), (prev) => {
+      const base = (prev ?? {}) as Partial<HomeTodayData>;
+      return {
+        ...base,
+        todaysGame: base.todaysGame ?? initialData.todaysGame ?? null,
+        userId: cacheUserId,
+        todaysCompletedResult: initialData.todaysCompletedResult ?? null,
+        todaysInProgress: null,
+      } as HomeTodayData;
+    });
+  }, [
+    initialDataAligned,
+    cacheUserId,
+    initialData?.todaysCompletedResult,
+    initialData?.todaysGame,
+    queryClient,
+  ]);
+
+  const orderedGameIdsForPrefetch = useMemo(() => {
+    const ids: string[] = [];
+    const tg = todayData?.todaysGame ?? initialData?.todaysGame;
+    if (tg?.id) ids.push(tg.id);
+    for (const d of previousDaysMerged) {
+      if (d.id !== tg?.id) ids.push(d.id);
+    }
+    return ids;
+  }, [todayData?.todaysGame, initialData?.todaysGame, previousDaysMerged]);
+
+  useEffect(() => {
+    const cache = queryClient.getQueryCache();
+    return cache.subscribe((event) => {
+      if (event.type !== "updated" || !event.query) return;
+      const key = event.query.queryKey;
+      if (
+        key[0] !== "home" ||
+        key[1] !== "previous-days" ||
+        key[2] !== "all" ||
+        key[3] !== homeSessionSegment(cacheUserId)
+      ) {
+        return;
+      }
+      const block = queryClient.getQueryData<HomePreviousDaysData>(
+        queryKeys.home.previousDaysAll(cacheUserId)
+      );
+      if (!block?.previousDays?.length) return;
+      setPreviousDaysMerged((prev) => mergePreviousDays(prev, block.previousDays));
+      if (block.inProgressByGameId) {
+        setInProgressByGameId((p) =>
+          mergeInProgressByGameId(p, block.inProgressByGameId)
+        );
+      }
+    });
+  }, [queryClient, cacheUserId]);
 
   useEffect(() => {
     if (!previousDaysData?.previousDays) return;
@@ -421,21 +513,6 @@ export function HomeClient({ initialData }: Props) {
         });
         return mergedInProgress;
       });
-
-      const allGameIds = Array.from(
-        new Set(allPreviousDays.map((day) => day.id))
-      );
-      await runBatched(allGameIds, async (gameId) => {
-        if (!prefetchedGameIdsRef.current.has(gameId)) {
-          prefetchedGameIdsRef.current.add(gameId);
-          router.prefetch(`/play/${gameId}`);
-          await prefetchGameById(queryClient, gameId).catch(() => undefined);
-        }
-        if (!cacheUserId) return;
-        if (prefetchedProgressIdsRef.current.has(gameId)) return;
-        prefetchedProgressIdsRef.current.add(gameId);
-        await prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
-      });
     };
 
     void run();
@@ -456,28 +533,44 @@ export function HomeClient({ initialData }: Props) {
     router.prefetch("/play");
   }, [router]);
 
+  /** Prefetch secuencial: día actual primero, luego histórico del más reciente al más antiguo. */
   useEffect(() => {
-    const currentMonthGameIds = previousDaysMerged
-      .filter((day) => day.date.startsWith(currentMonthKey))
-      .map((day) => day.id);
-    if (currentMonthGameIds.length === 0) return;
+    if (!todayData || !previousDaysData || orderedGameIdsForPrefetch.length === 0) return;
 
+    let cancelled = false;
     const run = async () => {
-      await runBatched(currentMonthGameIds, async (gameId) => {
+      for (const gameId of orderedGameIdsForPrefetch) {
+        if (cancelled) break;
         if (!prefetchedGameIdsRef.current.has(gameId)) {
           prefetchedGameIdsRef.current.add(gameId);
           router.prefetch(`/play/${gameId}`);
           await prefetchGameById(queryClient, gameId).catch(() => undefined);
         }
-        if (!cacheUserId) return;
-        if (prefetchedProgressIdsRef.current.has(gameId)) return;
-        prefetchedProgressIdsRef.current.add(gameId);
-        await prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
-      });
+        if (cacheUserId) {
+          if (!prefetchedProgressIdsRef.current.has(gameId)) {
+            prefetchedProgressIdsRef.current.add(gameId);
+            await prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
+          }
+          await prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
+        } else {
+          await prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
+        }
+      }
     };
 
     void run();
-  }, [previousDaysMerged, currentMonthKey, queryClient, router, cacheUserId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    todayData,
+    previousDaysData,
+    orderedGameIdsForPrefetch,
+    queryClient,
+    router,
+    cacheUserId,
+  ]);
+
   const prefetchedNextRef = useRef<HomeData | null>(null);
   const hasPrefetchedRef = useRef(false);
 
@@ -545,8 +638,7 @@ export function HomeClient({ initialData }: Props) {
   const todaysGame = todayData?.todaysGame ?? null;
   const userId = resolvedUserId;
   const previousDays = previousDaysMerged;
-  const todaysServerInProgress = todayData?.todaysInProgress ?? null;
-  const todaysCompletedResult = todayData?.todaysCompletedResult ?? null;
+  const todaysCompletedResult = todaysCompletedResultEffective;
   const rankingStats = homeUserStatsData?.rankingStats;
 
   const t = useTranslations("home");
@@ -616,8 +708,8 @@ export function HomeClient({ initialData }: Props) {
 
   // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
   useEffect(() => {
-    if (userId || !todaysServerInProgress) return;
-    for (const prog of [todaysServerInProgress]) {
+    if (userId || !todaysServerInProgressEffective) return;
+    for (const prog of [todaysServerInProgressEffective]) {
       const full: GameProgress = {
         ...prog,
         played: false,
@@ -626,12 +718,12 @@ export function HomeClient({ initialData }: Props) {
       };
       saveProgress(full);
     }
-  }, [userId, todaysServerInProgress, saveProgress]);
+  }, [userId, todaysServerInProgressEffective, saveProgress]);
 
   // Hoy: servidor (inProgressByGameId) tiene prioridad para usuarios autenticados
   const todaysLocalOrServer = todaysGame
-    ? (userId && todaysServerInProgress
-        ? todaysServerInProgress
+    ? (userId && todaysServerInProgressEffective
+        ? todaysServerInProgressEffective
         : byGameId[todaysGame.id])
     : undefined;
   const todaysProgress = todaysLocalOrServer as GameProgress | undefined;
@@ -639,6 +731,10 @@ export function HomeClient({ initialData }: Props) {
     (todaysProgress && (todaysProgress.phase === "won" || todaysProgress.phase === "lost")) || !!todaysCompletedResult;
   const todaysDisplayCover = todaysCompleted
     ? (todaysCompletedResult?.cover_url ?? todaysProgress?.cover_url ?? todaysGame?.ecos_songs.cover_url ?? "")
+    : "";
+  /** Evita un frame sin imagen al completar: misma cadena de fallback que la carátula. */
+  const heroBackdropUrl = todaysCompleted
+    ? todaysDisplayCover || (todaysGame?.ecos_songs?.cover_url ?? "")
     : "";
   const todaysDisplayTitle = todaysCompleted
     ? (todaysCompletedResult?.title ?? todaysProgress?.title ?? todaysGame?.ecos_songs?.title ?? "")
@@ -694,13 +790,16 @@ export function HomeClient({ initialData }: Props) {
     return <HomeSkeleton />;
   }
 
+  const headerActionButtonClass =
+    "inline-flex h-9 max-w-[min(100%,11rem)] shrink-0 items-center gap-1 rounded-xl border border-border bg-muted px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground sm:max-w-none sm:gap-1.5 sm:px-2.5 sm:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
   return (
     <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
       {/* Header + Hero más compactos */}
       <div className="flex flex-col gap-1">
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
         style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 pr-2 sm:pr-3">
           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-brand/15 ring-1 ring-brand/30">
             <Image
               src="/ecos_icon_v2_192.png"
@@ -711,19 +810,15 @@ export function HomeClient({ initialData }: Props) {
               sizes="36px"
             />
           </div>
-          <span className="text-lg font-bold tracking-tight">{tc("appName")}</span>
-          <span
-            className="material-symbols-outlined text-xl text-brand"
-            style={{ fontVariationSettings: "'FILL' 0" }}
-          >
-            music_note
-          </span>
+          <span className="shrink-0 text-lg font-bold leading-none tracking-tight">{tc("appName")}</span>
+          <HeaderBrandWaveform />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <Dialog>
             <DialogTrigger asChild>
-              <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors hover:bg-muted/80" aria-label={t("aboutTitle")}>
-                <span className="material-symbols-outlined text-xl">info</span>
+              <button type="button" className={headerActionButtonClass} aria-label={t("aboutTitle")}>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand sm:text-xl">info</span>
+                <span className="truncate">{t("headerInfoButton")}</span>
               </button>
             </DialogTrigger>
             <DialogContent className="max-w-md gap-0 overflow-y-auto sm:max-w-md">
@@ -768,8 +863,9 @@ export function HomeClient({ initialData }: Props) {
           </Dialog>
           <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
             <DialogTrigger asChild>
-              <button className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors hover:bg-muted/80" aria-label={t("reportTitle")}>
-                <span className="material-symbols-outlined text-xl">bug_report</span>
+              <button type="button" className={headerActionButtonClass} aria-label={t("reportTitle")}>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand sm:text-xl">bug_report</span>
+                <span className="truncate">{t("headerReportButton")}</span>
               </button>
             </DialogTrigger>
             <DialogContent className="max-w-sm">
@@ -867,11 +963,11 @@ export function HomeClient({ initialData }: Props) {
             className="absolute inset-0 origin-center will-change-transform"
           >
           {/* Fondo: cover con blur cuando completado, sino oscuro */}
-          {todaysCompleted && todaysDisplayCover ? (
+          {todaysCompleted && heroBackdropUrl ? (
             <div
               className="absolute inset-0"
               style={{
-                backgroundImage: `url(${todaysDisplayCover})`,
+                backgroundImage: `url(${heroBackdropUrl})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
                 filter: "blur(1px)",
@@ -1221,8 +1317,9 @@ function Countdown({
   }, [mounted, ms, onCountdownZero]);
 
   return (
-    <span className="text-xs font-medium text-muted-foreground tabular-nums">
-      {t("nextSongIn")} {mounted ? formatCountdown(ms) : "—"}
+    <span className="text-xs font-medium tabular-nums">
+      <span className="text-muted-foreground">{t("nextSongIn")} </span>
+      <span className="text-primary">{mounted ? formatCountdown(ms) : "—"}</span>
     </span>
   );
 }
@@ -1237,6 +1334,57 @@ function useMediaQuery(query: string) {
     return () => m.removeEventListener("change", handler);
   }, [query]);
   return matches;
+}
+
+/** Waveform compacta junto al nombre: misma lógica que WaveformBars (ola centrada verticalmente). */
+function HeaderBrandWaveform() {
+  const barCount = 12;
+  const barWidth = 2;
+  const gap = 2;
+  const heightBase = 4;
+  const heightRange = 14;
+
+  const bars = useMemo(
+    () =>
+      Array.from({ length: barCount }, (_, i) => ({
+        key: i,
+        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
+        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
+        duration: 0.6 + (i % 10) * 0.08,
+        delay: i * 0.04,
+      })),
+    []
+  );
+
+  return (
+    <div
+      className="ml-1.5 mr-1 flex min-h-0 min-w-0 max-w-[3.25rem] shrink-0 self-center opacity-75 sm:ml-2 sm:mr-2 sm:max-w-[3.75rem]"
+      aria-hidden
+    >
+      <div className="flex h-9 w-full items-center justify-center">
+        <div
+          className="flex items-center justify-center"
+          style={{ gap: `${gap}px` }}
+        >
+          {bars.map(({ key, heightA, heightB, duration, delay }) => (
+            <motion.div
+              key={key}
+              className="shrink-0 rounded-full bg-brand"
+              style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
+              animate={{ height: [`${heightA}px`, `${heightB}px`] }}
+              transition={{
+                duration,
+                repeat: Infinity,
+                repeatType: "reverse",
+                ease: "easeInOut",
+                delay,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function WaveformBars() {

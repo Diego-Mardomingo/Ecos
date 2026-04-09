@@ -669,6 +669,19 @@ export function GameClient({ game, userId }: Props) {
               if (serverPoints !== optimisticScore) {
                 setWon(currentAttempt, serverPoints);
               }
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: true,
+                won: true,
+                score: serverPoints,
+                title: game.ecos_songs.title,
+                artist_name: game.ecos_songs.artist_name,
+                cover_url: game.ecos_songs.cover_url ?? undefined,
+                guesses: useGameStore.getState().guesses,
+                phase: "won",
+                correctAttempt: currentAttempt,
+              });
             } catch (error) {
               toast.error(error instanceof Error ? error.message : t("saveResultError"));
               revertWinAfterFailedSync();
@@ -741,6 +754,20 @@ export function GameClient({ game, userId }: Props) {
                     ],
                   });
                 }
+              }
+              if (lostNow) {
+                saveProgress({
+                  gameId: game.id,
+                  gameDate: game.date,
+                  played: true,
+                  won: false,
+                  score: 0,
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url ?? undefined,
+                  guesses: useGameStore.getState().guesses,
+                  phase: "lost",
+                });
               }
             } catch (error) {
               toast.error(error instanceof Error ? error.message : t("saveResultError"));
@@ -901,6 +928,20 @@ export function GameClient({ game, userId }: Props) {
                           },
                         },
                   });
+                  if (lostNow) {
+                    saveProgress({
+                      gameId: game.id,
+                      gameDate: game.date,
+                      played: true,
+                      won: false,
+                      score: 0,
+                      title: game.ecos_songs.title,
+                      artist_name: game.ecos_songs.artist_name,
+                      cover_url: game.ecos_songs.cover_url ?? undefined,
+                      guesses: useGameStore.getState().guesses,
+                      phase: "lost",
+                    });
+                  }
                 } catch (error) {
                   toast.error(error instanceof Error ? error.message : t("saveResultError"));
                   revertLastGuessAfterFailedSync();
