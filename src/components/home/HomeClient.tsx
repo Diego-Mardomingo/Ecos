@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { motion } from "framer-motion";
@@ -70,11 +78,17 @@ import {
 } from "@/components/ui/carousel";
 import { Link, useRouter } from "@/i18n/navigation";
 import { PrefetchPlayOnVisible } from "@/components/home/PrefetchPlayOnVisible";
+import {
+  aggregateMonthGroupStats,
+  deriveHomeDayState,
+  type MonthGroupStats,
+} from "@/components/home/homeDayDerived";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
   PLAY_SKELETON_VARIANT_KEY,
   type PlaySkeletonVariant,
 } from "@/lib/navigation/playSkeletonStorage";
+import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
 const ABOUT_HOW_TO_PLAY_ICONS = [
@@ -109,6 +123,30 @@ const PREVIOUS_DAY_COLORS = [
 
 /** Prioridad en next/image solo para las primeras carátulas del histórico (equilibrio con LCP). */
 const HOME_COVER_IMAGE_PRIORITY_COUNT = 16;
+
+function MonthGroupSummaryContent({
+  stats,
+  t,
+  monthLabel,
+  rightSlot,
+}: {
+  stats: MonthGroupStats;
+  t: (key: string, values?: Record<string, string | number>) => string;
+  monthLabel: string;
+  rightSlot?: ReactNode;
+}) {
+  return (
+    <div className="flex w-full min-w-0 items-center gap-3">
+      <span className="min-w-0 shrink font-medium leading-tight">{monthLabel}</span>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+          {t("monthSummaryGamesProgress", { completed: stats.completed, total: stats.totalGames })}
+        </span>
+        {rightSlot}
+      </div>
+    </div>
+  );
+}
 
 function mergePreviousDays(
   current: PreviousDayGame[],
@@ -815,6 +853,11 @@ export function HomeClient({ initialData }: Props) {
     sessionStorage.setItem("ecos_play_nav_start_ms", String(performance.now()));
     sessionStorage.setItem("ecos_play_from_home", "1");
     sessionStorage.setItem(PLAY_SKELETON_VARIANT_KEY, variant);
+    try {
+      window.dispatchEvent(new CustomEvent(PLAY_NAVIGATION_START_EVENT));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const navigateToPlayToday = useCallback(() => {
@@ -1875,6 +1918,14 @@ function PreviousDaysSection({
     });
   }, [groupsByMonth, filterYear, filterMonth]);
 
+  const monthStatsByKey = useMemo(() => {
+    const map = new Map<string, MonthGroupStats>();
+    for (const [key, days] of filteredGroupsByMonth) {
+      map.set(key, aggregateMonthGroupStats(days, userId, dayStatusByGameId, byGameId));
+    }
+    return map;
+  }, [filteredGroupsByMonth, dayStatusByGameId, userId, byGameId]);
+
   const availableYears = useMemo(
     () => [...new Set(availableMonthYearPairs.map((p) => p.year))].sort((a, b) => b - a),
     [availableMonthYearPairs]
@@ -1892,31 +1943,18 @@ function PreviousDaysSection({
 
   const renderDayCard = (day: PreviousDayGame, coverIndex: number) => {
             const status = userId ? dayStatusByGameId.get(day.id) : null;
-            // Usuarios autenticados: cada tarjeta tiene su propia query por gameId.
-            // Invitados: gameProgressStore local.
-            const rawServerInProgress = userId ? status?.inProgress ?? undefined : undefined;
-            const serverInProgress =
-              rawServerInProgress && rawServerInProgress.gameId === day.id
-                ? rawServerInProgress
-                : undefined;
-            const storedForDay =
-              byGameId[day.id]?.gameId === day.id ? byGameId[day.id] : undefined;
-            const localProgress = (serverInProgress ?? storedForDay) as GameProgress | undefined;
-            const played = userId ? (status?.played ?? day.played) : !!localProgress;
-            const serverScore = status?.score ?? day.score;
-            const serverWon = status?.won ?? day.won;
-            const serverHasResult = userId && played && serverScore != null;
-            const displayTitle = played ? (localProgress?.title ?? status?.title ?? day.title) : "";
-            const displayCover = played ? (localProgress?.cover_url ?? status?.cover_url ?? day.cover_url) : "";
-            const displayScore = played ? (serverHasResult ? serverScore : (localProgress?.score ?? serverScore)) : null;
-            const won = played && (serverHasResult ? serverWon : (localProgress?.won ?? serverWon));
-            const completed = played && displayScore !== null;
-            const inProgress =
-              !serverHasResult &&
-              localProgress?.phase === "playing" &&
-              (localProgress?.guesses?.length ?? 0) > 0;
-            const guesses = localProgress?.guesses ?? [];
-            const maxAttempts = 6;
+            const d = deriveHomeDayState(day, userId, status ?? null, byGameId);
+            const {
+              played,
+              won,
+              completed,
+              inProgress,
+              displayScore,
+              displayTitle,
+              displayCover,
+              guesses,
+              maxAttempts,
+            } = d;
 
             return (
               <PrefetchPlayOnVisible
@@ -2214,22 +2252,35 @@ function PreviousDaysSection({
           {t("noGamesInPeriod")}
         </p>
       ) : filteredGroupsByMonth.length === 1 ? (
-        <div
-          className={cn(
-            "gap-2",
-            viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
-          )}
-        >
-          {filteredGroupsByMonth[0][1].map((day, coverIndex) => (
-            <div key={day.id}>{renderDayCard(day, coverIndex)}</div>
-          ))}
-        </div>
+        <>
+          <div className="mb-2 rounded-xl border border-border bg-card px-4 py-3">
+            <MonthGroupSummaryContent
+              stats={monthStatsByKey.get(filteredGroupsByMonth[0][0])!}
+              t={t}
+              monthLabel={(() => {
+                const [oy, om] = filteredGroupsByMonth[0][0].split("-").map(Number);
+                return `${monthNamesFull[om - 1]} ${oy}`;
+              })()}
+            />
+          </div>
+          <div
+            className={cn(
+              "gap-2",
+              viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
+            )}
+          >
+            {filteredGroupsByMonth[0][1].map((day, coverIndex) => (
+              <div key={day.id}>{renderDayCard(day, coverIndex)}</div>
+            ))}
+          </div>
+        </>
       ) : (
         <div className="flex flex-col gap-2">
           {filteredGroupsByMonth.map(([key, days]) => {
             const [y, m] = key.split("-").map(Number);
             const monthLabel = `${monthNamesFull[m - 1]} ${y}`;
             const isOpen = openMonths.has(key);
+            const stats = monthStatsByKey.get(key)!;
             return (
               <Collapsible
                 key={key}
@@ -2240,15 +2291,23 @@ function PreviousDaysSection({
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left font-medium transition-colors hover:bg-muted/50"
+                    aria-label={t("monthSummaryAria", {
+                      month: monthLabel,
+                      completed: stats.completed,
+                      total: stats.totalGames,
+                    })}
+                    className="flex w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50"
                   >
-                    <span>{monthLabel}</span>
-                    <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                      {t("gamesCount", { count: days.length })}
-                      <span className="material-symbols-outlined text-lg transition-transform group-data-[state=open]:rotate-180">
-                        expand_more
-                      </span>
-                    </span>
+                    <MonthGroupSummaryContent
+                      stats={stats}
+                      t={t}
+                      monthLabel={monthLabel}
+                      rightSlot={
+                        <span className="material-symbols-outlined shrink-0 text-lg text-muted-foreground transition-transform group-data-[state=open]:rotate-180">
+                          expand_more
+                        </span>
+                      }
+                    />
                   </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>

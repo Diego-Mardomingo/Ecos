@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { BottomNav } from "@/components/bottom-nav/BottomNav";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
+import { PlayNavigationPendingOverlay } from "@/components/navigation/PlayNavigationPendingOverlay";
 
 function isPlayRoute(pathname: string): boolean {
   const normalized = pathname.replace(/^\/(es|en)/, "") || "/";
@@ -21,6 +22,7 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
       >
         {children}
       </main>
+      <PlayNavigationPendingOverlay />
       {showNav && <BottomNav />}
     </>
   );

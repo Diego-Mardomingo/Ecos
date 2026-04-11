@@ -99,6 +99,8 @@
     "filterAll": "All",
     "noGamesInPeriod": "No games in this period",
     "gamesCount": "{count} games",
+    "monthSummaryGamesProgress": "{completed}/{total} games",
+    "monthSummaryAria": "{month}: {completed} of {total} games completed",
     "noPreviousDays": "No previous days yet",
     "resetFilter": "Reset",
     "notPlayedYet": "Not played yet",
