@@ -901,7 +901,7 @@ export function HomeClient({ initialData }: Props) {
           <Dialog>
             <DialogTrigger asChild>
               <button type="button" className={headerActionButtonClass} aria-label={t("aboutTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand min-[415px]:text-xl">info</span>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">info</span>
                 <span className="hidden truncate min-[415px]:inline">{t("headerInfoButton")}</span>
               </button>
             </DialogTrigger>
@@ -948,7 +948,7 @@ export function HomeClient({ initialData }: Props) {
           <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
             <DialogTrigger asChild>
               <button type="button" className={headerActionButtonClass} aria-label={t("reportTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand min-[415px]:text-xl">bug_report</span>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">bug_report</span>
                 <span className="hidden truncate min-[415px]:inline">{t("headerReportButton")}</span>
               </button>
             </DialogTrigger>
