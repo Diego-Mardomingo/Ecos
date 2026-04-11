@@ -64,7 +64,7 @@ export function BottomNav() {
         className="pointer-events-none absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/8 blur-[50px]"
         aria-hidden
       />
-      <div className="relative flex justify-around px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="relative flex justify-around px-2 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
           const label =
@@ -77,7 +77,7 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               prefetch
-              className="flex min-w-0 flex-1 flex-col items-center gap-1"
+              className="flex min-w-0 flex-1 flex-col items-center gap-0"
               onClick={(e) => {
                 if (active) {
                   e.preventDefault();
@@ -133,16 +133,18 @@ export function BottomNav() {
                 }
               }}
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center leading-none sm:h-11 sm:w-11 [--bottom-nav-icon:28px] sm:[--bottom-nav-icon:34px]"
+              >
                 <motion.span
                   whileTap={{ scale: 0.85 }}
                   className={cn(
-                    "material-symbols-outlined transition-colors",
+                    "material-symbols-outlined leading-none transition-colors",
                     active ? "text-brand" : "text-muted-foreground"
                   )}
                   style={{
+                    fontSize: "var(--bottom-nav-icon)",
                     fontVariationSettings: "'FILL' 1, 'wght' 500, 'opsz' 28",
-                    fontSize: 28,
                   }}
                 >
                   {item.icon}
@@ -150,7 +152,7 @@ export function BottomNav() {
               </div>
               <span
                 className={cn(
-                  "text-[10px] font-medium transition-colors",
+                  "max-w-full -translate-y-0.5 truncate px-0.5 pb-px text-center text-xs font-medium leading-tight transition-colors sm:text-sm",
                   active ? "text-brand" : "text-muted-foreground"
                 )}
               >
