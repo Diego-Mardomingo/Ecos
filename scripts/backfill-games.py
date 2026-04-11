@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backfill: genera juegos para fechas pasadas.
-Usa la misma lógica y reglas que select-daily-game.py.
+Usa la misma lógica y reglas que select-daily-game.py (pool: preview >= 30 s y playlist activa).
 Solo inserta en Supabase, sin archivos de salida.
 Uso: python backfill-games.py --start 2026-01-01 --end 2026-03-14
 """
@@ -32,6 +32,7 @@ except ImportError:
 
 ROTATION_DAYS = 14
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
+MIN_PREVIEW_SECONDS = 30.0
 
 
 def get_decade(release_date: str | None) -> str | None:
@@ -130,11 +131,38 @@ def main() -> None:
 
     supabase: Client = create_client(url_env, key_env)
 
+    r_pl = (
+        supabase.table("ecos_spotify_playlists")
+        .select("spotify_playlist_id")
+        .eq("is_active", True)
+        .execute()
+    )
+    active_playlist_ids = {
+        (r.get("spotify_playlist_id") or "").strip()
+        for r in (r_pl.data or [])
+        if r.get("spotify_playlist_id")
+    }
+
     r_songs = supabase.table("ecos_songs").select(
-        "id, title, artist_name, youtube_id, preview_url, release_date, genre, "
+        "id, title, artist_name, youtube_id, preview_url, preview_duration_seconds, release_date, genre, "
         "spotify_playlist_id, spotify_playlist_name"
     ).eq("is_active", True).execute()
-    all_songs = [s for s in (r_songs.data or []) if s.get("youtube_id") or s.get("preview_url")]
+
+    def is_eligible_pool(song: dict) -> bool:
+        pl_id = (song.get("spotify_playlist_id") or "").strip()
+        if not pl_id or pl_id not in active_playlist_ids:
+            return False
+        if not song.get("preview_url"):
+            return False
+        dur = song.get("preview_duration_seconds")
+        if dur is None:
+            return False
+        try:
+            return float(dur) >= MIN_PREVIEW_SECONDS
+        except (TypeError, ValueError):
+            return False
+
+    all_songs = [s for s in (r_songs.data or []) if is_eligible_pool(s)]
 
     if not all_songs:
         log.error("No hay canciones en el catálogo")

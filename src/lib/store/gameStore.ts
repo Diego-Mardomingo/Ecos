@@ -36,6 +36,10 @@ export interface GameState {
   addGuess: (guess: GuessEntry) => void;
   /** Quita el último intento (p. ej. si falló el guardado en servidor). */
   removeLastGuess: () => void;
+  /** Deshace el último intento incorrecto/salto tras fallo de sync (restaura intento y audio). */
+  revertLastGuessAfterFailedSync: () => void;
+  /** Deshace acierto optimista tras fallo de sync (vuelve a playing). */
+  revertWinAfterFailedSync: () => void;
   setPlaying: (playing: boolean) => void;
   useHint: () => void;
   setWon: (attempt: number, score: number) => void;
@@ -115,6 +119,38 @@ export const useGameStore = create<GameState>()(
         set({
           guesses: guesses.slice(0, -1),
           isPlaying: true,
+        });
+      },
+
+      revertLastGuessAfterFailedSync: () => {
+        const { guesses, maxAttempts, phase } = get();
+        if (guesses.length === 0) return;
+        const newGuesses = guesses.slice(0, -1);
+        const nextAttempt = newGuesses.length + 1;
+        const ca = Math.min(nextAttempt, maxAttempts);
+        set({
+          guesses: newGuesses,
+          phase: phase === "lost" ? "playing" : phase,
+          currentAttempt: ca,
+          audioDuration: ATTEMPT_DURATIONS[ca - 1] ?? 30,
+          isPlaying: false,
+        });
+      },
+
+      revertWinAfterFailedSync: () => {
+        const { guesses, maxAttempts } = get();
+        if (guesses.length === 0) return;
+        const newGuesses = guesses.slice(0, -1);
+        const nextAttempt = newGuesses.length + 1;
+        const ca = Math.min(nextAttempt, maxAttempts);
+        set({
+          guesses: newGuesses,
+          phase: "playing",
+          finalScore: null,
+          correctAttempt: null,
+          currentAttempt: ca,
+          audioDuration: ATTEMPT_DURATIONS[ca - 1] ?? 30,
+          isPlaying: false,
         });
       },
 

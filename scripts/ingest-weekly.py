@@ -5,6 +5,10 @@ Ejecutar 1x/semana (GitHub Action).
 Scrape por playlist: bloques de 5; solo salta al siguiente bloque si las 5 están duplicadas.
 Sin límite de canciones. Playlist personal: todas.
 La selección diaria de juegos corre en workflow separado (daily-game.yml).
+
+Guarda preview_duration_seconds midiendo el MP3 de preview_url cuando existe.
+Solo preview (sin YouTube): no inserta si la duración es < 30 s o la medición falla.
+
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
 from __future__ import annotations
@@ -20,7 +24,6 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from io import BytesIO
 
 # Cargar .env.local
 _env = Path(__file__).resolve().parent.parent / ".env.local"
@@ -36,13 +39,15 @@ try:
     from spotify_scraper import SpotifyClient
     from spotify_scraper.parsers.json_parser import extract_track_data_from_page
     from supabase import create_client, Client
-    from mutagen.mp3 import MP3
+    from preview_audio import get_mp3_duration_seconds
 except ImportError as e:
     print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
     sys.exit(1)
 
 # --- Config ---
 CHUNK_SIZE = 5  # Bloque de 5; saltar al siguiente solo si las 5 duplicadas
+# Pool juego diario: preview medido >= este umbral (segundos); solo-preview sin YouTube no se inserta si falla.
+MIN_PREVIEW_SECONDS = 30.0
 ALBUM_PATTERNS = [
     r"open\.spotify\.com/album/([a-zA-Z0-9]{20,25})",
     r"spotify:album:([a-zA-Z0-9]{20,25})",
@@ -109,18 +114,6 @@ def extract_title_artist_from_track(track: dict) -> tuple[str | None, str | None
     else:
         artist = track.get("artist_name") or None
     return title, artist
-
-
-def get_mp3_duration_seconds(url: str) -> float | None:
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "EcosIngest/1.0"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = r.read()
-        audio = MP3(BytesIO(data))
-        length = getattr(audio.info, "length", None)
-        return float(length) if length is not None else None
-    except Exception:
-        return None
 
 
 def load_active_playlists(supabase: Client) -> list[tuple[str, str, str]]:
@@ -366,11 +359,16 @@ def main() -> None:
                         total_no_yt += 1
                         continue
 
-                    # Si entra por preview, exigir duración mínima usable (>=28s)
+                    preview_duration_seconds: float | None = None
+                    if preview_url:
+                        preview_duration_seconds = get_mp3_duration_seconds(preview_url)
+
+                    # Sin YouTube: solo preview; exigir medición válida y >= MIN_PREVIEW_SECONDS
                     if not yt_id and preview_url:
-                        dur = get_mp3_duration_seconds(preview_url)
-                        if dur is None or dur < 28.0:
-                            # no insertar si no hay preview suficiente
+                        if (
+                            preview_duration_seconds is None
+                            or preview_duration_seconds < MIN_PREVIEW_SECONDS
+                        ):
                             pl_no_yt += 1
                             total_no_yt += 1
                             continue
@@ -387,6 +385,7 @@ def main() -> None:
                         "explicit": bool(full.get("explicit") or full.get("is_explicit")),
                         "release_date": album.get("release_date") or full.get("release_date"),
                         "preview_url": preview_url,
+                        "preview_duration_seconds": preview_duration_seconds,
                         "spotify_playlist_id": pl_id,
                         "spotify_playlist_name": pl_name,
                         "youtube_id": yt_id,

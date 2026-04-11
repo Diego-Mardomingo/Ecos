@@ -1,14 +1,20 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { HomeClient } from "@/components/home/HomeClient";
+import { HomeSkeleton } from "@/components/skeletons";
 import {
   getTodaysGameCached,
   getPreviousDaysCached,
   getInProgressGames,
   getTodaysCompletedResult,
+  getGamesWithSongByIds,
+  type GameWithSong,
 } from "@/lib/queries/games";
 import { getUserDashboardStats } from "@/lib/queries/users";
 
-export default async function HomePage() {
+export const dynamic = "force-dynamic";
+
+async function HomePageContent() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -35,6 +41,21 @@ export default async function HomePage() {
     user && todaysGame ? getTodaysCompletedResult(user.id, todaysGame.id) : null,
   ]);
 
+  const gameIdsForPrefetch =
+    user != null
+      ? [
+          ...(todaysGame?.id ? [todaysGame.id] : []),
+          ...(previousDays ?? []).map((d) => d.id),
+        ]
+      : [];
+  const gamesList =
+    user != null && gameIdsForPrefetch.length > 0
+      ? await getGamesWithSongByIds(gameIdsForPrefetch)
+      : [];
+  const prefetchedGamesById: Record<string, GameWithSong> = Object.fromEntries(
+    gamesList.map((g) => [g.id, g])
+  );
+
   return (
     <HomeClient
       initialData={{
@@ -46,7 +67,16 @@ export default async function HomePage() {
         todaysCompletedResult: todaysCompletedResult ?? null,
         rankingRanks,
         rankingStats,
+        prefetchedGamesById,
       }}
     />
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<HomeSkeleton />}>
+      <HomePageContent />
+    </Suspense>
   );
 }

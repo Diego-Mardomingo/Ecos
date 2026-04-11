@@ -2,6 +2,10 @@
 """
 Selección diaria: elige 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
 Ejecutar 1x/día a las 22:00 Madrid (GitHub Action). Crea el juego del día 8 el día 7 a las 22:00.
+
+Pool elegible: preview_url + preview_duration_seconds >= 30 s + spotify_playlist_id en
+ecos_spotify_playlists con is_active = true.
+
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
 from __future__ import annotations
@@ -33,6 +37,8 @@ except ImportError:
 MADRID = ZoneInfo("Europe/Madrid")
 ROTATION_DAYS = 14
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
+# Pool elegible: preview medido >= 30 s y playlist activa en ecos_spotify_playlists
+MIN_PREVIEW_SECONDS = 30.0
 
 
 def format_date_ddmmyyyy(iso_date: str) -> str:
@@ -117,16 +123,38 @@ def main() -> None:
             pass
         return
 
-    # Canciones elegibles: activas, con youtube o preview
+    r_pl = (
+        supabase.table("ecos_spotify_playlists")
+        .select("spotify_playlist_id")
+        .eq("is_active", True)
+        .execute()
+    )
+    active_playlist_ids = {
+        (r.get("spotify_playlist_id") or "").strip()
+        for r in (r_pl.data or [])
+        if r.get("spotify_playlist_id")
+    }
+
     r_songs = supabase.table("ecos_songs").select(
-        "id, title, artist_name, youtube_id, preview_url, release_date, genre, "
+        "id, title, artist_name, youtube_id, preview_url, preview_duration_seconds, release_date, genre, "
         "spotify_playlist_id, spotify_playlist_name"
     ).eq("is_active", True).execute()
 
-    all_songs = [
-        s for s in (r_songs.data or [])
-        if s.get("youtube_id") or s.get("preview_url")
-    ]
+    def is_eligible_pool(song: dict) -> bool:
+        pl_id = (song.get("spotify_playlist_id") or "").strip()
+        if not pl_id or pl_id not in active_playlist_ids:
+            return False
+        if not song.get("preview_url"):
+            return False
+        dur = song.get("preview_duration_seconds")
+        if dur is None:
+            return False
+        try:
+            return float(dur) >= MIN_PREVIEW_SECONDS
+        except (TypeError, ValueError):
+            return False
+
+    all_songs = [s for s in (r_songs.data or []) if is_eligible_pool(s)]
 
     # Regla 1: nunca repetir
     pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]

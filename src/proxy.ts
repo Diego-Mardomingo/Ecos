@@ -7,6 +7,11 @@ const intlMiddleware = createIntlMiddleware(routing);
 
 const protectedRoutes = ["/profile"];
 
+/** Prefijo /en para login y complete cuando la ruta actual es en inglés (as-needed). */
+function enPrefixedPath(pathname: string, path: string): string {
+  return pathname.startsWith("/en/") ? `/en${path}` : path;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -60,7 +65,7 @@ export async function proxy(request: NextRequest) {
     pathname.includes(route)
   );
   if (isProtected && !user) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = new URL(enPrefixedPath(pathname, "/login"), request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
@@ -73,7 +78,10 @@ export async function proxy(request: NextRequest) {
       .eq("user_id", user.id)
       .single();
     if (!profile?.username?.trim()) {
-      const completeUrl = new URL("/profile/complete", request.url);
+      const completeUrl = new URL(
+        enPrefixedPath(pathname, "/profile/complete"),
+        request.url
+      );
       completeUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(completeUrl);
     }

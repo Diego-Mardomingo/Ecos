@@ -1,19 +1,36 @@
 "use client";
 
-import { useEffect, useCallback, useState, useRef, memo, type ReactNode, type RefObject } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useState,
+  useRef,
+  useMemo,
+  memo,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { motion } from "framer-motion";
-import Link from "next/link";
 import Image from "next/image";
 import confetti from "canvas-confetti";
 import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
-import { queryKeys } from "@/lib/hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useSkipAttemptMutation,
+  useValidateGuessMutation,
+  useReportGameMutation,
+  useGameProgressById,
+  queryKeys,
+  type GameProgressData,
+  type ReportGameInput,
+} from "@/lib/hooks/queries";
 import {
   Dialog,
   DialogContent,
@@ -29,14 +46,26 @@ import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import { cn } from "@/lib/utils";
-import { PlayGameSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import { Link, useRouter } from "@/i18n/navigation";
+import {
+  PLAY_FROM_HOME_STORAGE_KEY,
+  useNavigateBackToHome,
+} from "@/lib/navigation/useNavigateBackToHome";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
+/** Ventana corta para ignorar dobles taps accidentales en “Saltar intento”. */
+const SKIP_BUTTON_DOUBLE_TAP_GUARD_MS = 500;
 
 const CONFETTI_COLORS_DARK = ["#2bee79", "#ffffff", "#0a2015"] as const;
 const CONFETTI_COLORS_LIGHT = ["#059669", "#ffffff", "#f8fafc"] as const;
+
+interface EcosPerfMetrics {
+  playFirstPaintMs: number[];
+  playProgressSyncMs: number[];
+  playMountAtMs: number | null;
+}
 
 interface Props {
   game: GameWithSong;
@@ -49,7 +78,6 @@ const ResultGameView = memo(function ResultGameView({
   resultCorrectAttempt,
   resultFinalScore,
   resultGuesses,
-  resultReadOnly,
   isGuest,
   maxAttempts,
 }: {
@@ -58,7 +86,6 @@ const ResultGameView = memo(function ResultGameView({
   resultCorrectAttempt: number | null;
   resultFinalScore: number | null;
   resultGuesses: GuessEntry[];
-  resultReadOnly: boolean;
   isGuest: boolean;
   maxAttempts: number;
 }) {
@@ -66,6 +93,7 @@ const ResultGameView = memo(function ResultGameView({
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
+  const navigateBackToHome = useNavigateBackToHome();
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
@@ -84,6 +112,7 @@ const ResultGameView = memo(function ResultGameView({
         <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
           <Link
             href="/"
+            onClick={navigateBackToHome}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
             aria-label={tc("back")}
           >
@@ -151,7 +180,6 @@ const ResultGameView = memo(function ResultGameView({
             gameNumber={game.game_number}
             isGuest={isGuest}
             guesses={resultGuesses}
-            readOnly={resultReadOnly}
           />
         </div>
       </div>
@@ -196,10 +224,6 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   const song = game.ecos_songs;
-
-  useEffect(() => {
-    setAudioCurrentTime(0);
-  }, [audioDuration]);
 
   const formatTimeRemaining = (s: number) => {
     if (s <= 0) return "00:00";
@@ -351,20 +375,66 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 
 export function GameClient({ game, userId }: Props) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
   const tc = useTranslations("common");
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const isGuest = !userId;
+  const validateGuessMutation = useValidateGuessMutation();
+  const skipAttemptMutation = useSkipAttemptMutation();
+  const navigateBackToHomePlaying = useNavigateBackToHome();
 
-  const invalidateOnGameComplete = useCallback(() => {
-    if (!isGuest) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard });
-      queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+  useEffect(() => {
+    router.prefetch("/");
+    router.prefetch("/ranking");
+  }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nav = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    if (nav?.type === "reload") {
+      try {
+        sessionStorage.removeItem(PLAY_FROM_HOME_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
     }
-  }, [isGuest, queryClient]);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = "ecos_play_nav_start_ms";
+    const rawStart = sessionStorage.getItem(key);
+    if (!rawStart) return;
+    const navStart = Number(rawStart);
+    if (!Number.isFinite(navStart)) {
+      sessionStorage.removeItem(key);
+      return;
+    }
+    const elapsedMs = Math.max(0, performance.now() - navStart);
+    sessionStorage.removeItem(key);
+
+    const metricsRef = window as Window & {
+      __ecosPerfMetrics?: EcosPerfMetrics;
+    };
+    if (!metricsRef.__ecosPerfMetrics) {
+      metricsRef.__ecosPerfMetrics = {
+        playFirstPaintMs: [],
+        playProgressSyncMs: [],
+        playMountAtMs: null,
+      };
+    }
+    metricsRef.__ecosPerfMetrics.playFirstPaintMs.push(elapsedMs);
+    metricsRef.__ecosPerfMetrics.playMountAtMs = performance.now();
+
+    if (process.env.NODE_ENV === "development") {
+      console.info("[perf] Play first paint (ms):", Math.round(elapsedMs));
+    }
+  }, []);
 
   const {
     phase,
@@ -377,71 +447,232 @@ export function GameClient({ game, userId }: Props) {
     startGame,
     loadProgress,
     addGuess,
-    removeLastGuess,
+    revertLastGuessAfterFailedSync,
+    revertWinAfterFailedSync,
     setWon,
     setLost,
     gameId,
   } = useGameStore();
 
   const { getProgress, saveProgress, removeProgress } = useGameProgressStore();
-  const [loadedProgress, setLoadedProgress] = useState<GameProgress | null | "loading">("loading");
+  const localStoredProgress = getProgress(game.id) ?? null;
+  const hasLocalDecisiveProgress =
+    (localStoredProgress?.phase === "playing" &&
+      (localStoredProgress.guesses?.length ?? 0) > 0) ||
+    localStoredProgress?.phase === "won" ||
+    localStoredProgress?.phase === "lost";
+
+  const initialDataGameProgress = useMemo((): GameProgressData | undefined => {
+    if (isGuest) return undefined;
+    if (localStoredProgress) return { progress: localStoredProgress };
+    const fromCache = queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(game.id)
+    );
+    return fromCache ?? undefined;
+  }, [isGuest, localStoredProgress, queryClient, game.id]);
+
+  const {
+    data: serverProgressData,
+    isPending: isServerProgressPending,
+    isError: isServerProgressError,
+  } = useGameProgressById(game.id, {
+    enabled: !isGuest,
+    initialData: initialDataGameProgress,
+  });
+  const [loadedProgress, setLoadedProgress] = useState<GameProgress | null>(
+    localStoredProgress
+  );
   const gameAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
+  /** Evita segundo intento/salto mientras la sync con el servidor está en curso. */
+  const syncInFlightRef = useRef(false);
+  const lastSkipTapAtRef = useRef(0);
+  /** Última partida para la que se ejecutó el bootstrap; al cambiar `game.id` debe repetirse. */
+  const bootstrappedGameIdRef = useRef<string | null>(null);
+  const lastServerSyncRef = useRef<string | null>(null);
 
-  // Cargar progreso guardado o iniciar partida nueva
-  useEffect(() => {
-    if (loadedProgress !== "loading") return;
+  const resolveAuthoritativeProgress = useCallback(
+    (
+      localProgress: GameProgress | null,
+      serverProgress: GameProgress | null
+    ): GameProgress | null => {
+      if (!localProgress) return serverProgress;
+      if (!serverProgress) return localProgress;
 
-    const load = async () => {
-      if (isGuest) {
-        const progress = getProgress(game.id);
-        if (progress?.phase === "playing" && progress.guesses.length > 0) {
-          loadProgress(game.id, game.date, progress.guesses, progress.guesses.length + 1);
-          setLoadedProgress(null);
-          return;
-        }
-        if (progress && (progress.phase === "won" || progress.phase === "lost")) {
-          setLoadedProgress(progress);
-          return;
-        }
-        if (gameId !== game.id || phase === "idle") {
-          startGame(game.id, game.date);
-        }
-        setLoadedProgress(null);
-      } else {
-        try {
-          const res = await fetch(`/api/game-progress/${game.id}`);
-          const data = (await res.json()) as { progress: GameProgress | null };
-          const p = data.progress;
-          if (p) {
-            saveProgress(p);
-            if (p.phase === "playing" && p.guesses.length > 0) {
-              loadProgress(game.id, game.date, p.guesses, p.guesses.length + 1);
-              setLoadedProgress(null);
-              return;
-            }
-            if (p.phase === "won" || p.phase === "lost") {
-              setLoadedProgress(p);
-              return;
-            }
-          } else {
-            removeProgress(game.id);
-          }
-        } catch {
-          // continuar
-        }
-        if (gameId !== game.id || phase === "idle") {
-          startGame(game.id, game.date);
-        }
-        setLoadedProgress(null);
+      const localCompleted =
+        localProgress.phase === "won" || localProgress.phase === "lost";
+      const serverCompleted =
+        serverProgress.phase === "won" || serverProgress.phase === "lost";
+
+      if (serverCompleted && !localCompleted) return serverProgress;
+      if (localCompleted && !serverCompleted) return localProgress;
+      if (serverCompleted && localCompleted) {
+        const sLen = serverProgress.guesses?.length ?? 0;
+        const lLen = localProgress.guesses?.length ?? 0;
+        if (sLen > lLen) return serverProgress;
+        if (lLen > sLen) return localProgress;
+        return serverProgress;
       }
-    };
 
-    load();
-  }, [game.id, game.date, gameId, phase, isGuest, getProgress, saveProgress, removeProgress, startGame, loadProgress, loadedProgress]);
+      return serverProgress.guesses.length >= localProgress.guesses.length
+        ? serverProgress
+        : localProgress;
+    },
+    []
+  );
+
+  const authoritativeProgress = useMemo(() => {
+    if (isGuest) return null;
+    const serverProgress = serverProgressData?.progress ?? null;
+    return resolveAuthoritativeProgress(localStoredProgress, serverProgress);
+  }, [isGuest, serverProgressData, localStoredProgress, resolveAuthoritativeProgress]);
+
+  // Al cambiar de ruta /play/[id] sin desmontar, alinear estado local y permitir re-bootstrap.
+  useLayoutEffect(() => {
+    lastServerSyncRef.current = null;
+    setLoadedProgress(getProgress(game.id) ?? null);
+  }, [game.id, getProgress]);
+
+  // Bootstrap inmediato desde caché local para no bloquear con skeleton (se repite por cada `game.id`).
+  useEffect(() => {
+    if (bootstrappedGameIdRef.current === game.id) return;
+    bootstrappedGameIdRef.current = game.id;
+
+    if (localStoredProgress?.phase === "playing" && localStoredProgress.guesses.length > 0) {
+      loadProgress(
+        game.id,
+        game.date,
+        localStoredProgress.guesses,
+        localStoredProgress.guesses.length + 1
+      );
+      setLoadedProgress(null);
+      return;
+    }
+
+    if (localStoredProgress && (localStoredProgress.phase === "won" || localStoredProgress.phase === "lost")) {
+      setLoadedProgress(localStoredProgress);
+      return;
+    }
+
+    if (!isGuest && !hasLocalDecisiveProgress) {
+      return;
+    }
+
+    if (gameId !== game.id || phase === "idle") {
+      startGame(game.id, game.date);
+    }
+    setLoadedProgress(null);
+  }, [
+    game.id,
+    game.date,
+    gameId,
+    phase,
+    loadProgress,
+    localStoredProgress,
+    startGame,
+    isGuest,
+    hasLocalDecisiveProgress,
+  ]);
+
+  // Revalidación en background para autenticados: reconcilia sin bloquear la UI.
+  useEffect(() => {
+    if (isGuest) return;
+    if (!serverProgressData) return;
+
+    const serverProgress = serverProgressData.progress ?? null;
+    const authoritative = resolveAuthoritativeProgress(localStoredProgress, serverProgress);
+    const signature = JSON.stringify({
+      phase: authoritative?.phase ?? null,
+      guesses: authoritative?.guesses.length ?? 0,
+      score: authoritative?.score ?? null,
+      correctAttempt: authoritative?.correctAttempt ?? null,
+    });
+    if (lastServerSyncRef.current === signature) return;
+    lastServerSyncRef.current = signature;
+
+    if (typeof window !== "undefined") {
+      const metricsRef = window as Window & {
+        __ecosPerfMetrics?: EcosPerfMetrics;
+      };
+      if (!metricsRef.__ecosPerfMetrics) {
+        metricsRef.__ecosPerfMetrics = {
+          playFirstPaintMs: [],
+          playProgressSyncMs: [],
+          playMountAtMs: null,
+        };
+      }
+      const mountAt = metricsRef.__ecosPerfMetrics.playMountAtMs;
+      const syncElapsed =
+        mountAt != null ? Math.max(0, performance.now() - mountAt) : 0;
+      metricsRef.__ecosPerfMetrics.playProgressSyncMs.push(syncElapsed);
+    }
+
+    if (!authoritative) {
+      removeProgress(game.id);
+      if (gameId !== game.id || phase === "idle") {
+        startGame(game.id, game.date);
+      }
+      setLoadedProgress(null);
+      return;
+    }
+
+    saveProgress(authoritative);
+    if (authoritative.phase === "playing" && authoritative.guesses.length > 0) {
+      loadProgress(
+        game.id,
+        game.date,
+        authoritative.guesses,
+        authoritative.guesses.length + 1
+      );
+      setLoadedProgress(null);
+      return;
+    }
+
+    if (authoritative.phase === "won" || authoritative.phase === "lost") {
+      setLoadedProgress(authoritative);
+      return;
+    }
+
+    if (gameId !== game.id || phase === "idle") {
+      startGame(game.id, game.date);
+    }
+    setLoadedProgress(null);
+  }, [
+    game.id,
+    game.date,
+    gameId,
+    isGuest,
+    loadProgress,
+    localStoredProgress,
+    phase,
+    removeProgress,
+    resolveAuthoritativeProgress,
+    saveProgress,
+    serverProgressData,
+    startGame,
+  ]);
+
+  useEffect(() => {
+    if (isGuest || hasLocalDecisiveProgress) return;
+    if (!isServerProgressError) return;
+    if (gameId !== game.id || phase === "idle") {
+      startGame(game.id, game.date);
+    }
+    setLoadedProgress(null);
+  }, [
+    isGuest,
+    hasLocalDecisiveProgress,
+    isServerProgressError,
+    game.id,
+    game.date,
+    gameId,
+    phase,
+    startGame,
+  ]);
 
   const handleGuess = useCallback(
-    async (song: EcosSong) => {
+    (song: EcosSong) => {
       if (phase !== "playing") return;
+      if (!isGuest && syncInFlightRef.current) return;
 
       const guessText = `${song.title} - ${song.artist_name}`;
       const isCorrect =
@@ -491,106 +722,197 @@ export function GameClient({ game, userId }: Props) {
             correctAttempt: currentAttempt,
           });
         } else {
-          try {
-            const res = await fetch("/api/validate-guess", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                gameId: game.id,
+          syncInFlightRef.current = true;
+          const optimisticScore = calculateScore(currentAttempt, 0).totalPoints;
+          setWon(currentAttempt, optimisticScore);
+
+          void (async () => {
+            try {
+              const data = await validateGuessMutation.mutateAsync({
                 userId,
-                attemptNumber: currentAttempt,
-                guessText,
-                songId: song.id,
-                guessArtistName: song.artist_name,
-                guessAlbumTitle: song.album_title ?? undefined,
-                finalize: true,
-              }),
-            });
-            const data = (await res.json()) as {
-              error?: string;
-              totalPoints?: number;
-            };
-            if (!res.ok) {
-              throw new Error(
-                typeof data.error === "string" ? data.error : "save_failed"
-              );
+                gameId: game.id,
+                event: "gameCompleted",
+                song: {
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url,
+                },
+                request: {
+                  gameId: game.id,
+                  userId: userId!,
+                  attemptNumber: currentAttempt,
+                  guessText,
+                  songId: song.id,
+                  guessArtistName: song.artist_name,
+                  guessAlbumTitle: song.album_title ?? undefined,
+                  finalize: true,
+                },
+                optimistic: {
+                  type: "completion",
+                  won: true,
+                  score: optimisticScore,
+                  completedProgress: {
+                    gameDate: game.date,
+                    guesses: [...useGameStore.getState().guesses],
+                    correctAttempt: currentAttempt,
+                  },
+                },
+              });
+              const serverPoints = data.totalPoints ?? optimisticScore;
+              if (serverPoints !== optimisticScore) {
+                setWon(currentAttempt, serverPoints);
+              }
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: true,
+                won: true,
+                score: serverPoints,
+                title: game.ecos_songs.title,
+                artist_name: game.ecos_songs.artist_name,
+                cover_url: game.ecos_songs.cover_url ?? undefined,
+                guesses: useGameStore.getState().guesses,
+                phase: "won",
+                correctAttempt: currentAttempt,
+              });
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : t("saveResultError"));
+              revertWinAfterFailedSync();
+            } finally {
+              syncInFlightRef.current = false;
             }
-            const totalPoints = data.totalPoints ?? 1000;
-            setWon(currentAttempt, totalPoints);
-            invalidateOnGameComplete();
-          } catch {
-            removeLastGuess();
-            toast.error(t("saveResultError"));
-          }
+          })();
         }
       } else {
-        let serverCorrectArtist = correctArtist;
-        let serverCorrectAlbum = correctAlbum;
-
         if (!isGuest) {
-          try {
-            const res = await fetch("/api/validate-guess", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                gameId: game.id,
-                userId,
-                attemptNumber: currentAttempt,
-                guessText,
-                songId: song.id,
-                guessArtistName: song.artist_name,
-                guessAlbumTitle: song.album_title ?? undefined,
-                finalize: currentAttempt >= maxAttempts,
-              }),
-            });
-            const data = await res.json();
-            serverCorrectArtist = data.correctArtist ?? correctArtist;
-            serverCorrectAlbum = data.correctAlbum ?? correctAlbum;
-          } catch {
-            // continuar
+          syncInFlightRef.current = true;
+
+          const guessEntry = {
+            text: guessText,
+            correct: false,
+            correctArtist,
+            correctAlbum,
+            attemptNumber: currentAttempt,
+          };
+          addGuess(guessEntry);
+          const lostNow = currentAttempt >= maxAttempts;
+          if (lostNow) {
+            setLost();
           }
+          const optimisticGuesses = [...useGameStore.getState().guesses];
+
+          void (async () => {
+            try {
+              const data = await validateGuessMutation.mutateAsync({
+                userId,
+                gameId: game.id,
+                event: lostNow ? "gameCompleted" : "attemptSaved",
+                song: {
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url,
+                },
+                request: {
+                  gameId: game.id,
+                  userId: userId!,
+                  attemptNumber: currentAttempt,
+                  guessText,
+                  songId: song.id,
+                  guessArtistName: song.artist_name,
+                  guessAlbumTitle: song.album_title ?? undefined,
+                  finalize: currentAttempt >= maxAttempts,
+                },
+                optimistic: lostNow
+                  ? {
+                      type: "completion",
+                      won: false,
+                      score: 0,
+                      completedProgress: {
+                        gameDate: game.date,
+                        guesses: optimisticGuesses,
+                      },
+                    }
+                  : {
+                      type: "inProgress",
+                      inProgress: {
+                        gameId: game.id,
+                        gameDate: game.date,
+                        guesses: optimisticGuesses,
+                        phase: "playing",
+                      },
+                    },
+              });
+              const srvA = data.correctArtist ?? correctArtist;
+              const srvB = data.correctAlbum ?? correctAlbum;
+              if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
+                const gs = useGameStore.getState().guesses;
+                const last = gs[gs.length - 1];
+                if (last && last.text === guessText && !last.correct) {
+                  useGameStore.setState({
+                    guesses: [
+                      ...gs.slice(0, -1),
+                      { ...last, correctArtist: srvA, correctAlbum: srvB },
+                    ],
+                  });
+                }
+              }
+              if (lostNow) {
+                saveProgress({
+                  gameId: game.id,
+                  gameDate: game.date,
+                  played: true,
+                  won: false,
+                  score: 0,
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url ?? undefined,
+                  guesses: useGameStore.getState().guesses,
+                  phase: "lost",
+                });
+              }
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : t("saveResultError"));
+              revertLastGuessAfterFailedSync();
+            } finally {
+              syncInFlightRef.current = false;
+            }
+          })();
+          return;
         }
 
         const guessEntry = {
           text: guessText,
           correct: false,
-          correctArtist: serverCorrectArtist,
-          correctAlbum: serverCorrectAlbum,
+          correctArtist,
+          correctAlbum,
           attemptNumber: currentAttempt,
         };
         addGuess(guessEntry);
 
         if (currentAttempt >= maxAttempts) {
           setLost();
-          invalidateOnGameComplete();
-          if (isGuest) {
-            const finalGuesses = [...useGameStore.getState().guesses, guessEntry];
-            saveProgress({
-              gameId: game.id,
-              gameDate: game.date,
-              played: true,
-              won: false,
-              score: null,
-              title: game.ecos_songs.title,
-              artist_name: game.ecos_songs.artist_name,
-              cover_url: game.ecos_songs.cover_url ?? undefined,
-              guesses: finalGuesses,
-              phase: "lost",
-            });
-          }
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: true,
+            won: false,
+            score: null,
+            title: game.ecos_songs.title,
+            artist_name: game.ecos_songs.artist_name,
+            cover_url: game.ecos_songs.cover_url ?? undefined,
+            guesses: useGameStore.getState().guesses,
+            phase: "lost",
+          });
         } else {
-          if (isGuest) {
-            const updatedGuesses = [...useGameStore.getState().guesses, guessEntry];
-            saveProgress({
-              gameId: game.id,
-              gameDate: game.date,
-              played: false,
-              won: false,
-              score: null,
-              guesses: updatedGuesses,
-              phase: "playing",
-            });
-          }
+          saveProgress({
+            gameId: game.id,
+            gameDate: game.date,
+            played: false,
+            won: false,
+            score: null,
+            guesses: useGameStore.getState().guesses,
+            phase: "playing",
+          });
         }
       }
     },
@@ -605,19 +927,59 @@ export function GameClient({ game, userId }: Props) {
       setWon,
       setLost,
       saveProgress,
-      invalidateOnGameComplete,
       resolvedTheme,
-      removeLastGuess,
+      revertWinAfterFailedSync,
+      revertLastGuessAfterFailedSync,
+      validateGuessMutation,
       t,
     ]
   );
 
-  const song = game.ecos_songs;
+  const terminalFromAuthoritative =
+    !isGuest &&
+    authoritativeProgress &&
+    (authoritativeProgress.phase === "won" || authoritativeProgress.phase === "lost")
+      ? authoritativeProgress
+      : null;
 
-  // Mostrar resumen guardado al reentrar a un juego completado
-  if (loadedProgress === "loading") {
+  if (!isGuest && !hasLocalDecisiveProgress && isServerProgressPending) {
     return (
-      <PlayGameSkeleton footer={<span>{t("loadingGame")}</span>} />
+      <div className="relative flex min-h-dvh flex-col bg-background">
+        <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
+          <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
+          <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
+        </div>
+        <header className="relative z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/80 bg-background/95 px-4 pt-safe backdrop-blur-sm">
+          <Link
+            href="/"
+            onClick={navigateBackToHomePlaying}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
+            aria-label={tc("back")}
+          >
+            <span className="material-symbols-outlined text-xl">arrow_back</span>
+          </Link>
+          <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
+            {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
+            {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
+            {game.game_number != null && (
+              <>
+                <span className="text-foreground/50"> · </span>
+                <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
+              </>
+            )}
+          </h1>
+          <div className="flex h-9 w-9 shrink-0" aria-hidden />
+        </header>
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-24">
+          <span
+            className="material-symbols-outlined animate-spin text-3xl text-muted-foreground"
+            aria-hidden
+          >
+            progress_activity
+          </span>
+          <p className="text-center text-xs text-muted-foreground">{tc("loading")}</p>
+        </div>
+      </div>
     );
   }
 
@@ -625,20 +987,46 @@ export function GameClient({ game, userId }: Props) {
     phase === "won" ||
     phase === "lost" ||
     (loadedProgress &&
-      loadedProgress !== "loading" &&
-      (loadedProgress.phase === "won" || loadedProgress.phase === "lost"));
+      (loadedProgress.phase === "won" || loadedProgress.phase === "lost")) ||
+    terminalFromAuthoritative !== null;
 
   if (isResultView) {
-    const resultPhase = loadedProgress && loadedProgress !== "loading" ? loadedProgress.phase : phase;
-    const resultCorrectAttempt =
-      loadedProgress && loadedProgress !== "loading"
-        ? loadedProgress.correctAttempt ?? null
+    const loadedForResult = terminalFromAuthoritative ?? loadedProgress;
+
+    const localHasTerminalResult = phase === "won" || phase === "lost";
+    const loadedHasTerminalResult =
+      loadedForResult?.phase === "won" || loadedForResult?.phase === "lost";
+    const loadedGuessesCount = loadedForResult?.guesses.length ?? 0;
+    const localGuessesCount = guesses.length;
+    const localResultLooksRicher =
+      localHasTerminalResult &&
+      (!loadedHasTerminalResult ||
+        localGuessesCount > loadedGuessesCount ||
+        (phase === "won" &&
+          correctAttempt != null &&
+          (loadedForResult?.correctAttempt ?? null) == null));
+    const useLocalResult = localResultLooksRicher;
+
+    const resultPhase = useLocalResult
+      ? phase
+      : loadedForResult
+        ? loadedForResult.phase
+        : phase;
+    const resultCorrectAttempt = useLocalResult
+      ? correctAttempt
+      : loadedForResult
+        ? loadedForResult.correctAttempt ?? null
         : correctAttempt;
-    const resultFinalScore =
-      loadedProgress && loadedProgress !== "loading" ? loadedProgress.score : finalScore;
-    const resultGuesses =
-      loadedProgress && loadedProgress !== "loading" ? loadedProgress.guesses : guesses;
-    const resultReadOnly = Boolean(loadedProgress && loadedProgress !== "loading");
+    const resultFinalScore = useLocalResult
+      ? finalScore
+      : loadedForResult
+        ? loadedForResult.score
+        : finalScore;
+    const resultGuesses = useLocalResult
+      ? guesses
+      : loadedForResult
+        ? loadedForResult.guesses
+        : guesses;
 
     return (
       <ResultGameView
@@ -647,15 +1035,11 @@ export function GameClient({ game, userId }: Props) {
         resultCorrectAttempt={resultCorrectAttempt}
         resultFinalScore={resultFinalScore}
         resultGuesses={resultGuesses}
-        resultReadOnly={resultReadOnly}
         isGuest={isGuest}
         maxAttempts={maxAttempts}
       />
     );
   }
-
-  const formatTime = (s: number) =>
-    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   return (
     <div className="relative flex flex-col bg-background">
@@ -670,6 +1054,7 @@ export function GameClient({ game, userId }: Props) {
       <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
         <Link
           href="/"
+          onClick={navigateBackToHomePlaying}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
           aria-label={tc("back")}
         >
@@ -687,51 +1072,110 @@ export function GameClient({ game, userId }: Props) {
         </h1>
         <button
           type="button"
-          onClick={async () => {
+          onClick={() => {
             gameAudioPlayerRef.current?.stopIfPlaying();
-            addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
+            if (phase !== "playing") return;
+            if (!isGuest && syncInFlightRef.current) return;
+
             if (!isGuest && userId) {
-              try {
-                await fetch("/api/skip-attempt", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ gameId: game.id, attemptNumber: currentAttempt }),
-                });
-              } catch {
-                // fallback: progreso en cliente
+              const now = Date.now();
+              if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
+              lastSkipTapAtRef.current = now;
+
+              syncInFlightRef.current = true;
+              const lostNow = currentAttempt >= maxAttempts;
+              addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
+              if (lostNow) {
+                setLost();
               }
+              const optimisticGuesses = [...useGameStore.getState().guesses];
+              void (async () => {
+                try {
+                  await skipAttemptMutation.mutateAsync({
+                    userId,
+                    gameId: game.id,
+                    event: lostNow ? "gameCompleted" : "attemptSaved",
+                    song: {
+                      title: game.ecos_songs.title,
+                      artist_name: game.ecos_songs.artist_name,
+                      cover_url: game.ecos_songs.cover_url,
+                    },
+                    request: { gameId: game.id, attemptNumber: currentAttempt },
+                    optimistic: lostNow
+                      ? {
+                          type: "completion",
+                          won: false,
+                          score: 0,
+                          completedProgress: {
+                            gameDate: game.date,
+                            guesses: optimisticGuesses,
+                          },
+                        }
+                      : {
+                          type: "inProgress",
+                          inProgress: {
+                            gameId: game.id,
+                            gameDate: game.date,
+                            guesses: optimisticGuesses,
+                            phase: "playing",
+                          },
+                        },
+                  });
+                  if (lostNow) {
+                    saveProgress({
+                      gameId: game.id,
+                      gameDate: game.date,
+                      played: true,
+                      won: false,
+                      score: 0,
+                      title: game.ecos_songs.title,
+                      artist_name: game.ecos_songs.artist_name,
+                      cover_url: game.ecos_songs.cover_url ?? undefined,
+                      guesses: useGameStore.getState().guesses,
+                      phase: "lost",
+                    });
+                  }
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : t("saveResultError"));
+                  revertLastGuessAfterFailedSync();
+                } finally {
+                  syncInFlightRef.current = false;
+                }
+              })();
+              return;
             }
+
+            const now = Date.now();
+            if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
+            lastSkipTapAtRef.current = now;
+
+            addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
             if (currentAttempt >= maxAttempts) {
               setLost();
-              invalidateOnGameComplete();
-              if (isGuest) {
-                const finalGuesses = useGameStore.getState().guesses;
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: true,
-                  won: false,
-                  score: null,
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url ?? undefined,
-                  guesses: finalGuesses,
-                  phase: "lost",
-                });
-              }
+              const finalGuesses = useGameStore.getState().guesses;
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: true,
+                won: false,
+                score: null,
+                title: game.ecos_songs.title,
+                artist_name: game.ecos_songs.artist_name,
+                cover_url: game.ecos_songs.cover_url ?? undefined,
+                guesses: finalGuesses,
+                phase: "lost",
+              });
             } else {
-              if (isGuest) {
-                const updatedGuesses = useGameStore.getState().guesses;
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: false,
-                  won: false,
-                  score: null,
-                  guesses: updatedGuesses,
-                  phase: "playing",
-                });
-              }
+              const updatedGuesses = useGameStore.getState().guesses;
+              saveProgress({
+                gameId: game.id,
+                gameDate: game.date,
+                played: false,
+                won: false,
+                score: null,
+                guesses: updatedGuesses,
+                phase: "playing",
+              });
             }
           }}
           className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
@@ -923,7 +1367,6 @@ function ResultScreen({
   gameNumber,
   isGuest,
   guesses = [],
-  readOnly = false,
 }: {
   phase: "won" | "lost";
   song: GameWithSong["ecos_songs"];
@@ -935,7 +1378,6 @@ function ResultScreen({
   gameNumber: number;
   isGuest: boolean;
   guesses?: Array<{ text: string; correct?: boolean; correctArtist?: boolean; correctAlbum?: boolean }>;
-  readOnly?: boolean;
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
@@ -949,9 +1391,10 @@ function ResultScreen({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>("");
   const [reportDesc, setReportDesc] = useState("");
-  const [reportSending, setReportSending] = useState(false);
   const [reportSent, setReportSent] = useState(false);
+  const reportMutation = useReportGameMutation();
   const [shareCopied, setShareCopied] = useState(false);
+  const navigateBackToHome = useNavigateBackToHome();
 
   const handleShare = async () => {
     const shareUrl =
@@ -1019,27 +1462,25 @@ function ResultScreen({
     }
   };
 
-  const handleReport = async () => {
+  const handleReport = () => {
     if (!reportReason) return;
-    setReportSending(true);
-    try {
-      const res = await fetch("/api/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gameId,
-          songId: song.id,
-          reason: reportReason,
-          description: reportDesc || undefined,
-        }),
-      });
-      if (res.ok) {
-        setReportSent(true);
-        setReportOpen(false);
+    reportMutation.mutate(
+      {
+        gameId,
+        songId: song.id,
+        reason: reportReason as ReportGameInput["reason"],
+        description: reportDesc.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setReportSent(true);
+          setReportOpen(false);
+        },
+        onError: () => {
+          toast.error(tc("error"));
+        },
       }
-    } finally {
-      setReportSending(false);
-    }
+    );
   };
 
   return (
@@ -1052,7 +1493,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.1 }}
+        transition={{ duration: 0.2 }}
         className="relative h-44 w-44 overflow-hidden rounded-2xl shadow-2xl"
       >
         {song.cover_url ? (
@@ -1065,7 +1506,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
+        transition={{ duration: 0.2 }}
         className="space-y-1"
       >
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -1101,7 +1542,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.3 }}
+        transition={{ duration: 0.2 }}
         className="w-full rounded-2xl"
         style={{ paddingTop: "0.25rem", paddingBottom: "2.5rem", paddingLeft: "1.25rem", paddingRight: "1.25rem" }}
       >
@@ -1165,7 +1606,7 @@ function ResultScreen({
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.35 }}
+          transition={{ duration: 0.2 }}
           className="w-full overflow-hidden rounded-2xl bg-gradient-to-br from-brand/20 to-brand/5 p-4"
         >
           <div className="mb-3 flex items-center gap-2">
@@ -1199,7 +1640,7 @@ function ResultScreen({
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.4 }}
+        transition={{ duration: 0.2 }}
         className="flex w-full flex-col gap-3"
       >
         <Link
@@ -1216,6 +1657,7 @@ function ResultScreen({
         </Link>
         <Link
           href="/"
+          onClick={navigateBackToHome}
           className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
         >
           <span
@@ -1282,11 +1724,12 @@ function ResultScreen({
                         </div>
                       )}
                       <button
+                        type="button"
                         onClick={handleReport}
-                        disabled={!reportReason || reportSending}
+                        disabled={!reportReason || reportMutation.isPending}
                         className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50"
                       >
-                        {reportSending ? t("report.sending") : t("report.submit")}
+                        {reportMutation.isPending ? t("report.sending") : t("report.submit")}
                       </button>
                     </>
                   )}

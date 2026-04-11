@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
+  getPreviousDaysCached,
   getTodaysGame,
+  getTodaysGameCached,
   getPreviousDays,
   getInProgressGames,
   getTodaysCompletedResult,
@@ -38,9 +40,14 @@ export async function GET(request: Request) {
       data: { user },
     } = await supabase.auth.getUser();
 
+    const useExplicitEffectiveDate = !!effectiveDate;
     const [todaysGame, previousDays, dashboard] = await Promise.all([
-      getTodaysGame(effectiveDate),
-      getPreviousDays(user?.id ?? null, undefined, effectiveDate),
+      useExplicitEffectiveDate
+        ? getTodaysGame(effectiveDate)
+        : getTodaysGameCached(),
+      useExplicitEffectiveDate
+        ? getPreviousDays(user?.id ?? null, undefined, effectiveDate)
+        : getPreviousDaysCached(user?.id ?? null),
       user ? getUserDashboardStats(user.id) : Promise.resolve(undefined),
     ]);
 

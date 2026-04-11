@@ -1,21 +1,24 @@
 import type { Metadata } from "next";
+import { getLocale } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserStats } from "@/lib/queries/users";
 import { ProfileClient } from "@/components/profile/ProfileClient";
-import { redirect } from "next/navigation";
+import { redirectToLoginWithReturn } from "@/lib/auth/redirectToLogin";
+import { localizedPath } from "@/lib/i18n/localizedPath";
 
 export const metadata: Metadata = {
   title: "Perfil",
 };
 
 export default async function ProfilePage() {
+  const locale = await getLocale();
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirectToLoginWithReturn(locale, localizedPath(locale, "/profile"));
   }
 
   const [stats, { data: dbProfile }] = await Promise.all([

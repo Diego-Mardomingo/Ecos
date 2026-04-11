@@ -3,6 +3,12 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
+const SCROLL_SKIP_THRESHOLD_PX = 16;
+
+function normalizedAppPath(pathname: string): string {
+  return pathname.replace(/^\/(es|en)/, "") || "/";
+}
+
 export function ScrollRestoration() {
   const pathname = usePathname();
 
@@ -10,6 +16,8 @@ export function ScrollRestoration() {
     const key = `scroll:${pathname}`;
     const saved = sessionStorage.getItem(key);
     const targetTop = saved ? parseInt(saved, 10) : 0;
+
+    const isHomeRoute = normalizedAppPath(pathname) === "/";
 
     let rafId: number | null = null;
     if (targetTop > 0) {
@@ -20,6 +28,9 @@ export function ScrollRestoration() {
       const start = Date.now();
 
       const tryRestore = () => {
+        if (Math.abs(window.scrollY - targetTop) < SCROLL_SKIP_THRESHOLD_PX) {
+          return;
+        }
         const doc = document.documentElement;
         const canScroll = doc.scrollHeight >= targetTop + window.innerHeight * 0.5;
         if (canScroll) {
@@ -31,7 +42,17 @@ export function ScrollRestoration() {
         }
       };
 
-      rafId = requestAnimationFrame(tryRestore);
+      const kickoff = () => {
+        rafId = requestAnimationFrame(tryRestore);
+      };
+
+      if (isHomeRoute) {
+        rafId = requestAnimationFrame(() => {
+          rafId = requestAnimationFrame(kickoff);
+        });
+      } else {
+        rafId = requestAnimationFrame(kickoff);
+      }
     }
 
     let timer: ReturnType<typeof setTimeout>;

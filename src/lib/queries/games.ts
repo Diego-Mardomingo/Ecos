@@ -33,6 +33,11 @@ export interface PreviousDayGame {
   artist_name: string;
 }
 
+interface PreviousDaysRange {
+  fromDate?: string;
+  toDate?: string;
+}
+
 async function getTodaysGameWithClient(
   supabase: SupabaseClient,
   effectiveDateOverride?: string
@@ -57,6 +62,14 @@ async function getTodaysGameWithClient(
   return data as unknown as GameWithSong;
 }
 
+const GAME_WITH_SONG_SELECT = `
+  id, date, game_number,
+  ecos_songs (
+    id, title, artist_name, album_title,
+    cover_url, youtube_id, preview_url, genre, release_date
+  )
+`;
+
 export async function getTodaysGame(
   effectiveDate?: string
 ): Promise<GameWithSong | null> {
@@ -68,15 +81,7 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("ecos_games")
-    .select(
-      `
-      id, date, game_number,
-      ecos_songs (
-        id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre, release_date
-      )
-    `
-    )
+    .select(GAME_WITH_SONG_SELECT)
     .eq("id", gameId)
     .single();
 
@@ -84,24 +89,54 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
   return data as unknown as GameWithSong;
 }
 
+/**
+ * Carga varios juegos con el mismo shape que {@link getGameById} (p. ej. hidratar caché desde la home).
+ */
+export async function getGamesWithSongByIds(
+  gameIds: string[]
+): Promise<GameWithSong[]> {
+  const unique = [...new Set(gameIds.filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ecos_games")
+    .select(GAME_WITH_SONG_SELECT)
+    .in("id", unique);
+
+  if (error || !data?.length) return [];
+  return data as unknown as GameWithSong[];
+}
+
 async function getPreviousDaysWithClient(
   supabase: SupabaseClient,
   userId: string | null,
   limit?: number,
-  effectiveDateOverride?: string
+  effectiveDateOverride?: string,
+  range?: PreviousDaysRange
 ): Promise<PreviousDayGame[]> {
   const effectiveDate = effectiveDateOverride ?? getEffectiveGameDate();
 
-  const baseQuery = supabase
+  let baseQuery = supabase
     .from("ecos_games")
     .select(
       `
       id, date, game_number,
       ecos_songs ( cover_url, title, artist_name )
     `
-    )
-    .lt("date", effectiveDate)
-    .order("date", { ascending: false });
+    );
+
+  if (range?.fromDate) {
+    baseQuery = baseQuery.gte("date", range.fromDate);
+  }
+
+  baseQuery = baseQuery.lt("date", effectiveDate);
+
+  if (range?.toDate) {
+    baseQuery = baseQuery.lt("date", range.toDate);
+  }
+
+  baseQuery = baseQuery.order("date", { ascending: false });
 
   const { data: games, error } =
     limit != null ? await baseQuery.limit(limit) : await baseQuery;
@@ -156,10 +191,11 @@ async function getPreviousDaysWithClient(
 export async function getPreviousDays(
   userId: string | null,
   limit?: number,
-  effectiveDate?: string
+  effectiveDate?: string,
+  range?: PreviousDaysRange
 ): Promise<PreviousDayGame[]> {
   const supabase = await createClient();
-  return getPreviousDaysWithClient(supabase, userId, limit, effectiveDate);
+  return getPreviousDaysWithClient(supabase, userId, limit, effectiveDate, range);
 }
 
 export interface TodaysCompletedResult {
@@ -274,12 +310,32 @@ export function getTodaysGameCached() {
 }
 
 /** Versión cacheada usando createServiceClient (no cookies). */
-export function getPreviousDaysCached(userId: string | null, limit?: number) {
+export function getPreviousDaysCached(
+  userId: string | null,
+  limit?: number,
+  range?: PreviousDaysRange
+) {
   const effectiveDate = getEffectiveGameDate();
   const cacheKey = limit != null ? String(limit) : "all";
+  const fromKey = range?.fromDate ?? "none";
+  const toKey = range?.toDate ?? "none";
   return unstable_cache(
-    async () => getPreviousDaysWithClient(createServiceClient(), userId, limit),
-    ["previous-days", effectiveDate, userId ?? "guest", cacheKey],
+    async () =>
+      getPreviousDaysWithClient(
+        createServiceClient(),
+        userId,
+        limit,
+        effectiveDate,
+        range
+      ),
+    [
+      "previous-days",
+      effectiveDate,
+      userId ?? "guest",
+      cacheKey,
+      fromKey,
+      toKey,
+    ],
     { revalidate: 300, tags: ["games"] }
   )();
 }

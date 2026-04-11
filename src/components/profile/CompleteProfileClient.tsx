@@ -3,10 +3,9 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useUpdateProfileMutation } from "@/lib/hooks/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 
 // Permite letras, números, _, espacios y emojis (3-50 caracteres)
 const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
@@ -16,12 +15,12 @@ export function CompleteProfileClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") ?? "/profile";
+  const updateProfile = useUpdateProfileMutation();
 
   const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = username.trim();
     if (!trimmed) {
@@ -34,27 +33,22 @@ export function CompleteProfileClient() {
     }
 
     setError(null);
-    setLoading(true);
 
-    const res = await fetch("/api/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: trimmed }),
-    });
-
-    const json = await res.json();
-    setLoading(false);
-
-    if (!res.ok) {
-      if (json.error === "username_taken") {
-        setError(t("usernameTaken"));
-      } else {
-        setError(t("usernameInvalid"));
+    updateProfile.mutate(
+      { username: trimmed },
+      {
+        onSuccess: () => {
+          router.push(redirectTo);
+        },
+        onError: (err) => {
+          if (err instanceof Error && err.message === "username_taken") {
+            setError(t("usernameTaken"));
+          } else {
+            setError(t("usernameInvalid"));
+          }
+        },
       }
-      return;
-    }
-
-    router.push(redirectTo);
+    );
   };
 
   return (
@@ -80,10 +74,10 @@ export function CompleteProfileClient() {
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="submit"
-            disabled={loading}
+            disabled={updateProfile.isPending}
             className="w-full rounded-xl py-3 font-semibold"
           >
-            {loading ? "..." : t("continue")}
+            {updateProfile.isPending ? "..." : t("continue")}
           </Button>
         </form>
       </div>
