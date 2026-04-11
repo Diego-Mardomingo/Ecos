@@ -53,6 +53,7 @@ import {
   useNavigateBackToHome,
 } from "@/lib/navigation/useNavigateBackToHome";
 import { PLAY_SKELETON_VARIANT_KEY } from "@/lib/navigation/playSkeletonStorage";
+import { PLAY_NAVIGATION_END_EVENT } from "@/lib/navigation/playNavigationEvents";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -391,6 +392,14 @@ export function GameClient({ game, userId }: Props) {
     router.prefetch("/");
     router.prefetch("/ranking");
   }, [router]);
+
+  useLayoutEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent(PLAY_NAVIGATION_END_EVENT));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

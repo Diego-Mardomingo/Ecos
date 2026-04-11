@@ -25,8 +25,13 @@ function readVariant(): PlaySkeletonVariant {
   }
 }
 
+/** Incluye `/play` (día actual) y `/play/[gameId]` — no usar solo `startsWith("/play/")`. */
+function isPlayGamePath(normalized: string): boolean {
+  return normalized === "/play" || normalized.startsWith("/play/");
+}
+
 /**
- * Cubre la pantalla con el skeleton de detalle mientras la navegación home → /play/[id]
+ * Cubre la pantalla con el skeleton mientras la navegación home → /play o /play/[id]
  * termina de pintar. `loading.tsx` no basta si la ruta estaba prefetcheada (RSC en caché).
  */
 export function PlayNavigationPendingOverlay() {
@@ -50,7 +55,7 @@ export function PlayNavigationPendingOverlay() {
 
   useEffect(() => {
     const normalized = pathname.replace(/^\/(es|en)/, "") || "/";
-    if (!normalized.startsWith("/play/")) {
+    if (!isPlayGamePath(normalized)) {
       setVisible(false);
     }
   }, [pathname]);

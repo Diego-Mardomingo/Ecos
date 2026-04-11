@@ -1,8 +1,6 @@
 "use client";
 
-import { useLayoutEffect } from "react";
 import { useTranslations } from "next-intl";
-import { PLAY_NAVIGATION_END_EVENT } from "@/lib/navigation/playNavigationEvents";
 import { useGameById } from "@/lib/hooks/queries";
 import type { GameWithSong } from "@/lib/queries/games";
 import { GameClient } from "@/components/game/GameClient";
@@ -16,14 +14,6 @@ interface Props {
 export function PlayGameWrapper({ gameId, initialGame, userId }: Props) {
   const t = useTranslations("game");
   const { data: game, isLoading, isError } = useGameById(gameId, initialGame);
-
-  useLayoutEffect(() => {
-    try {
-      window.dispatchEvent(new CustomEvent(PLAY_NAVIGATION_END_EVENT));
-    } catch {
-      /* ignore */
-    }
-  }, [gameId]);
 
   if (isError || (!game && !isLoading)) {
     return (
