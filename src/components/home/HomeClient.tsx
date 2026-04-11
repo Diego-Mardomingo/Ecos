@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -1378,16 +1378,56 @@ function TodaysCardBadge({
   );
 }
 
-function formatCountdown(ms: number): string {
+function getCountdownParts(ms: number): { value: number; suffix: "h" | "m" | "s" }[] {
   const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  const parts: string[] = [];
-  if (h > 0) parts.push(`${h}h`);
-  if (m > 0 || h > 0) parts.push(`${m}m`);
-  parts.push(`${s}s`);
-  return parts.join(" ");
+  const parts: { value: number; suffix: "h" | "m" | "s" }[] = [];
+  if (h > 0) parts.push({ value: h, suffix: "h" });
+  if (m > 0 || h > 0) parts.push({ value: m, suffix: "m" });
+  parts.push({ value: s, suffix: "s" });
+  return parts;
+}
+
+/** Carrusel vertical: al bajar el valor, el nuevo número entra desde abajo; al subir (p. ej. 0→59), desde arriba. */
+function RollingCountdownSegment({
+  value,
+  suffix,
+}: {
+  value: number;
+  suffix: "h" | "m" | "s";
+}) {
+  const prevRef = useRef<number | undefined>(undefined);
+  const prev = prevRef.current;
+  const downward = prev === undefined || value < prev;
+
+  useLayoutEffect(() => {
+    prevRef.current = value;
+  }, [value]);
+
+  return (
+    <span className="inline-flex shrink-0 items-baseline tabular-nums">
+      <span className="relative inline-block w-[2ch] shrink-0 overflow-hidden text-end">
+        <span className="invisible block select-none tabular-nums" aria-hidden>
+          {value}
+        </span>
+        <AnimatePresence initial={false}>
+          <motion.span
+            key={value}
+            initial={{ y: downward ? "100%" : "-100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: downward ? "-100%" : "100%" }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 flex items-end justify-end tabular-nums"
+          >
+            {value}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+      <span>{suffix}</span>
+    </span>
+  );
 }
 
 const MS_PER_HOUR = 3600 * 1000;
@@ -1442,10 +1482,24 @@ function Countdown({
     }
   }, [mounted, ms, onCountdownZero]);
 
+  const parts = mounted ? getCountdownParts(ms) : null;
+
   return (
-    <span className="text-xs font-medium tabular-nums">
-      <span className="text-muted-foreground">{t("nextSongIn")} </span>
-      <span className="text-primary">{mounted ? formatCountdown(ms) : "—"}</span>
+    <span className="inline-flex flex-wrap items-baseline gap-x-1 text-xs font-medium tabular-nums">
+      <span className="shrink-0 text-muted-foreground">{t("nextSongIn")}</span>
+      {parts ? (
+        <span className="inline-flex shrink-0 items-baseline gap-1 text-primary">
+          {parts.map((p) => (
+            <RollingCountdownSegment
+              key={p.suffix}
+              value={p.value}
+              suffix={p.suffix}
+            />
+          ))}
+        </span>
+      ) : (
+        <span className="text-primary">—</span>
+      )}
     </span>
   );
 }
