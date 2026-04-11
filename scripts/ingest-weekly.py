@@ -18,7 +18,6 @@ import logging
 import os
 import re
 import sys
-import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -92,19 +91,16 @@ def get_spotify_id(track: dict) -> str:
     return uri.split(":")[-1] if uri and ":" in uri else ""
 
 
-def normalize_text(s: str | None) -> str:
-    if not s:
-        return ""
-    s = s.strip().lower()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = re.sub(r"[^a-z0-9\s]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def track_key(title: str | None, artist: str | None) -> str:
-    return f"{normalize_text(title)}|{normalize_text(artist)}"
+def exact_track_key(title: str | None, artist: str | None) -> str | None:
+    """
+    Dedupe por título y artista exactos (solo strip en bordes).
+    Si difiere una letra, mayúscula o acento respecto al catálogo, no es duplicado.
+    """
+    t = (title or "").strip()
+    a = (artist or "").strip()
+    if not t and not a:
+        return None
+    return f"{t}\x00{a}"
 
 
 def extract_title_artist_from_track(track: dict) -> tuple[str | None, str | None]:
@@ -239,7 +235,11 @@ def main() -> None:
     supabase: Client = create_client(url_env, key_env)
     existing_rows = (supabase.table("ecos_songs").select("spotify_id, title, artist_name").execute()).data or []
     existing = {r["spotify_id"] for r in existing_rows if r.get("spotify_id")}
-    existing_keys = {track_key(r.get("title"), r.get("artist_name")) for r in existing_rows}
+    existing_keys: set[str] = set()
+    for r in existing_rows:
+        k = exact_track_key(r.get("title"), r.get("artist_name"))
+        if k:
+            existing_keys.add(k)
     seen_this_run: set[str] = set()
     seen_keys_this_run: set[str] = set()
     errors: list[str] = []
@@ -304,7 +304,7 @@ def main() -> None:
                     keys = []
                     for tr in block:
                         t, a = extract_title_artist_from_track(tr)
-                        keys.append(track_key(t, a))
+                        keys.append(exact_track_key(t, a))
                     all_block_dup = all(
                         (
                             (sid and (sid in existing or sid in seen_this_run))
@@ -348,7 +348,7 @@ def main() -> None:
                     cover = images[0].get("url") if images else None
 
                     preview_url = full.get("preview_url")
-                    dedupe_key = track_key(title, artist)
+                    dedupe_key = exact_track_key(title, artist)
                     if dedupe_key and (dedupe_key in existing_keys or dedupe_key in seen_keys_this_run):
                         pl_duplicates += 1
                         total_duplicates += 1
