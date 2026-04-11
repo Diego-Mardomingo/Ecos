@@ -7,7 +7,7 @@ Sin límite de canciones. Playlist personal: todas.
 La selección diaria de juegos corre en workflow separado (daily-game.yml).
 
 Guarda preview_duration_seconds midiendo el MP3 de preview_url cuando existe.
-Solo preview (sin YouTube): no inserta si la duración es < 30 s o la medición falla.
+Solo preview (sin YouTube): no inserta si la duración es < MIN_PREVIEW_SECONDS o la medición falla.
 
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
@@ -47,7 +47,8 @@ except ImportError as e:
 # --- Config ---
 CHUNK_SIZE = 5  # Bloque de 5; saltar al siguiente solo si las 5 duplicadas
 # Pool juego diario: preview medido >= este umbral (segundos); solo-preview sin YouTube no se inserta si falla.
-MIN_PREVIEW_SECONDS = 30.0
+# ~29.7 s es habitual en previews Spotify medidos en MP3 (30 s nominales).
+MIN_PREVIEW_SECONDS = 29.0
 ALBUM_PATTERNS = [
     r"open\.spotify\.com/album/([a-zA-Z0-9]{20,25})",
     r"spotify:album:([a-zA-Z0-9]{20,25})",

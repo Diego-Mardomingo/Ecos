@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backfill: genera juegos para fechas pasadas.
-Usa la misma lógica y reglas que select-daily-game.py (pool: preview >= 30 s y playlist activa).
+Usa la misma lógica y reglas que select-daily-game.py (pool: preview >= MIN_PREVIEW_SECONDS y playlist activa).
 Solo inserta en Supabase, sin archivos de salida.
 Uso: python backfill-games.py --start 2026-01-01 --end 2026-03-14
 """
@@ -32,7 +32,7 @@ except ImportError:
 
 ROTATION_DAYS = 14
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
-MIN_PREVIEW_SECONDS = 30.0
+MIN_PREVIEW_SECONDS = 29.0
 
 
 def get_decade(release_date: str | None) -> str | None:

@@ -3,8 +3,9 @@
 Selección diaria: elige 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
 Ejecutar 1x/día a las 22:00 Madrid (GitHub Action). Crea el juego del día 8 el día 7 a las 22:00.
 
-Pool elegible: preview_url + preview_duration_seconds >= 30 s + spotify_playlist_id en
+Pool elegible: preview_url + preview_duration_seconds >= MIN_PREVIEW_SECONDS + spotify_playlist_id en
 ecos_spotify_playlists con is_active = true.
+(30 s nominales de Spotify suelen medir ~29.7 s en MP3; el umbral es ligeramente inferior para no vaciar el pool.)
 
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
@@ -37,8 +38,8 @@ except ImportError:
 MADRID = ZoneInfo("Europe/Madrid")
 ROTATION_DAYS = 14
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
-# Pool elegible: preview medido >= 30 s y playlist activa en ecos_spotify_playlists
-MIN_PREVIEW_SECONDS = 30.0
+# Pool elegible: preview medido >= este umbral (s) y playlist activa en ecos_spotify_playlists
+MIN_PREVIEW_SECONDS = 29.0
 
 
 def format_date_ddmmyyyy(iso_date: str) -> str:
@@ -155,12 +156,20 @@ def main() -> None:
             return False
 
     all_songs = [s for s in (r_songs.data or []) if is_eligible_pool(s)]
+    if not all_songs:
+        msg = (
+            f"Pool elegible vacío: ninguna canción cumple preview ≥ {MIN_PREVIEW_SECONDS:g}s, "
+            "playlist activa y preview_url"
+        )
+        log.error(msg)
+        _log_failure(supabase, start_ms, msg)
+        sys.exit(1)
 
     # Regla 1: nunca repetir
     pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]
     if not pool:
-        log.error("Pool vacío: no hay canciones no usadas")
-        _log_failure(supabase, start_ms, "Pool vacío")
+        log.error("Pool vacío: todas las canciones elegibles ya se usaron en un juego")
+        _log_failure(supabase, start_ms, "Pool vacío: no quedan canciones no usadas")
         sys.exit(1)
 
     # Últimos 14 días de juegos con datos de canción (para reglas 2, 3, 4, 5)
