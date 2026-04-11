@@ -814,12 +814,7 @@ export function HomeClient({ initialData }: Props) {
 
   const navigateToPlayToday = useCallback(() => {
     markPlayNavigationStart();
-    const go = () => router.push("/play");
-    if (typeof document !== "undefined" && document.startViewTransition) {
-      document.startViewTransition(go);
-    } else {
-      go();
-    }
+    router.push("/play");
   }, [markPlayNavigationStart, router]);
 
   const prefetchTodayPlay = useCallback(() => {

@@ -1,10 +1,8 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { BottomNav } from "@/components/bottom-nav/BottomNav";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
-import { ViewTransitionNavigationBridge } from "@/components/view-transition/ViewTransitionNavigationBridge";
 
 function isPlayRoute(pathname: string): boolean {
   const normalized = pathname.replace(/^\/(es|en)/, "") || "/";
@@ -18,13 +16,7 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
   return (
     <>
       <OfflineBanner />
-      <ViewTransitionNavigationBridge />
       <main
-        style={
-          { viewTransitionName: "ecos-main" } as CSSProperties & {
-            viewTransitionName?: string;
-          }
-        }
         className={`flex flex-1 flex-col overflow-y-auto min-h-0 ${showNav ? "pt-6 pt-safe pb-24" : "pt-0 pb-6"}`}
       >
         {children}
