@@ -71,6 +71,10 @@ import {
 import { Link, useRouter } from "@/i18n/navigation";
 import { PrefetchPlayOnVisible } from "@/components/home/PrefetchPlayOnVisible";
 import { useAuthStore } from "@/lib/store/authStore";
+import {
+  PLAY_SKELETON_VARIANT_KEY,
+  type PlaySkeletonVariant,
+} from "@/lib/navigation/playSkeletonStorage";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
 const ABOUT_HOW_TO_PLAY_ICONS = [
@@ -806,16 +810,18 @@ export function HomeClient({ initialData }: Props) {
   const todaysGuesses = todaysProgress?.guesses ?? [];
   const todaysWon = todaysCompletedResult?.won ?? todaysProgress?.phase === "won";
 
-  const markPlayNavigationStart = useCallback(() => {
+  const markPlayNavigationStart = useCallback((variant: PlaySkeletonVariant) => {
     if (typeof window === "undefined") return;
     sessionStorage.setItem("ecos_play_nav_start_ms", String(performance.now()));
     sessionStorage.setItem("ecos_play_from_home", "1");
+    sessionStorage.setItem(PLAY_SKELETON_VARIANT_KEY, variant);
   }, []);
 
   const navigateToPlayToday = useCallback(() => {
-    markPlayNavigationStart();
+    const variant: PlaySkeletonVariant = todaysCompleted ? "completed" : "in_progress";
+    markPlayNavigationStart(variant);
     router.push("/play");
-  }, [markPlayNavigationStart, router]);
+  }, [markPlayNavigationStart, router, todaysCompleted]);
 
   const prefetchTodayPlay = useCallback(() => {
     const tg = todayData?.todaysGame ?? initialData?.todaysGame;
@@ -1666,7 +1672,7 @@ function PreviousDaysSection({
   previousDays: PreviousDayGame[];
   userId: string | null;
   inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
-  onNavigateToGame?: () => void;
+  onNavigateToGame?: (variant: PlaySkeletonVariant) => void;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -1920,7 +1926,9 @@ function PreviousDaysSection({
               >
               <Link
                 href={`/play/${day.id}`}
-                onClick={onNavigateToGame}
+                onClick={() =>
+                  onNavigateToGame?.(completed ? "completed" : "in_progress")
+                }
                 onMouseEnter={() => prefetchPlayRoute(day.id)}
                 onFocus={() => prefetchPlayRoute(day.id)}
               >

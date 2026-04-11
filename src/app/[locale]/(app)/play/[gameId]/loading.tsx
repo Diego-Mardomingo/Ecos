@@ -1,7 +1,5 @@
-/**
- * Mientras llega el RSC del segmento: mismo fondo que la app para no mostrar skeleton
- * completo (el contenido útil llega en milisegundos; la caché cliente cubre el resto).
- */
+import { PlayGameRouteLoading } from "@/components/skeletons/PlayGameRouteLoading";
+
 export default function PlayGameLoading() {
-  return <div className="min-h-dvh bg-background" aria-hidden />;
+  return <PlayGameRouteLoading />;
 }

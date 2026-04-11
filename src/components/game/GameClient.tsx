@@ -52,6 +52,7 @@ import {
   PLAY_FROM_HOME_STORAGE_KEY,
   useNavigateBackToHome,
 } from "@/lib/navigation/useNavigateBackToHome";
+import { PLAY_SKELETON_VARIANT_KEY } from "@/lib/navigation/playSkeletonStorage";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -402,6 +403,14 @@ export function GameClient({ game, userId }: Props) {
       } catch {
         /* ignore */
       }
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(PLAY_SKELETON_VARIANT_KEY);
+    } catch {
+      /* ignore */
     }
   }, []);
 

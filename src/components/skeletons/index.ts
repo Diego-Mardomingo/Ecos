@@ -10,4 +10,9 @@ export {
 } from "./ranking-history-skeleton";
 export { PlayGameSkeleton } from "./play-game-skeleton";
 export { PlayRouteSkeleton } from "./play-route-skeleton";
+export {
+  PlayGameCompletedDetailSkeleton,
+  PlayGameInProgressDetailSkeleton,
+} from "./play-game-detail-skeletons";
+export { PlayGameRouteLoading } from "./PlayGameRouteLoading";
 export { RankingDetailSkeleton } from "./ranking-detail-skeleton";
