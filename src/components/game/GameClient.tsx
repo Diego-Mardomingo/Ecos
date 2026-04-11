@@ -52,7 +52,6 @@ import {
   PLAY_FROM_HOME_STORAGE_KEY,
   useNavigateBackToHome,
 } from "@/lib/navigation/useNavigateBackToHome";
-import { GameLoadingFallback } from "@/components/game/GameLoadingFallback";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -944,7 +943,44 @@ export function GameClient({ game, userId }: Props) {
       : null;
 
   if (!isGuest && !hasLocalDecisiveProgress && isServerProgressPending) {
-    return <GameLoadingFallback />;
+    return (
+      <div className="relative flex min-h-dvh flex-col bg-background">
+        <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
+          <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
+          <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
+        </div>
+        <header className="relative z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/80 bg-background/95 px-4 pt-safe backdrop-blur-sm">
+          <Link
+            href="/"
+            onClick={navigateBackToHomePlaying}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
+            aria-label={tc("back")}
+          >
+            <span className="material-symbols-outlined text-xl">arrow_back</span>
+          </Link>
+          <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
+            {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
+            {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
+            {game.game_number != null && (
+              <>
+                <span className="text-foreground/50"> · </span>
+                <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
+              </>
+            )}
+          </h1>
+          <div className="flex h-9 w-9 shrink-0" aria-hidden />
+        </header>
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-24">
+          <span
+            className="material-symbols-outlined animate-spin text-3xl text-muted-foreground"
+            aria-hidden
+          >
+            progress_activity
+          </span>
+          <p className="text-center text-xs text-muted-foreground">{tc("loading")}</p>
+        </div>
+      </div>
+    );
   }
 
   const isResultView =

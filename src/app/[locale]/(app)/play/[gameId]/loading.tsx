@@ -1,6 +1,7 @@
-import { GameLoadingFallback } from "@/components/game/GameLoadingFallback";
-
-/** UI de carga mientras llega el RSC de `/play/[gameId]` (navegación cliente). */
+/**
+ * Mientras llega el RSC del segmento: mismo fondo que la app para no mostrar skeleton
+ * completo (el contenido útil llega en milisegundos; la caché cliente cubre el resto).
+ */
 export default function PlayGameLoading() {
-  return <GameLoadingFallback />;
+  return <div className="min-h-dvh bg-background" aria-hidden />;
 }

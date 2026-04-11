@@ -69,6 +69,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 import { Link, useRouter } from "@/i18n/navigation";
+import { PrefetchPlayOnVisible } from "@/components/home/PrefetchPlayOnVisible";
 import { useAuthStore } from "@/lib/store/authStore";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
@@ -811,6 +812,16 @@ export function HomeClient({ initialData }: Props) {
     sessionStorage.setItem("ecos_play_from_home", "1");
   }, []);
 
+  const navigateToPlayToday = useCallback(() => {
+    markPlayNavigationStart();
+    const go = () => router.push("/play");
+    if (typeof document !== "undefined" && document.startViewTransition) {
+      document.startViewTransition(go);
+    } else {
+      go();
+    }
+  }, [markPlayNavigationStart, router]);
+
   const prefetchTodayPlay = useCallback(() => {
     const tg = todayData?.todaysGame ?? initialData?.todaysGame;
     if (!tg?.id) return;
@@ -1025,14 +1036,10 @@ export function HomeClient({ initialData }: Props) {
             whileTap={{ scale: 0.99 }}
             onMouseEnter={prefetchTodayPlay}
             onFocus={prefetchTodayPlay}
-            onClick={() => {
-              markPlayNavigationStart();
-              router.push("/play");
-            }}
+            onClick={navigateToPlayToday}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                markPlayNavigationStart();
-                router.push("/play");
+                navigateToPlayToday();
               }
             }}
             className="absolute inset-0 origin-center will-change-transform"
@@ -1911,8 +1918,12 @@ function PreviousDaysSection({
             const maxAttempts = 6;
 
             return (
-              <Link
+              <PrefetchPlayOnVisible
                 key={day.id}
+                gameId={day.id}
+                onPrefetch={prefetchPlayRoute}
+              >
+              <Link
                 href={`/play/${day.id}`}
                 onClick={onNavigateToGame}
                 onMouseEnter={() => prefetchPlayRoute(day.id)}
@@ -2063,6 +2074,7 @@ function PreviousDaysSection({
                   )}
                 </motion.div>
               </Link>
+              </PrefetchPlayOnVisible>
             );
   };
 

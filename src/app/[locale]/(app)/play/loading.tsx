@@ -1,6 +1,4 @@
-import { PlayRouteSkeleton } from "@/components/skeletons";
-
-/** Transición a `/play` (p. ej. desde enlaces genéricos). */
+/** Misma superficie que la app; evita skeleton de salto al entrar en `/play`. */
 export default function PlayLoading() {
-  return <PlayRouteSkeleton />;
+  return <div className="min-h-dvh bg-background" aria-hidden />;
 }

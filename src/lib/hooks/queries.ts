@@ -405,7 +405,8 @@ export function prefetchGameProgressById(
   return queryClient.prefetchQuery({
     queryKey: queryKeys.game.progress(gameId),
     queryFn: () => fetchGameProgressById(gameId),
-    staleTime: 60 * 1000,
+    /** Alineado con `useGameProgressById` — el GET debe poder sustituir seeds de la home. */
+    staleTime: 0,
   });
 }
 
@@ -681,6 +682,7 @@ export function completionToGameProgress(
 /**
  * Hidrata cachés de React Query para `/play/[gameId]` con lo ya cargado en el RSC de la home
  * (navegación instantánea para usuarios logueados).
+ * Incluye partidas completadas con resumen RSC (guesses vacíos hasta el refetch; `staleTime: 0` en la query).
  */
 export function primePlayQueriesFromHomeInitialData(
   queryClient: QueryClient,
@@ -688,7 +690,6 @@ export function primePlayQueriesFromHomeInitialData(
     userId: string | null;
     prefetchedGamesById: Record<string, GameWithSong>;
     inProgressByGameId?: Record<string, InProgressProgress>;
-    /** Reservados para la firma (HomeClient); el progreso completado no se hidrata aquí sin intentos. */
     todaysGame: GameWithSong | null;
     todaysCompletedResult: TodaysCompletedResult | null;
     previousDays: PreviousDayGame[];
@@ -719,9 +720,104 @@ export function primePlayQueriesFromHomeInitialData(
     });
   }
 
-  // No hidratar partidas completadas aquí: solo tenemos puntuación/resumen en RSC, no la lista de
-  // intentos. Rellenar la caché con guesses:[] hacía que useGameProgressById quedara «fresco» 60s
-  // sin refetch y el detalle del juego no mostraba intentos previos.
+  const { todaysGame, todaysCompletedResult, previousDays } = input;
+
+  /** Partida de hoy completada: seed con resumen RSC; lista de intentos llega en el refetch (staleTime 0). */
+  if (todaysGame && todaysCompletedResult) {
+    const gameId = todaysGame.id;
+    const existing = queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(gameId)
+    );
+    if (
+      existing?.progress?.phase === "playing" &&
+      (existing.progress.guesses?.length ?? 0) > 0
+    ) {
+      /* Hay partida en curso más rica en caché (p. ej. tras jugar). */
+    } else if (
+      (existing?.progress?.phase === "won" || existing?.progress?.phase === "lost") &&
+      (existing?.progress?.guesses?.length ?? 0) > 0
+    ) {
+      /* Ya hay resultado completo (p. ej. tras refetch). */
+    } else {
+      queryClient.setQueryData(queryKeys.game.progress(gameId), {
+        progress: completionToGameProgress(
+          gameId,
+          todaysGame.date,
+          todaysCompletedResult.won,
+          todaysCompletedResult.score,
+          {
+            title: todaysCompletedResult.title,
+            artist_name: todaysCompletedResult.artist_name,
+            cover_url: todaysCompletedResult.cover_url,
+          },
+          [],
+          undefined
+        ),
+      });
+    }
+  }
+
+  for (const day of previousDays) {
+    if (!day.played) continue;
+    const gameId = day.id;
+    const existing = queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(gameId)
+    );
+    if (
+      existing?.progress?.phase === "playing" &&
+      (existing.progress.guesses?.length ?? 0) > 0
+    ) {
+      continue;
+    }
+    if (
+      (existing?.progress?.phase === "won" || existing?.progress?.phase === "lost") &&
+      (existing?.progress?.guesses?.length ?? 0) > 0
+    ) {
+      continue;
+    }
+    queryClient.setQueryData(queryKeys.game.progress(gameId), {
+      progress: completionToGameProgress(
+        gameId,
+        day.date,
+        day.won,
+        day.score,
+        {
+          title: day.title,
+          artist_name: day.artist_name,
+          cover_url: day.cover_url,
+        },
+        [],
+        undefined
+      ),
+    });
+  }
+
+  const playedOrInProgressIds = new Set<string>(Object.keys(inProgressByGameId ?? {}));
+  if (todaysGame && todaysCompletedResult) {
+    playedOrInProgressIds.add(todaysGame.id);
+  }
+  for (const day of previousDays) {
+    if (day.played) {
+      playedOrInProgressIds.add(day.id);
+    }
+  }
+
+  for (const gameId of Object.keys(prefetchedGamesById)) {
+    if (playedOrInProgressIds.has(gameId)) continue;
+    const existing = queryClient.getQueryData<GameProgressData>(
+      queryKeys.game.progress(gameId)
+    );
+    if (
+      existing?.progress?.phase === "playing" &&
+      (existing.progress.guesses?.length ?? 0) > 0
+    ) {
+      continue;
+    }
+    if (existing?.progress?.phase === "won" || existing?.progress?.phase === "lost") {
+      continue;
+    }
+    queryClient.setQueryData(queryKeys.game.progress(gameId), { progress: null });
+  }
 }
 
 /**

@@ -7,6 +7,10 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const nextConfig: NextConfig = {
   // TODO: Corregir errores TS preexistentes (document, window, EventTarget) y eliminar
   typescript: { ignoreBuildErrors: true },
+  experimental: {
+    /** View Transitions API (React + navegación); refuerza transiciones fluidas en rutas compatibles. */
+    viewTransition: true,
+  },
   images: {
     remotePatterns: [
       {

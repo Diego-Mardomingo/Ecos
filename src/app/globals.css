@@ -135,3 +135,12 @@
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
+
+/* View Transitions API — transiciones suaves entre rutas (Chrome / Safari recientes) */
+@supports (view-transition-name: none) {
+  ::view-transition-old(ecos-main),
+  ::view-transition-new(ecos-main) {
+    animation-duration: 220ms;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
