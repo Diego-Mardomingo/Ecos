@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { HomeClient } from "@/components/home/HomeClient";
+import { HomeSkeleton } from "@/components/skeletons";
 import {
   getTodaysGameCached,
   getPreviousDaysCached,
@@ -12,7 +14,7 @@ import { getUserDashboardStats } from "@/lib/queries/users";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
+async function HomePageContent() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -68,5 +70,13 @@ export default async function HomePage() {
         prefetchedGamesById,
       }}
     />
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<HomeSkeleton />}>
+      <HomePageContent />
+    </Suspense>
   );
 }
