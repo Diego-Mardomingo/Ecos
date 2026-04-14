@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { useTranslations } from "next-intl";
-import { Link, useRouter } from "@/i18n/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
+import { localizedPath } from "@/lib/i18n/localizedPath";
 import { createClient } from "@/lib/supabase/client";
 import { useUpdateProfileMutation } from "@/lib/hooks/queries";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -27,7 +28,7 @@ interface Props {
 
 export function EditProfileClient({ profile }: Props) {
   const t = useTranslations("profile.editProfilePage");
-  const router = useRouter();
+  const locale = useLocale();
   const updateProfile = useUpdateProfileMutation();
 
   const [username, setUsername] = useState(profile.username ?? profile.display_name ?? "");
@@ -89,7 +90,7 @@ export function EditProfileClient({ profile }: Props) {
       },
       {
         onSuccess: () => {
-          router.push("/profile");
+          window.location.assign(localizedPath(locale, "/profile"));
         },
         onError: (err) => {
           if (err instanceof Error && err.message === "username_taken") {

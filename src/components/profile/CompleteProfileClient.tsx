@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { useUpdateProfileMutation } from "@/lib/hooks/queries";
+import { localizedPath, safeRelativeInternalPath } from "@/lib/i18n/localizedPath";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -12,9 +13,13 @@ const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
 
 export function CompleteProfileClient() {
   const t = useTranslations("profile.completeProfile");
-  const router = useRouter();
+  const locale = useLocale();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") ?? "/profile";
+  const defaultDest = localizedPath(locale, "/profile");
+  const redirectTo = safeRelativeInternalPath(
+    searchParams.get("redirect"),
+    defaultDest
+  );
   const updateProfile = useUpdateProfileMutation();
 
   const [username, setUsername] = useState("");
@@ -38,7 +43,8 @@ export function CompleteProfileClient() {
       { username: trimmed },
       {
         onSuccess: () => {
-          router.push(redirectTo);
+          /* Navegación completa: evita RSC/prefetch del App Router y caché del SW con datos previos al PATCH. */
+          window.location.assign(redirectTo);
         },
         onError: (err) => {
           if (err instanceof Error && err.message === "username_taken") {
