@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useTheme } from "next-themes";
-import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { format } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -34,9 +33,6 @@ interface Props {
   };
 }
 
-const SECTION_STAGGER = 0.05;
-const STATS_STAGGER = 0.035;
-
 export function ProfileClient({ initialData }: Props) {
   const profileUserId = initialData?.profile.id ?? null;
   const { data, isLoading, coreError, refetch } = useProfile(
@@ -57,7 +53,6 @@ export function ProfileClient({ initialData }: Props) {
   const t = useTranslations("profile");
   const tc = useTranslations("common");
   const { theme, setTheme } = useTheme();
-  const prefersReducedMotion = useReducedMotion();
   const [mounted, setMounted] = useState(false);
   const locale = useLocale();
 
@@ -91,75 +86,6 @@ export function ProfileClient({ initialData }: Props) {
   const memberSince = profile.created_at
     ? format(new Date(profile.created_at), "MMMM yyyy", { locale: dateFnsLocale })
     : "";
-
-  const pageVariants: Variants = prefersReducedMotion
-    ? {
-        hidden: { opacity: 1 },
-        visible: { opacity: 1 },
-      }
-    : {
-        hidden: { opacity: 0 },
-        visible: {
-          opacity: 1,
-          transition: {
-            when: "beforeChildren",
-            staggerChildren: SECTION_STAGGER,
-          },
-        },
-      };
-
-  const sectionVariants: Variants = prefersReducedMotion
-    ? {
-        hidden: { opacity: 1, y: 0 },
-        visible: { opacity: 1, y: 0 },
-      }
-    : {
-        hidden: { opacity: 0, y: 4, scale: 0.992 },
-        visible: {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          transition: {
-            type: "spring",
-            stiffness: 250,
-            damping: 30,
-            mass: 0.85,
-          },
-        },
-      };
-
-  const statsGridVariants: Variants = prefersReducedMotion
-    ? {
-        hidden: { opacity: 1 },
-        visible: { opacity: 1 },
-      }
-    : {
-        hidden: { opacity: 0 },
-        visible: {
-          opacity: 1,
-          transition: { staggerChildren: STATS_STAGGER },
-        },
-      };
-
-  const statItemVariants: Variants = prefersReducedMotion
-    ? {
-        hidden: { opacity: 1, y: 0, scale: 1 },
-        visible: { opacity: 1, y: 0, scale: 1 },
-      }
-    : {
-        hidden: { opacity: 0, y: 8, scale: 0.97 },
-        visible: {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          transition: {
-            type: "spring",
-            stiffness: 290,
-            damping: 31,
-            mass: 0.8,
-          },
-        },
-      };
 
   const statCards = [
     {
@@ -211,25 +137,14 @@ export function ProfileClient({ initialData }: Props) {
   ] as const;
 
   return (
-    <motion.div
-      className="flex min-h-full flex-col gap-5 px-4 pb-28"
-      initial="hidden"
-      animate="visible"
-      variants={pageVariants}
-    >
+    <div className="flex min-h-full flex-col gap-5 px-4 pb-28">
       {/* Header */}
-      <motion.header
-        className="py-3 text-center text-base font-bold"
-        variants={sectionVariants}
-      >
+      <header className="py-3 text-center text-base font-bold">
         {t("title")}
-      </motion.header>
+      </header>
 
       {/* Avatar + info */}
-      <motion.section
-        className="flex flex-col items-center gap-3 py-4"
-        variants={sectionVariants}
-      >
+      <section className="flex flex-col items-center gap-3 py-4">
         <Avatar className="h-24 w-24 ring-2 ring-brand/40">
           <AvatarImage src={profile.avatar_url} />
           <AvatarFallback className="bg-secondary text-2xl font-bold">
@@ -244,48 +159,33 @@ export function ProfileClient({ initialData }: Props) {
             </p>
           )}
           <div className="mt-2 flex flex-col items-center gap-1">
-            <motion.span
-              className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-0.5 text-xs font-semibold text-sky-500"
-              animate={
-                prefersReducedMotion
-                  ? undefined
-                  : { rotate: [0, -1, 1, 0], scale: [1, 1.015, 1] }
-              }
-              transition={
-                prefersReducedMotion
-                  ? undefined
-                  : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }
-              }
-            >
+            <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-0.5 text-xs font-semibold text-sky-500">
               <span className="material-symbols-outlined"
                 style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}>
                 volunteer_activism
               </span>
               {t("earlySupporterBadge")}
-            </motion.span>
+            </span>
             <p className="max-w-xs text-center text-xs text-muted-foreground">
               {t("earlySupporterExplanation")}
             </p>
           </div>
         </div>
-      </motion.section>
+      </section>
 
       {/* Estadísticas: % aciertos, Adivinadas, Completadas, Intentos avg, Racha actual, Racha máx. */}
-      <motion.section
-        className="grid grid-cols-3 gap-2"
-        variants={statsGridVariants}
-      >
+      <section className="grid grid-cols-3 gap-2">
         {statCards.map((card) => (
-          <motion.div key={card.icon} variants={statItemVariants}>
+          <div key={card.icon}>
             <StatBlock {...card} />
-          </motion.div>
+          </div>
         ))}
-      </motion.section>
+      </section>
 
       {/* Ajustes */}
-      <motion.section className="space-y-4" variants={sectionVariants}>
+      <section className="space-y-4">
         {/* App Settings */}
-        <motion.div variants={sectionVariants}>
+        <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t("settings.appSettings")}
           </p>
@@ -329,10 +229,10 @@ export function ProfileClient({ initialData }: Props) {
               <ToggleSwitch defaultChecked />
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* Account */}
-        <motion.div variants={sectionVariants}>
+        <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t("settings.account")}
           </p>
@@ -376,9 +276,9 @@ export function ProfileClient({ initialData }: Props) {
               <span className="flex-1 text-left text-sm font-medium">{t("settings.logOut")}</span>
             </button>
           </div>
-        </motion.div>
-      </motion.section>
-    </motion.div>
+        </div>
+      </section>
+    </div>
   );
 }
 
