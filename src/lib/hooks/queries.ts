@@ -481,16 +481,33 @@ export function primeHomeDayStatusCache(
       }
     }
 
-    const status: HomeDayStatusData = {
-      gameId: day.id,
-      played: day.played,
-      won: day.won,
-      score: day.score,
-      title: day.title,
-      artist_name: day.artist_name,
-      cover_url: day.cover_url,
-      inProgress: resolvedInProgress,
-    };
+    /**
+     * Protege contra downgrade por payload mensual stale:
+     * si ya teníamos este día como completado y entra "no jugado", mantener completado.
+     */
+    const keepExistingCompletion = Boolean(existing?.played && !day.played);
+
+    const status: HomeDayStatusData = keepExistingCompletion
+      ? {
+          gameId: day.id,
+          played: true,
+          won: existing?.won ?? day.won,
+          score: existing?.score ?? day.score,
+          title: existing?.title ?? day.title,
+          artist_name: existing?.artist_name ?? day.artist_name,
+          cover_url: existing?.cover_url ?? day.cover_url,
+          inProgress: null,
+        }
+      : {
+          gameId: day.id,
+          played: day.played,
+          won: day.won,
+          score: day.score,
+          title: day.title,
+          artist_name: day.artist_name,
+          cover_url: day.cover_url,
+          inProgress: resolvedInProgress,
+        };
     queryClient.setQueryData(queryKeys.home.dayStatus(day.id), status);
   }
 }

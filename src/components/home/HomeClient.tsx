@@ -158,7 +158,22 @@ function mergePreviousDays(
   if (incoming.length === 0) return current;
   const map = new Map<string, PreviousDayGame>();
   for (const day of current) map.set(day.id, day);
-  for (const day of incoming) map.set(day.id, day);
+  for (const day of incoming) {
+    const existing = map.get(day.id);
+    if (!existing) {
+      map.set(day.id, day);
+      continue;
+    }
+    /**
+     * Evita downgrade visual por snapshots stale:
+     * si ya estaba completado y llega un bloque "sin empezar", conservamos completado.
+     */
+    if (existing.played && !day.played) {
+      map.set(day.id, existing);
+      continue;
+    }
+    map.set(day.id, day);
+  }
   return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
