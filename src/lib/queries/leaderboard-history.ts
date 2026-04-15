@@ -1,3 +1,4 @@
+import { getEffectiveGameDate } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 
 export type LeaderboardHistoryGranularity = "weekly" | "monthly";
@@ -31,7 +32,7 @@ export async function getLeaderboardPeriodSummaries(
     return [];
   }
 
-  return (data ?? []).map(
+  const rows: LeaderboardPeriodSummaryRow[] = (data ?? []).map(
     (r: {
       period_start: string;
       period_end: string;
@@ -49,4 +50,9 @@ export async function getLeaderboardPeriodSummaries(
       winner_avatar_url: r.winner_avatar_url,
     })
   );
+
+  if (granularity !== "monthly") return rows;
+
+  const currentMonthKey = getEffectiveGameDate().slice(0, 7);
+  return rows.filter((r) => r.period_start.slice(0, 7) < currentMonthKey);
 }
