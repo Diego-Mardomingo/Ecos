@@ -40,7 +40,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { artistsMatch } from "@/lib/artist-match";
-import { useGameStore, type GuessEntry, type GamePhase } from "@/lib/store/gameStore";
+import {
+  ATTEMPT_DURATIONS,
+  useGameStore,
+  type GuessEntry,
+  type GamePhase,
+} from "@/lib/store/gameStore";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
@@ -548,7 +553,11 @@ export function GameClient({ game, userId }: Props) {
   useLayoutEffect(() => {
     lastServerSyncRef.current = null;
     setLoadedProgress(getProgress(game.id) ?? null);
-  }, [game.id, getProgress]);
+    if (gameId !== game.id) {
+      // Evita mostrar estado residual del juego previo mientras se resuelve progreso real.
+      startGame(game.id, game.date);
+    }
+  }, [game.id, game.date, gameId, getProgress, startGame]);
 
   // Bootstrap inmediato desde caché local para no bloquear con skeleton (se repite por cada `game.id`).
   useEffect(() => {
@@ -572,6 +581,10 @@ export function GameClient({ game, userId }: Props) {
     }
 
     if (!isGuest && !hasLocalDecisiveProgress) {
+      if (gameId !== game.id || phase === "idle") {
+        startGame(game.id, game.date);
+      }
+      setLoadedProgress(null);
       return;
     }
 
@@ -669,6 +682,14 @@ export function GameClient({ game, userId }: Props) {
     startGame,
   ]);
 
+  const isStoreGameAligned = gameId === game.id;
+  const effectivePhase: GamePhase = isStoreGameAligned ? phase : "idle";
+  const effectiveCurrentAttempt = isStoreGameAligned ? currentAttempt : 1;
+  const effectiveGuesses = isStoreGameAligned ? guesses : [];
+  const effectiveAudioDuration = isStoreGameAligned ? audioDuration : ATTEMPT_DURATIONS[0];
+  const effectiveFinalScore = isStoreGameAligned ? finalScore : null;
+  const effectiveCorrectAttempt = isStoreGameAligned ? correctAttempt : null;
+
   useEffect(() => {
     if (isGuest || hasLocalDecisiveProgress) return;
     if (!isServerProgressError) return;
@@ -689,7 +710,7 @@ export function GameClient({ game, userId }: Props) {
 
   const handleGuess = useCallback(
     (song: EcosSong) => {
-      if (phase !== "playing") return;
+      if (effectivePhase !== "playing") return;
       if (!isGuest && syncInFlightRef.current) return;
 
       const guessText = `${song.title} - ${song.artist_name}`;
@@ -719,13 +740,13 @@ export function GameClient({ game, userId }: Props) {
         const guessEntry = {
           text: guessText,
           correct: true,
-          attemptNumber: currentAttempt,
+          attemptNumber: effectiveCurrentAttempt,
         };
         addGuess(guessEntry);
 
         if (isGuest) {
-          const { totalPoints } = calculateScore(currentAttempt, 0);
-          setWon(currentAttempt, totalPoints);
+          const { totalPoints } = calculateScore(effectiveCurrentAttempt, 0);
+          setWon(effectiveCurrentAttempt, totalPoints);
           saveProgress({
             gameId: game.id,
             gameDate: game.date,
@@ -737,12 +758,12 @@ export function GameClient({ game, userId }: Props) {
             cover_url: game.ecos_songs.cover_url ?? undefined,
             guesses: useGameStore.getState().guesses,
             phase: "won",
-            correctAttempt: currentAttempt,
+            correctAttempt: effectiveCurrentAttempt,
           });
         } else {
           syncInFlightRef.current = true;
-          const optimisticScore = calculateScore(currentAttempt, 0).totalPoints;
-          setWon(currentAttempt, optimisticScore);
+          const optimisticScore = calculateScore(effectiveCurrentAttempt, 0).totalPoints;
+          setWon(effectiveCurrentAttempt, optimisticScore);
 
           void (async () => {
             try {
@@ -758,7 +779,7 @@ export function GameClient({ game, userId }: Props) {
                 request: {
                   gameId: game.id,
                   userId: userId!,
-                  attemptNumber: currentAttempt,
+                  attemptNumber: effectiveCurrentAttempt,
                   guessText,
                   songId: song.id,
                   guessArtistName: song.artist_name,
@@ -772,13 +793,13 @@ export function GameClient({ game, userId }: Props) {
                   completedProgress: {
                     gameDate: game.date,
                     guesses: [...useGameStore.getState().guesses],
-                    correctAttempt: currentAttempt,
+                        correctAttempt: effectiveCurrentAttempt,
                   },
                 },
               });
               const serverPoints = data.totalPoints ?? optimisticScore;
               if (serverPoints !== optimisticScore) {
-                setWon(currentAttempt, serverPoints);
+                setWon(effectiveCurrentAttempt, serverPoints);
               }
               saveProgress({
                 gameId: game.id,
@@ -791,7 +812,7 @@ export function GameClient({ game, userId }: Props) {
                 cover_url: game.ecos_songs.cover_url ?? undefined,
                 guesses: useGameStore.getState().guesses,
                 phase: "won",
-                correctAttempt: currentAttempt,
+                correctAttempt: effectiveCurrentAttempt,
               });
             } catch (error) {
               toast.error(error instanceof Error ? error.message : t("saveResultError"));
@@ -810,10 +831,10 @@ export function GameClient({ game, userId }: Props) {
             correct: false,
             correctArtist,
             correctAlbum,
-            attemptNumber: currentAttempt,
+            attemptNumber: effectiveCurrentAttempt,
           };
           addGuess(guessEntry);
-          const lostNow = currentAttempt >= maxAttempts;
+          const lostNow = effectiveCurrentAttempt >= maxAttempts;
           if (lostNow) {
             setLost();
           }
@@ -833,12 +854,12 @@ export function GameClient({ game, userId }: Props) {
                 request: {
                   gameId: game.id,
                   userId: userId!,
-                  attemptNumber: currentAttempt,
+                  attemptNumber: effectiveCurrentAttempt,
                   guessText,
                   songId: song.id,
                   guessArtistName: song.artist_name,
                   guessAlbumTitle: song.album_title ?? undefined,
-                  finalize: currentAttempt >= maxAttempts,
+                  finalize: effectiveCurrentAttempt >= maxAttempts,
                 },
                 optimistic: lostNow
                   ? {
@@ -903,11 +924,11 @@ export function GameClient({ game, userId }: Props) {
           correct: false,
           correctArtist,
           correctAlbum,
-          attemptNumber: currentAttempt,
+          attemptNumber: effectiveCurrentAttempt,
         };
         addGuess(guessEntry);
 
-        if (currentAttempt >= maxAttempts) {
+        if (effectiveCurrentAttempt >= maxAttempts) {
           setLost();
           saveProgress({
             gameId: game.id,
@@ -935,11 +956,11 @@ export function GameClient({ game, userId }: Props) {
       }
     },
     [
-      phase,
+      effectivePhase,
       game,
       userId,
       isGuest,
-      currentAttempt,
+      effectiveCurrentAttempt,
       maxAttempts,
       addGuess,
       setWon,
@@ -1002,8 +1023,8 @@ export function GameClient({ game, userId }: Props) {
   }
 
   const isResultView =
-    phase === "won" ||
-    phase === "lost" ||
+    effectivePhase === "won" ||
+    effectivePhase === "lost" ||
     (loadedProgress &&
       (loadedProgress.phase === "won" || loadedProgress.phase === "lost")) ||
     terminalFromAuthoritative !== null;
@@ -1011,40 +1032,40 @@ export function GameClient({ game, userId }: Props) {
   if (isResultView) {
     const loadedForResult = terminalFromAuthoritative ?? loadedProgress;
 
-    const localHasTerminalResult = phase === "won" || phase === "lost";
+    const localHasTerminalResult = effectivePhase === "won" || effectivePhase === "lost";
     const loadedHasTerminalResult =
       loadedForResult?.phase === "won" || loadedForResult?.phase === "lost";
     const loadedGuessesCount = loadedForResult?.guesses.length ?? 0;
-    const localGuessesCount = guesses.length;
+    const localGuessesCount = effectiveGuesses.length;
     const localResultLooksRicher =
       localHasTerminalResult &&
       (!loadedHasTerminalResult ||
         localGuessesCount > loadedGuessesCount ||
-        (phase === "won" &&
-          correctAttempt != null &&
+        (effectivePhase === "won" &&
+          effectiveCorrectAttempt != null &&
           (loadedForResult?.correctAttempt ?? null) == null));
     const useLocalResult = localResultLooksRicher;
 
     const resultPhase = useLocalResult
-      ? phase
+      ? effectivePhase
       : loadedForResult
         ? loadedForResult.phase
-        : phase;
+        : effectivePhase;
     const resultCorrectAttempt = useLocalResult
-      ? correctAttempt
+      ? effectiveCorrectAttempt
       : loadedForResult
         ? loadedForResult.correctAttempt ?? null
-        : correctAttempt;
+        : effectiveCorrectAttempt;
     const resultFinalScore = useLocalResult
-      ? finalScore
+      ? effectiveFinalScore
       : loadedForResult
         ? loadedForResult.score
-        : finalScore;
+        : effectiveFinalScore;
     const resultGuesses = useLocalResult
-      ? guesses
+      ? effectiveGuesses
       : loadedForResult
         ? loadedForResult.guesses
-        : guesses;
+        : effectiveGuesses;
 
     return (
       <ResultGameView
@@ -1092,7 +1113,7 @@ export function GameClient({ game, userId }: Props) {
           type="button"
           onClick={() => {
             gameAudioPlayerRef.current?.stopIfPlaying();
-            if (phase !== "playing") return;
+            if (effectivePhase !== "playing") return;
             if (!isGuest && syncInFlightRef.current) return;
 
             if (!isGuest && userId) {
@@ -1101,8 +1122,12 @@ export function GameClient({ game, userId }: Props) {
               lastSkipTapAtRef.current = now;
 
               syncInFlightRef.current = true;
-              const lostNow = currentAttempt >= maxAttempts;
-              addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
+              const lostNow = effectiveCurrentAttempt >= maxAttempts;
+              addGuess({
+                text: "skipped",
+                correct: false,
+                attemptNumber: effectiveCurrentAttempt,
+              });
               if (lostNow) {
                 setLost();
               }
@@ -1118,7 +1143,10 @@ export function GameClient({ game, userId }: Props) {
                       artist_name: game.ecos_songs.artist_name,
                       cover_url: game.ecos_songs.cover_url,
                     },
-                    request: { gameId: game.id, attemptNumber: currentAttempt },
+                    request: {
+                      gameId: game.id,
+                      attemptNumber: effectiveCurrentAttempt,
+                    },
                     optimistic: lostNow
                       ? {
                           type: "completion",
@@ -1167,8 +1195,12 @@ export function GameClient({ game, userId }: Props) {
             if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
             lastSkipTapAtRef.current = now;
 
-            addGuess({ text: "skipped", correct: false, attemptNumber: currentAttempt });
-            if (currentAttempt >= maxAttempts) {
+            addGuess({
+              text: "skipped",
+              correct: false,
+              attemptNumber: effectiveCurrentAttempt,
+            });
+            if (effectiveCurrentAttempt >= maxAttempts) {
               setLost();
               const finalGuesses = useGameStore.getState().guesses;
               saveProgress({
@@ -1208,19 +1240,19 @@ export function GameClient({ game, userId }: Props) {
 
       <PlayingGameAudioSection
         game={game}
-        audioDuration={audioDuration}
-        guesses={guesses}
+        audioDuration={effectiveAudioDuration}
+        guesses={effectiveGuesses}
         maxAttempts={maxAttempts}
         isGuest={isGuest}
         playerRef={gameAudioPlayerRef}
       >
         <GuessInput
           onGuess={handleGuess}
-          disabled={phase !== "playing"}
-          alreadyGuessedTexts={guesses.map((g) => g.text)}
+          disabled={effectivePhase !== "playing"}
+          alreadyGuessedTexts={effectiveGuesses.map((g) => g.text)}
         />
-        {guesses.length > 0 && (
-          <PreviousAttempts guesses={guesses} />
+        {effectiveGuesses.length > 0 && (
+          <PreviousAttempts guesses={effectiveGuesses} />
         )}
       </PlayingGameAudioSection>
       </div>

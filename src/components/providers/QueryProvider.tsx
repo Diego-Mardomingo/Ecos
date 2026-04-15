@@ -6,7 +6,7 @@ import { QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createQueryClient } from "@/lib/createQueryClient";
-import { shouldPersistQuery } from "@/lib/queryPersist";
+import { QUERY_CACHE_STORAGE_KEY, shouldPersistQuery } from "@/lib/queryPersist";
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
@@ -35,7 +35,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
     if (!persistReady || typeof window === "undefined") return null;
     return createSyncStoragePersister({
       storage: window.localStorage,
-      key: "ecos-query-cache",
+      key: QUERY_CACHE_STORAGE_KEY,
     });
   }, [persistReady]);
 

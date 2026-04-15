@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion, type Variants } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -26,6 +26,8 @@ import {
   useHomeToday,
   useHomePreviousDays,
   useHomeUserStats,
+  fetchHomeDayStatusById,
+  fetchHomeUserStatsData,
   prefetchGameById,
   prefetchGameProgressById,
   prefetchHomeDayStatusById,
@@ -89,6 +91,7 @@ import {
   type PlaySkeletonVariant,
 } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
+import { consumeHomeSyncSignal } from "@/lib/consistencySync";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
 const ABOUT_HOW_TO_PLAY_ICONS = [
@@ -217,6 +220,8 @@ interface Props {
 
 /** Alineado con `duration-200` del Dialog; evita flash del formulario durante la animación de cierre. */
 const REPORT_FEEDBACK_DIALOG_EXIT_MS = 250;
+const HOME_SECTION_STAGGER = 0.035;
+const HOME_DENSE_STAGGER = 0.024;
 
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
@@ -271,6 +276,35 @@ export function HomeClient({ initialData }: Props) {
     isPending: isPreviousDaysPending,
     refetch: refetchPreviousDays,
   } = useHomePreviousDays(currentMonthKey, cacheUserId, initialPreviousDaysData);
+
+  useEffect(() => {
+    const signal = consumeHomeSyncSignal(cacheUserId);
+    if (!signal) return;
+
+    const tasks: Array<Promise<unknown>> = [
+      refetchToday(),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.home.dayStatus(signal.gameId),
+        queryFn: () => fetchHomeDayStatusById(signal.gameId),
+        staleTime: 0,
+      }),
+    ];
+
+    if (signal.event === "gameCompleted") {
+      tasks.push(refetchPreviousDays());
+      if (cacheUserId) {
+        tasks.push(
+          queryClient.fetchQuery({
+            queryKey: queryKeys.home.userStats(cacheUserId),
+            queryFn: fetchHomeUserStatsData,
+            staleTime: 0,
+          })
+        );
+      }
+    }
+
+    void Promise.allSettled(tasks);
+  }, [cacheUserId, queryClient, refetchPreviousDays, refetchToday]);
 
   const resolvedUserId =
     todayData?.userId ??
@@ -743,6 +777,7 @@ export function HomeClient({ initialData }: Props) {
   const tc = useTranslations("common");
   const howToPlaySteps = t.raw("howToPlayStepsList") as { title: string; desc: string }[];
   const locale = useLocale();
+  const prefersReducedMotion = useReducedMotion();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const { byGameId, saveProgress } = useGameProgressStore();
 
@@ -921,12 +956,61 @@ export function HomeClient({ initialData }: Props) {
   const headerActionButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[415px]:h-9 min-[415px]:w-auto min-[415px]:max-w-[min(100%,11rem)] min-[415px]:justify-start min-[415px]:gap-1.5 min-[415px]:px-2.5 min-[415px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+  const homePageVariants: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1 },
+        visible: { opacity: 1 },
+      }
+    : {
+        hidden: { opacity: 0 },
+        visible: {
+          opacity: 1,
+          transition: {
+            when: "beforeChildren",
+            staggerChildren: HOME_SECTION_STAGGER,
+          },
+        },
+      };
+
+  const homeBlockReveal: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1, y: 0 },
+        visible: { opacity: 1, y: 0 },
+      }
+    : {
+        hidden: { opacity: 0, y: 6 },
+        visible: {
+          opacity: 1,
+          y: 0,
+          transition: { duration: 0.17, ease: [0.22, 1, 0.36, 1] },
+        },
+      };
+
+  const homeDenseStagger: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1 },
+        visible: { opacity: 1 },
+      }
+    : {
+        hidden: { opacity: 1 },
+        visible: {
+          opacity: 1,
+          transition: { staggerChildren: HOME_DENSE_STAGGER },
+        },
+      };
+
   return (
-    <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
+    <motion.div
+      className="flex min-h-full flex-col gap-5 px-4 pb-6"
+      initial="hidden"
+      animate="visible"
+      variants={homePageVariants}
+    >
       {/* Header + Hero más compactos */}
-      <div className="flex flex-col gap-1">
-      <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
-        style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}>
+      <motion.div className="flex flex-col gap-1" variants={homeDenseStagger}>
+      <motion.header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
+        style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}
+        variants={homeBlockReveal}>
         <div className="flex min-w-0 flex-1 items-center gap-2 pr-2 sm:pr-3">
           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-brand/15 ring-1 ring-brand/30">
             <Image
@@ -1056,24 +1140,25 @@ export function HomeClient({ initialData }: Props) {
             </DialogContent>
           </Dialog>
         </div>
-      </header>
+      </motion.header>
 
       {/* Today's Challenge Hero */}
       <section>
-        <div className="mb-3 flex justify-center">
+        <motion.div className="mb-3 flex justify-center" variants={homeBlockReveal}>
           <Countdown
             t={t}
             onCountdownUnder10s={handleCountdownUnder10s}
             onCountdownZero={handleCountdownZero}
           />
-        </div>
+        </motion.div>
 
         {/* Contenedor estático: en iOS Safari, transform (p. ej. whileTap) en el mismo nodo que
             rounded + overflow-hidden rompe el recorte; el motion.div va dentro sin border-radius en el padre animado */}
-        <div
-          className="relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08]"
-          style={{ aspectRatio: "4/3" }}
-        >
+        <motion.div variants={homeBlockReveal}>
+          <div
+            className="relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08]"
+            style={{ aspectRatio: "4/3" }}
+          >
           <motion.div
             role="button"
             tabIndex={0}
@@ -1261,57 +1346,62 @@ export function HomeClient({ initialData }: Props) {
             </div>
           </div>
           </motion.div>
-        </div>
+          </div>
+        </motion.div>
       </section>
-      </div>
+      </motion.div>
 
       {/* Stats por período: carrusel Global / Semanal / Mensual (bucle infinito) */}
-      {userId && rankingStats ? (
-        <HomeStatsCarousel
-          rankingStats={rankingStats}
-          t={t}
-          tc={tc}
-          locale={locale}
-        />
-      ) : userId ? (
-        <section className="grid grid-cols-2 gap-3">
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-        </section>
-      ) : (
-        /* Invitado: CTA motivacional para registrarse */
-        <section>
-          <Link
-            href="/login"
-            className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 transition-colors active:bg-card/70"
-          >
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand/15">
-              <span
-                className="material-symbols-outlined text-xl text-brand"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                person_add
-              </span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
-              <p className="text-xs text-muted-foreground">
-                {t("guestBannerDescription")}
-              </p>
-            </div>
-            <span className="material-symbols-outlined text-brand">chevron_right</span>
-          </Link>
-        </section>
-      )}
+      <motion.div variants={homeBlockReveal}>
+        {userId && rankingStats ? (
+          <HomeStatsCarousel
+            rankingStats={rankingStats}
+            t={t}
+            tc={tc}
+            locale={locale}
+          />
+        ) : userId ? (
+          <section className="grid grid-cols-2 gap-3">
+            <Skeleton className="h-28 rounded-2xl" />
+            <Skeleton className="h-28 rounded-2xl" />
+          </section>
+        ) : (
+          /* Invitado: CTA motivacional para registrarse */
+          <section>
+            <Link
+              href="/login"
+              className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 transition-colors active:bg-card/70"
+            >
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand/15">
+                <span
+                  className="material-symbols-outlined text-xl text-brand"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  person_add
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("guestBannerDescription")}
+                </p>
+              </div>
+              <span className="material-symbols-outlined text-brand">chevron_right</span>
+            </Link>
+          </section>
+        )}
+      </motion.div>
 
       {/* Días anteriores */}
-      <PreviousDaysSection
-        previousDays={previousDays}
-        userId={userId}
-        inProgressByGameId={inProgressByGameId}
-        onNavigateToGame={markPlayNavigationStart}
-      />
-    </div>
+      <motion.div variants={homeBlockReveal}>
+        <PreviousDaysSection
+          previousDays={previousDays}
+          userId={userId}
+          inProgressByGameId={inProgressByGameId}
+          onNavigateToGame={markPlayNavigationStart}
+        />
+      </motion.div>
+    </motion.div>
   );
 }
 

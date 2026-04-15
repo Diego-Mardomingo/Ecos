@@ -11,17 +11,20 @@ import { queryKeys } from "@/lib/hooks/queries";
  * Si ecos_leaderboard es tabla (no vista), también escucha UPDATE.
  * Migración: ALTER PUBLICATION supabase_realtime ADD TABLE ecos_scores;
  */
-export function useLeaderboardRealtime(
-  _activePeriod: "weekly" | "monthly" | "global"
-) {
+export function useLeaderboardRealtime() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     const supabase = createClient();
-    const invalidate = () =>
-      queryClient.invalidateQueries({
+    const syncRanking = async () => {
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.ranking.all,
       });
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.ranking.all,
+        type: "active",
+      });
+    };
 
     const channel = supabase
       .channel("leaderboard-changes")
@@ -32,7 +35,9 @@ export function useLeaderboardRealtime(
           schema: "public",
           table: "ecos_scores",
         },
-        invalidate
+        () => {
+          void syncRanking();
+        }
       )
       .on(
         "postgres_changes",
@@ -41,7 +46,9 @@ export function useLeaderboardRealtime(
           schema: "public",
           table: "ecos_leaderboard",
         },
-        invalidate
+        () => {
+          void syncRanking();
+        }
       )
       .subscribe();
 

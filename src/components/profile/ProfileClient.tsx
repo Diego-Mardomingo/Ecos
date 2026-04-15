@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useTheme } from "next-themes";
-import { motion } from "framer-motion";
-import Image from "next/image";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { format } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -35,6 +34,9 @@ interface Props {
   };
 }
 
+const SECTION_STAGGER = 0.05;
+const STATS_STAGGER = 0.035;
+
 export function ProfileClient({ initialData }: Props) {
   const profileUserId = initialData?.profile.id ?? null;
   const { data, isLoading, coreError, refetch } = useProfile(
@@ -55,6 +57,7 @@ export function ProfileClient({ initialData }: Props) {
   const t = useTranslations("profile");
   const tc = useTranslations("common");
   const { theme, setTheme } = useTheme();
+  const prefersReducedMotion = useReducedMotion();
   const [mounted, setMounted] = useState(false);
   const locale = useLocale();
 
@@ -89,13 +92,144 @@ export function ProfileClient({ initialData }: Props) {
     ? format(new Date(profile.created_at), "MMMM yyyy", { locale: dateFnsLocale })
     : "";
 
+  const pageVariants: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1 },
+        visible: { opacity: 1 },
+      }
+    : {
+        hidden: { opacity: 0 },
+        visible: {
+          opacity: 1,
+          transition: {
+            when: "beforeChildren",
+            staggerChildren: SECTION_STAGGER,
+          },
+        },
+      };
+
+  const sectionVariants: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1, y: 0 },
+        visible: { opacity: 1, y: 0 },
+      }
+    : {
+        hidden: { opacity: 0, y: 4, scale: 0.992 },
+        visible: {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          transition: {
+            type: "spring",
+            stiffness: 250,
+            damping: 30,
+            mass: 0.85,
+          },
+        },
+      };
+
+  const statsGridVariants: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1 },
+        visible: { opacity: 1 },
+      }
+    : {
+        hidden: { opacity: 0 },
+        visible: {
+          opacity: 1,
+          transition: { staggerChildren: STATS_STAGGER },
+        },
+      };
+
+  const statItemVariants: Variants = prefersReducedMotion
+    ? {
+        hidden: { opacity: 1, y: 0, scale: 1 },
+        visible: { opacity: 1, y: 0, scale: 1 },
+      }
+    : {
+        hidden: { opacity: 0, y: 8, scale: 0.97 },
+        visible: {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          transition: {
+            type: "spring",
+            stiffness: 290,
+            damping: 31,
+            mass: 0.8,
+          },
+        },
+      };
+
+  const statCards = [
+    {
+      icon: "percent",
+      iconBg: "bg-blue-500/15",
+      iconColor: "text-blue-400",
+      value: stats?.games_played
+        ? `${Math.round(((stats?.games_won ?? 0) / stats.games_played) * 100)}%`
+        : "0%",
+      label: t("stats.hitRate"),
+    },
+    {
+      icon: "check_circle",
+      iconBg: "bg-green-500/15",
+      iconColor: "text-green-700 dark:text-green-400",
+      value: stats?.games_won ?? 0,
+      label: t("stats.guessed"),
+    },
+    {
+      icon: "flag",
+      iconBg: "bg-violet-500/15",
+      iconColor: "text-violet-400",
+      value: stats?.games_played ?? 0,
+      label: t("stats.completed"),
+    },
+    {
+      icon: "analytics",
+      iconBg: "bg-amber-500/15",
+      iconColor: "text-amber-400",
+      value: typeof stats?.avg_guesses === "number" ? stats.avg_guesses.toFixed(1) : "0",
+      label: t("stats.avgAttempts"),
+    },
+    {
+      icon: "local_fire_department",
+      iconBg: "bg-orange-500/15",
+      iconColor: "text-orange-400",
+      value: stats?.streak ?? 0,
+      label: t("stats.currentStreak"),
+      suffix: tc("days"),
+    },
+    {
+      icon: "whatshot",
+      iconBg: "bg-red-500/15",
+      iconColor: "text-red-400",
+      value: stats?.max_streak ?? 0,
+      label: t("stats.maxStreak"),
+      suffix: tc("days"),
+    },
+  ] as const;
+
   return (
-    <div className="flex min-h-full flex-col gap-5 px-4 pb-28">
+    <motion.div
+      className="flex min-h-full flex-col gap-5 px-4 pb-28"
+      initial="hidden"
+      animate="visible"
+      variants={pageVariants}
+    >
       {/* Header */}
-      <header className="py-3 text-center text-base font-bold">{t("title")}</header>
+      <motion.header
+        className="py-3 text-center text-base font-bold"
+        variants={sectionVariants}
+      >
+        {t("title")}
+      </motion.header>
 
       {/* Avatar + info */}
-      <section className="flex flex-col items-center gap-3 py-4">
+      <motion.section
+        className="flex flex-col items-center gap-3 py-4"
+        variants={sectionVariants}
+      >
         <Avatar className="h-24 w-24 ring-2 ring-brand/40">
           <AvatarImage src={profile.avatar_url} />
           <AvatarFallback className="bg-secondary text-2xl font-bold">
@@ -110,72 +244,48 @@ export function ProfileClient({ initialData }: Props) {
             </p>
           )}
           <div className="mt-2 flex flex-col items-center gap-1">
-            <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-0.5 text-xs font-semibold text-sky-500">
+            <motion.span
+              className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-0.5 text-xs font-semibold text-sky-500"
+              animate={
+                prefersReducedMotion
+                  ? undefined
+                  : { rotate: [0, -1, 1, 0], scale: [1, 1.015, 1] }
+              }
+              transition={
+                prefersReducedMotion
+                  ? undefined
+                  : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }
+              }
+            >
               <span className="material-symbols-outlined"
                 style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}>
                 volunteer_activism
               </span>
               {t("earlySupporterBadge")}
-            </span>
+            </motion.span>
             <p className="max-w-xs text-center text-xs text-muted-foreground">
               {t("earlySupporterExplanation")}
             </p>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Estadísticas: % aciertos, Adivinadas, Completadas, Intentos avg, Racha actual, Racha máx. */}
-      <section className="grid grid-cols-3 gap-2">
-        <StatBlock
-          icon="percent"
-          iconBg="bg-blue-500/15"
-          iconColor="text-blue-400"
-          value={stats?.games_played ? `${Math.round(((stats?.games_won ?? 0) / stats.games_played) * 100)}%` : "0%"}
-          label={t("stats.hitRate")}
-        />
-        <StatBlock
-          icon="check_circle"
-          iconBg="bg-green-500/15"
-          iconColor="text-green-700 dark:text-green-400"
-          value={stats?.games_won ?? 0}
-          label={t("stats.guessed")}
-        />
-        <StatBlock
-          icon="flag"
-          iconBg="bg-violet-500/15"
-          iconColor="text-violet-400"
-          value={stats?.games_played ?? 0}
-          label={t("stats.completed")}
-        />
-        <StatBlock
-          icon="analytics"
-          iconBg="bg-amber-500/15"
-          iconColor="text-amber-400"
-          value={typeof stats?.avg_guesses === "number" ? stats.avg_guesses.toFixed(1) : "0"}
-          label={t("stats.avgAttempts")}
-        />
-        <StatBlock
-          icon="local_fire_department"
-          iconBg="bg-orange-500/15"
-          iconColor="text-orange-400"
-          value={stats?.streak ?? 0}
-          label={t("stats.currentStreak")}
-          suffix={tc("days")}
-        />
-        <StatBlock
-          icon="whatshot"
-          iconBg="bg-red-500/15"
-          iconColor="text-red-400"
-          value={stats?.max_streak ?? 0}
-          label={t("stats.maxStreak")}
-          suffix={tc("days")}
-        />
-      </section>
+      <motion.section
+        className="grid grid-cols-3 gap-2"
+        variants={statsGridVariants}
+      >
+        {statCards.map((card) => (
+          <motion.div key={card.icon} variants={statItemVariants}>
+            <StatBlock {...card} />
+          </motion.div>
+        ))}
+      </motion.section>
 
       {/* Ajustes */}
-      <section className="space-y-4">
+      <motion.section className="space-y-4" variants={sectionVariants}>
         {/* App Settings */}
-        <div>
+        <motion.div variants={sectionVariants}>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t("settings.appSettings")}
           </p>
@@ -219,10 +329,10 @@ export function ProfileClient({ initialData }: Props) {
               <ToggleSwitch defaultChecked />
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Account */}
-        <div>
+        <motion.div variants={sectionVariants}>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t("settings.account")}
           </p>
@@ -266,9 +376,9 @@ export function ProfileClient({ initialData }: Props) {
               <span className="flex-1 text-left text-sm font-medium">{t("settings.logOut")}</span>
             </button>
           </div>
-        </div>
-      </section>
-    </div>
+        </motion.div>
+      </motion.section>
+    </motion.div>
   );
 }
 

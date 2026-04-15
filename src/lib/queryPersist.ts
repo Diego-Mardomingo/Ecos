@@ -1,10 +1,11 @@
 import type { Query } from "@tanstack/react-query";
 
+export const QUERY_CACHE_STORAGE_KEY = "ecos-query-cache";
+
 const PERSIST_PREFIXES = new Set([
   "home",
   "game",
   "game-progress",
-  "ranking",
   "profile",
 ]);
 

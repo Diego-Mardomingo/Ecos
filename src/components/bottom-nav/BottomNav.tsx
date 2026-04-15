@@ -23,6 +23,7 @@ import {
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { getMadridDate } from "@/lib/date-utils";
+import { hasRecentGameCompleted } from "@/lib/consistencySync";
 
 interface NavItem {
   href: string;
@@ -43,6 +44,7 @@ export function BottomNav() {
   const t = useTranslations("nav");
   const user = useAuthStore((s) => s.user);
   const { data } = useProfile(user?.id ?? null, undefined, { enabled: !!user });
+  const hasRecentCompletion = hasRecentGameCompleted(user?.id ?? null, 2 * 60 * 1000);
 
   // Normalizar pathname quitando el prefijo de locale (/en/... → /...)
   const normalizedPath = pathname.replace(/^\/(es|en)/, "") || "/";
@@ -92,29 +94,34 @@ export function BottomNav() {
                   void queryClient.prefetchQuery({
                     queryKey: queryKeys.home.today(uid),
                     queryFn: fetchHomeTodayData,
-                    staleTime: HOME_TODAY_STALE_MS,
+                    staleTime: hasRecentCompletion ? 0 : HOME_TODAY_STALE_MS,
                   });
                   void queryClient.prefetchQuery({
                     queryKey: queryKeys.home.previousDays(monthKey, uid),
                     queryFn: () => fetchHomePreviousDaysData(monthKey),
-                    staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+                    staleTime: hasRecentCompletion ? 0 : HOME_PREVIOUS_DAYS_STALE_MS,
                     gcTime: HOME_PREVIOUS_DAYS_GC_MS,
                   });
                   if (uid) {
                     void queryClient.prefetchQuery({
                       queryKey: queryKeys.home.userStats(uid),
                       queryFn: fetchHomeUserStatsData,
-                      staleTime: HOME_TODAY_STALE_MS,
+                      staleTime: hasRecentCompletion ? 0 : HOME_TODAY_STALE_MS,
                     });
                   }
                 }
 
                 if (item.href === "/ranking") {
+                  if (hasRecentCompletion) {
+                    void queryClient.invalidateQueries({
+                      queryKey: queryKeys.ranking.all,
+                    });
+                  }
                   for (const period of ["weekly", "monthly", "global"] as const) {
                     void queryClient.prefetchQuery({
                       queryKey: queryKeys.ranking.period(period),
                       queryFn: () => fetchLeaderboardPeriodData(period),
-                      staleTime: RANKING_STALE_MS,
+                      staleTime: hasRecentCompletion ? 0 : RANKING_STALE_MS,
                     });
                   }
                 }
@@ -128,7 +135,7 @@ export function BottomNav() {
                   void queryClient.prefetchQuery({
                     queryKey: queryKeys.profile.section("stats", user.id),
                     queryFn: fetchProfileStatsData,
-                    staleTime: PROFILE_STALE_MS,
+                    staleTime: hasRecentCompletion ? 0 : PROFILE_STALE_MS,
                   });
                 }
               }}

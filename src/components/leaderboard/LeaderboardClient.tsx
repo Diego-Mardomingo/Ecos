@@ -86,7 +86,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     initialByPeriod,
     initialData
   );
-  useLeaderboardRealtime(activeTab);
+  useLeaderboardRealtime();
   const entries = data?.entries ?? [];
 
   const lastUserIdRef = useRef<string | null>(null);

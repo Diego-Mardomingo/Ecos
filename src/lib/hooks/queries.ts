@@ -14,6 +14,10 @@ import type {
   TodaysCompletedResult,
 } from "@/lib/queries/games";
 import type { GameProgress } from "@/lib/store/gameProgressStore";
+import {
+  markHomeSyncSignal,
+  markRecentGameCompleted,
+} from "@/lib/consistencySync";
 
 export type { InProgressProgress, TodaysCompletedResult };
 import type { UserStats } from "@/lib/queries/users";
@@ -310,8 +314,11 @@ export function useHomeToday(
     queryFn: fetchHomeTodayData,
     initialData,
     staleTime: HOME_TODAY_STALE_MS,
-    /** Al remontar la home (p. ej. desde ranking), alinear con servidor tras intentos en /play. */
-    refetchOnMount: "always",
+    /**
+     * Refetch en montaje solo cuando está stale.
+     * Los casos críticos play->home se fuerzan con señal de sincronización dirigida.
+     */
+    refetchOnMount: true,
   });
 }
 
@@ -326,7 +333,11 @@ export function useHomePreviousDays(
     initialData,
     staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
     gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-    refetchOnMount: "always",
+    /**
+     * Refetch en montaje solo cuando está stale.
+     * Los casos críticos play->home se fuerzan con señal de sincronización dirigida.
+     */
+    refetchOnMount: true,
   });
 }
 
@@ -921,29 +932,40 @@ export async function syncQueriesAfterGameEvent(
 ) {
   const { userId, gameId, event } = input;
 
-  await queryClient.refetchQueries({
+  markHomeSyncSignal(userId, gameId, event);
+
+  await queryClient.fetchQuery({
     queryKey: queryKeys.game.progress(gameId),
+    queryFn: () => fetchGameProgressById(gameId),
+    staleTime: 0,
   });
-  await queryClient.refetchQueries({
+  await queryClient.fetchQuery({
     queryKey: queryKeys.home.dayStatus(gameId),
+    queryFn: () => fetchHomeDayStatusById(gameId),
+    staleTime: 0,
   });
 
   if (userId) {
-    await queryClient.refetchQueries({
+    await queryClient.fetchQuery({
       queryKey: queryKeys.home.today(userId),
+      queryFn: fetchHomeTodayData,
+      staleTime: 0,
     });
   }
 
   const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
   if (userId && monthKey) {
-    await queryClient.refetchQueries({
+    await queryClient.fetchQuery({
       queryKey: queryKeys.home.previousDays(monthKey, userId),
+      queryFn: () => fetchHomePreviousDaysData(monthKey),
+      staleTime: 0,
     });
   }
 
   patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
 
   if (event === "gameCompleted") {
+    markRecentGameCompleted(userId);
     trackQueryDiagnostic(queryKeys.ranking.all, "syncQueriesAfterGameEvent");
     trackQueryDiagnostic(queryKeys.profile.all, "syncQueriesAfterGameEvent");
     await Promise.all([
@@ -952,6 +974,23 @@ export async function syncQueriesAfterGameEvent(
       userId
         ? queryClient.invalidateQueries({
             queryKey: queryKeys.home.userStats(userId),
+          })
+        : Promise.resolve(),
+    ]);
+
+    await Promise.all([
+      queryClient.refetchQueries({
+        queryKey: queryKeys.ranking.all,
+        type: "active",
+      }),
+      queryClient.refetchQueries({
+        queryKey: queryKeys.profile.all,
+        type: "active",
+      }),
+      userId
+        ? queryClient.refetchQueries({
+            queryKey: queryKeys.home.userStats(userId),
+            type: "active",
           })
         : Promise.resolve(),
     ]);
@@ -1117,7 +1156,7 @@ export function useValidateGuessMutation() {
         context
       );
     },
-    onSettled: async (_data, _error, variables) => {
+    onSuccess: async (_data, variables) => {
       await invalidateAfterGameEvent(queryClient, {
         userId: variables.userId,
         gameId: variables.gameId,
@@ -1196,7 +1235,7 @@ export function useSkipAttemptMutation() {
         context
       );
     },
-    onSettled: async (_data, _error, variables) => {
+    onSuccess: async (_data, variables) => {
       await invalidateAfterGameEvent(queryClient, {
         userId: variables.userId,
         gameId: variables.gameId,

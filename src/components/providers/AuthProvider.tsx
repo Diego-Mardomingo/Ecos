@@ -5,7 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/lib/store/authStore";
-import { clearSessionScopedClientData } from "@/lib/auth/clearSessionScopedClientData";
+import {
+  clearSessionScopedClientData,
+  getCachedSessionUser,
+  syncCachedSessionUser,
+} from "@/lib/auth/clearSessionScopedClientData";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -18,13 +22,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const applyUserIdTransition = async (newUserId: string | null) => {
       if (prevUserIdRef.current === undefined) {
+        const cachedUserId = getCachedSessionUser();
+        if (cachedUserId !== newUserId) {
+          queryClient.clear();
+          clearSessionScopedClientData();
+        }
         prevUserIdRef.current = newUserId;
+        syncCachedSessionUser(newUserId);
         return;
       }
-      if (prevUserIdRef.current === newUserId) return;
+      if (prevUserIdRef.current === newUserId) {
+        syncCachedSessionUser(newUserId);
+        return;
+      }
       prevUserIdRef.current = newUserId;
       queryClient.clear();
       clearSessionScopedClientData();
+      syncCachedSessionUser(newUserId);
       await supabase.auth.getSession();
       router.refresh();
     };
