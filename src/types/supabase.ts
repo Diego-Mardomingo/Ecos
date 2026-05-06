@@ -161,6 +161,7 @@ export type Database = {
           avatar_url: string | null
           created_at: string | null
           display_name: string | null
+          notifications_modal_shown: boolean
           role: string | null
           show_avatar_in_rankings: boolean
           updated_at: string | null
@@ -171,6 +172,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string | null
           display_name?: string | null
+          notifications_modal_shown?: boolean
           role?: string | null
           show_avatar_in_rankings?: boolean
           updated_at?: string | null
@@ -181,11 +183,45 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string | null
           display_name?: string | null
+          notifications_modal_shown?: boolean
           role?: string | null
           show_avatar_in_rankings?: boolean
           updated_at?: string | null
           user_id?: string
           username?: string | null
+        }
+        Relationships: []
+      }
+      ecos_push_subscriptions: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          endpoint: string | null
+          id: string
+          notification_daily_game: boolean
+          subscription: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          endpoint?: string | null
+          id?: string
+          notification_daily_game?: boolean
+          subscription: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          endpoint?: string | null
+          id?: string
+          notification_daily_game?: boolean
+          subscription?: Json
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1274,4 +1310,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

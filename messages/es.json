@@ -315,5 +315,15 @@
     "attempt6": "100 puntos",
     "streakBonus": "Bonus racha",
     "totalScore": "Puntuación total"
+  },
+  "notifications": {
+    "modalTitle": "Activa las notificaciones",
+    "modalDescription": "Te avisaremos cuando salga el reto del día para que no se te escape ninguna canción.",
+    "modalToggleLabel": "Recibir notificaciones diarias",
+    "modalDismiss": "Ahora no",
+    "modalDone": "Listo",
+    "permissionDenied": "Permiso denegado en el navegador. Actívalo desde los ajustes del navegador.",
+    "enabledToast": "Notificaciones activadas",
+    "disabledToast": "Notificaciones desactivadas"
   }
 }

@@ -1,0 +1,39 @@
+# Notificacion push diaria a las 17:00 hora Madrid para usuarios que aun no
+# han completado el reto del dia. GitHub Actions solo entiende UTC, asi que
+# corremos a las 15:00 y 16:00 UTC y el script comprueba si en Madrid son las
+# 17:00 (cubre CEST y CET sin tocar nada cada cambio de hora).
+name: Daily Notifications
+
+on:
+  schedule:
+    - cron: "0 15 * * *"
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "Forzar envio aunque la hora no sea 17:00 Madrid"
+        required: false
+        default: "false"
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements-notifications.txt
+
+      - name: Send daily notifications
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          FORCE_RUN: ${{ inputs.force_run }}
+        run: python scripts/send-daily-notifications.py

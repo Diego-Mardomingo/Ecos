@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 import { Link } from "@/i18n/navigation";
 import { useTheme } from "next-themes";
 import { format } from "date-fns";
@@ -10,6 +11,7 @@ import { useLocale } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfile } from "@/lib/hooks/queries";
+import { useNotifications } from "@/lib/hooks/useNotifications";
 import type { UserStats } from "@/lib/queries/users";
 import { LanguageSelector } from "@/components/profile/LanguageSelector";
 import { cn } from "@/lib/utils";
@@ -52,9 +54,28 @@ export function ProfileClient({ initialData }: Props) {
 
   const t = useTranslations("profile");
   const tc = useTranslations("common");
+  const tn = useTranslations("notifications");
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const locale = useLocale();
+  const notifications = useNotifications({ enabled: true });
+
+  const handleToggleNotifications = async (next: boolean) => {
+    if (next) {
+      const success = await notifications.enable();
+      if (success) {
+        toast.success(tn("enabledToast"));
+      } else if (
+        typeof Notification !== "undefined" &&
+        Notification.permission === "denied"
+      ) {
+        toast.error(tn("permissionDenied"));
+      }
+    } else {
+      await notifications.disable();
+      toast.success(tn("disabledToast"));
+    }
+  };
 
   // Evitar hydration mismatch: el tema se lee de localStorage solo en el cliente
   useEffect(() => setMounted(true), []);
@@ -223,11 +244,17 @@ export function ProfileClient({ initialData }: Props) {
             <div className="mx-4 h-px bg-border" />
 
             {/* Notificaciones */}
-            <div className="flex items-center gap-3 px-4 py-3.5">
-              <span className="material-symbols-outlined text-xl text-brand">notifications</span>
-              <span className="flex-1 text-sm font-medium">{t("settings.notifications")}</span>
-              <ToggleSwitch defaultChecked />
-            </div>
+            {notifications.isSupported && (
+              <div className="flex items-center gap-3 px-4 py-3.5">
+                <span className="material-symbols-outlined text-xl text-brand">notifications</span>
+                <span className="flex-1 text-sm font-medium">{t("settings.notifications")}</span>
+                <ToggleSwitch
+                  checked={notifications.isEnabled}
+                  disabled={notifications.isLoading}
+                  onCheckedChange={(next) => void handleToggleNotifications(next)}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -319,11 +346,29 @@ function StatBlock({
   );
 }
 
-function ToggleSwitch({ defaultChecked = false }: { defaultChecked?: boolean }) {
+function ToggleSwitch({
+  checked,
+  defaultChecked = false,
+  disabled = false,
+  onCheckedChange,
+}: {
+  checked?: boolean;
+  defaultChecked?: boolean;
+  disabled?: boolean;
+  onCheckedChange?: (next: boolean) => void;
+}) {
+  const isControlled = checked !== undefined;
   return (
     <label className="relative inline-flex cursor-pointer items-center">
-      <input type="checkbox" className="peer sr-only" defaultChecked={defaultChecked} />
-      <div className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-brand peer-focus:ring-2 peer-focus:ring-brand/30" />
+      <input
+        type="checkbox"
+        className="peer sr-only"
+        {...(isControlled
+          ? { checked, onChange: (e) => onCheckedChange?.(e.target.checked) }
+          : { defaultChecked })}
+        disabled={disabled}
+      />
+      <div className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-brand peer-focus:ring-2 peer-focus:ring-brand/30 peer-disabled:opacity-60" />
       <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 peer-checked:translate-x-5" />
     </label>
   );

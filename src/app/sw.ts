@@ -101,3 +101,62 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+interface PushPayload {
+  title?: string;
+  body?: string;
+  url?: string;
+  tag?: string;
+  icon?: string;
+  badge?: string;
+}
+
+self.addEventListener("push", (event: PushEvent) => {
+  let payload: PushPayload = {};
+  try {
+    payload = event.data ? (event.data.json() as PushPayload) : {};
+  } catch {
+    payload = { body: event.data?.text() ?? "" };
+  }
+
+  const title = payload.title ?? "Ecos";
+  const options: NotificationOptions = {
+    body: payload.body ?? "Tu reto musical del día está esperándote.",
+    icon: payload.icon ?? "/ecos_icon_v2_192.png",
+    badge: payload.badge ?? "/ecos_favicon_v2_32.png",
+    tag: payload.tag ?? "ecos-daily-game",
+    data: { url: payload.url ?? "/" },
+    requireInteraction: false,
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event: NotificationEvent) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data?.url as string | undefined) ?? "/";
+
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const sameOrigin = allClients.find((client) => {
+        try {
+          return new URL(client.url).origin === self.location.origin;
+        } catch {
+          return false;
+        }
+      });
+      if (sameOrigin) {
+        await sameOrigin.focus();
+        if ("navigate" in sameOrigin) {
+          await sameOrigin.navigate(targetUrl).catch(() => undefined);
+        }
+        return;
+      }
+      await self.clients.openWindow(targetUrl);
+    })()
+  );
+});

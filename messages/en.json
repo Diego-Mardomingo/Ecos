@@ -315,5 +315,15 @@
     "attempt6": "100 points",
     "streakBonus": "Streak bonus",
     "totalScore": "Total score"
+  },
+  "notifications": {
+    "modalTitle": "Enable notifications",
+    "modalDescription": "We'll let you know when today's challenge is ready so you never miss a song.",
+    "modalToggleLabel": "Receive daily notifications",
+    "modalDismiss": "Not now",
+    "modalDone": "Done",
+    "permissionDenied": "Permission denied by the browser. Enable it from your browser settings.",
+    "enabledToast": "Notifications enabled",
+    "disabledToast": "Notifications disabled"
   }
 }
