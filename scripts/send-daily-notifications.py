@@ -106,7 +106,7 @@ def main() -> None:
         supabase.table("ecos_games")
         .select("id, game_number")
         .eq("date", today)
-        .maybeSingle()
+        .maybe_single()
         .execute()
     )
     game = r_game.data
