@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 
@@ -127,17 +128,26 @@ export function NotificationsModal() {
           <span className="flex-1 text-sm font-medium">
             {t("modalToggleLabel")}
           </span>
-          <ModalToggle
-            checked={isEnabled}
-            disabled={isLoading}
-            onCheckedChange={(next) => void handleToggle(next)}
-          />
+          <div className="flex shrink-0 items-center gap-2">
+            {isLoading ? (
+              <Loader2
+                className="size-4 animate-spin text-muted-foreground"
+                aria-hidden
+              />
+            ) : null}
+            <ModalToggle
+              checked={isEnabled}
+              disabled={isLoading}
+              onCheckedChange={(next) => void handleToggle(next)}
+            />
+          </div>
         </div>
 
         <DialogFooter className="mt-2 sm:justify-center">
           <Button
             type="button"
             variant="ghost"
+            disabled={isLoading}
             onClick={() => void handleClose()}
           >
             {isEnabled ? t("modalDone") : t("modalDismiss")}
