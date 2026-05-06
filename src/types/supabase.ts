@@ -161,6 +161,7 @@ export type Database = {
           avatar_url: string | null
           created_at: string | null
           display_name: string | null
+          notifications_modal_dismiss_count: number
           notifications_modal_shown: boolean
           role: string | null
           show_avatar_in_rankings: boolean
@@ -172,6 +173,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string | null
           display_name?: string | null
+          notifications_modal_dismiss_count?: number
           notifications_modal_shown?: boolean
           role?: string | null
           show_avatar_in_rankings?: boolean
@@ -183,6 +185,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string | null
           display_name?: string | null
+          notifications_modal_dismiss_count?: number
           notifications_modal_shown?: boolean
           role?: string | null
           show_avatar_in_rankings?: boolean

@@ -47,8 +47,11 @@ except ImportError:
 MADRID = ZoneInfo("Europe/Madrid")
 TARGET_HOUR_MADRID = 17
 
-NOTIFICATION_TITLE = "Tu reto ECOS de hoy"
-NOTIFICATION_BODY = "Aun no has jugado: descubre la cancion del dia."
+# El emoji va en título; el campo `icon` del sistema sigue siendo una URL (ver service worker).
+NOTIFICATION_TITLE = "\U0001f3a7 Tu reto ECOS de hoy"  # 🎧
+NOTIFICATION_BODY = (
+    "Aún no has completado la canción del día de hoy, ¡estás a tiempo! \U0001f644"
+)  # 🙄
 NOTIFICATION_URL = "/play"
 NOTIFICATION_TAG = "ecos-daily-game"
 
@@ -104,7 +107,7 @@ def main() -> None:
 
     r_game = (
         supabase.table("ecos_games")
-        .select("id, game_number")
+        .select("id")
         .eq("date", today)
         .maybe_single()
         .execute()
@@ -213,7 +216,6 @@ def main() -> None:
         {
             "target_date": today,
             "game_id": game_id,
-            "game_number": game.get("game_number"),
             "sent": sent,
             "expired": expired,
             "total_subscriptions": len(all_subs),

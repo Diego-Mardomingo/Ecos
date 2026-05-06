@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import {
@@ -17,10 +17,9 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 
 /**
- * Modal de bienvenida que aparece UNA sola vez por usuario logueado para
- * proponer activar notificaciones push. Una vez cerrado (acepte o no), no
- * vuelve a aparecer; el usuario podrá gestionar el estado desde el toggle del
- * perfil.
+ * Modal para proponer activar notificaciones push. Se puede cerrar sin activar
+ * hasta 3 veces; después no vuelve a mostrarse mientras las notificaciones
+ * sigan desactivadas.
  */
 export function NotificationsModal() {
   const user = useAuthStore((s) => s.user);
@@ -32,30 +31,33 @@ export function NotificationsModal() {
     isSupported,
     permission,
     isEnabled,
-    modalShown,
+    modalDismissCount,
+    modalPromptExhausted,
     isLoading,
     enable,
-    markModalSeen,
+    recordModalDismiss,
   } = useNotifications({ enabled: isAuthenticated });
 
   const [open, setOpen] = useState(false);
   const [statusLoaded, setStatusLoaded] = useState(false);
+  /** Si true, el próximo cierre del diálogo no incrementa el contador (p. ej. activación correcta). */
+  const skipNextDismissIncrement = useRef(false);
 
   useEffect(() => {
     if (!isSupported) {
       setStatusLoaded(true);
       return;
     }
-    if (modalShown) {
+    if (modalPromptExhausted || isEnabled) {
       setStatusLoaded(true);
     }
-  }, [isSupported, modalShown]);
+  }, [isSupported, modalPromptExhausted, isEnabled]);
 
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated || !isSupported) return;
-    if (modalShown) return;
+    if (modalPromptExhausted || isEnabled) return;
     if (permission === "denied") {
-      void markModalSeen();
+      void recordModalDismiss({ exhaust: true });
       return;
     }
     const timer = window.setTimeout(() => {
@@ -67,27 +69,22 @@ export function NotificationsModal() {
     isAuthLoading,
     isAuthenticated,
     isSupported,
-    modalShown,
+    modalPromptExhausted,
+    isEnabled,
     permission,
-    markModalSeen,
+    recordModalDismiss,
   ]);
-
-  const handleClose = async () => {
-    setOpen(false);
-    if (!modalShown) {
-      await markModalSeen();
-    }
-  };
 
   const handleToggle = async (next: boolean) => {
     if (!next) return;
     const success = await enable();
     if (success) {
+      skipNextDismissIncrement.current = true;
       toast.success(t("enabledToast"));
-      await handleClose();
+      setOpen(false);
     } else if (permission === "denied" || Notification.permission === "denied") {
       toast.error(t("permissionDenied"));
-      await handleClose();
+      setOpen(false);
     }
   };
 
@@ -97,8 +94,13 @@ export function NotificationsModal() {
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        setOpen(next);
         if (!next) {
-          void handleClose();
+          const skip = skipNextDismissIncrement.current;
+          skipNextDismissIncrement.current = false;
+          if (!skip) {
+            void recordModalDismiss();
+          }
         }
       }}
     >
@@ -138,7 +140,7 @@ export function NotificationsModal() {
             <ModalToggle
               checked={isEnabled}
               disabled={isLoading}
-              onCheckedChange={(next) => void handleToggle(next)}
+              onCheckedChange={(n) => void handleToggle(n)}
             />
           </div>
         </div>
@@ -148,7 +150,7 @@ export function NotificationsModal() {
             type="button"
             variant="ghost"
             disabled={isLoading}
-            onClick={() => void handleClose()}
+            onClick={() => setOpen(false)}
           >
             {isEnabled ? t("modalDone") : t("modalDismiss")}
           </Button>

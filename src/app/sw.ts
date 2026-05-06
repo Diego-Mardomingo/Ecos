@@ -119,9 +119,11 @@ self.addEventListener("push", (event: PushEvent) => {
     payload = { body: event.data?.text() ?? "" };
   }
 
-  const title = payload.title ?? "Ecos";
+  const title = payload.title ?? "\u{1F3A7} Ecos";
   const options: NotificationOptions = {
-    body: payload.body ?? "Tu reto musical del día está esperándote.",
+    body:
+      payload.body ??
+      "Aún no has completado la canción del día de hoy, ¡estás a tiempo! \u{1F644}",
     icon: payload.icon ?? "/ecos_icon_v2_192.png",
     badge: payload.badge ?? "/ecos_favicon_v2_32.png",
     tag: payload.tag ?? "ecos-daily-game",

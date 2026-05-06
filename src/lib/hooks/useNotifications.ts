@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+/** Máximo de veces que se puede cerrar el modal sin activar notificaciones; luego no se vuelve a mostrar. */
+export const NOTIFICATIONS_MODAL_MAX_DISMISSES = 3;
+
 interface PushStatusResponse {
-  modal_shown: boolean;
+  modal_dismiss_count: number;
   enabled: boolean;
   endpoints: string[];
 }
@@ -15,16 +18,21 @@ interface UseNotificationsReturn {
   permission: NotificationPermission | "unsupported";
   /** Hay una suscripción activa para este usuario en BD. */
   isEnabled: boolean;
-  /** El usuario ya ha visto el modal de bienvenida. */
-  modalShown: boolean;
+  /** Veces que el usuario ha cerrado el modal sin activar (0–3). A 3 no se vuelve a mostrar. */
+  modalDismissCount: number;
+  /** Ya no quedan intentos de mostrar el modal (≥3 cierres sin activar). */
+  modalPromptExhausted: boolean;
   /** Alguna operación en curso (subscribe / unsubscribe / fetch). */
   isLoading: boolean;
   /** Activar notificaciones: pide permiso, suscribe y guarda en BD. */
   enable: () => Promise<boolean>;
   /** Desactivar notificaciones: elimina la suscripción y desactiva en BD. */
   disable: () => Promise<void>;
-  /** Marca el modal como visto (para que no vuelva a aparecer). */
-  markModalSeen: () => Promise<void>;
+  /**
+   * Registra un cierre del modal sin activar notificaciones (+1 hasta 3).
+   * Con `{ exhaust: true }` fija el contador a 3 (p. ej. permiso denegado en el navegador).
+   */
+  recordModalDismiss: (options?: { exhaust?: boolean }) => Promise<void>;
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -62,7 +70,10 @@ export function useNotifications(options?: {
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [isEnabled, setIsEnabled] = useState(false);
-  const [modalShown, setModalShown] = useState(true);
+  /** Asumir agotado hasta cargar el perfil (evita flash del modal). */
+  const [modalDismissCount, setModalDismissCount] = useState(
+    NOTIFICATIONS_MODAL_MAX_DISMISSES
+  );
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -82,7 +93,12 @@ export function useNotifications(options?: {
       if (!res.ok) return;
       const data = (await res.json()) as PushStatusResponse;
       setIsEnabled(data.enabled);
-      setModalShown(data.modal_shown);
+      setModalDismissCount(
+        Math.min(
+          Math.max(0, data.modal_dismiss_count ?? 0),
+          NOTIFICATIONS_MODAL_MAX_DISMISSES
+        )
+      );
     } catch (err) {
       console.error("useNotifications: refreshStatus failed", err);
     }
@@ -170,21 +186,54 @@ export function useNotifications(options?: {
     }
   }, [isSupported]);
 
-  const markModalSeen = useCallback(async () => {
-    setModalShown(true);
-    await fetch("/api/push/status", { method: "POST" }).catch((err) => {
-      console.error("useNotifications.markModalSeen error:", err);
-    });
-  }, []);
+  const recordModalDismiss = useCallback(
+    async (options?: { exhaust?: boolean }) => {
+      const exhaust = options?.exhaust === true;
+      if (exhaust) {
+        setModalDismissCount(NOTIFICATIONS_MODAL_MAX_DISMISSES);
+      } else {
+        setModalDismissCount((c) =>
+          Math.min(c + 1, NOTIFICATIONS_MODAL_MAX_DISMISSES)
+        );
+      }
+      try {
+        const res = await fetch("/api/push/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(exhaust ? { exhaust: true } : {}),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as {
+            notifications_modal_dismiss_count?: number;
+          };
+          if (typeof data.notifications_modal_dismiss_count === "number") {
+            setModalDismissCount(
+              Math.min(
+                data.notifications_modal_dismiss_count,
+                NOTIFICATIONS_MODAL_MAX_DISMISSES
+              )
+            );
+          }
+        }
+      } catch (err) {
+        console.error("useNotifications.recordModalDismiss error:", err);
+      }
+    },
+    []
+  );
+
+  const modalPromptExhausted =
+    modalDismissCount >= NOTIFICATIONS_MODAL_MAX_DISMISSES;
 
   return {
     isSupported,
     permission,
     isEnabled,
-    modalShown,
+    modalDismissCount,
+    modalPromptExhausted,
     isLoading,
     enable,
     disable,
-    markModalSeen,
+    recordModalDismiss,
   };
 }
