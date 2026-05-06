@@ -193,7 +193,7 @@ const ResultGameView = memo(function ResultGameView({
       <AudioPlayer
         ref={resultAudioPlayerRef}
         youtubeId={song.youtube_id ?? ""}
-        previewUrl={song.preview_url ?? undefined}
+        previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
         maxDuration={FULL_PREVIEW_SECONDS}
         onTimeUpdate={setAudioCurrentTime}
         onPlayingChange={setAudioPlaying}
@@ -366,7 +366,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
         <AudioPlayer
           ref={playerRef}
           youtubeId={song.youtube_id ?? ""}
-          previewUrl={song.preview_url ?? undefined}
+          previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
           maxDuration={audioDuration}
           onTimeUpdate={setAudioCurrentTime}
           onPlayingChange={setAudioPlaying}

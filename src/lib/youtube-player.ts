@@ -40,6 +40,8 @@ export interface YTPlayer {
   pauseVideo: () => void;
   stopVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  /** Carga el video sin iniciar reproducción; respeta startSeconds y endSeconds a nivel de YouTube. */
+  cueVideoById: (opts: { videoId: string; startSeconds: number; endSeconds: number }) => void;
   getCurrentTime: () => number;
   getPlayerState: () => number;
   destroy: () => void;

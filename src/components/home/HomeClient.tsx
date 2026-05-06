@@ -974,6 +974,8 @@ export function HomeClient({ initialData }: Props) {
 
   const headerActionButtonClass =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[415px]:h-9 min-[415px]:w-auto min-[415px]:max-w-[min(100%,11rem)] min-[415px]:justify-start min-[415px]:gap-1.5 min-[415px]:px-2.5 min-[415px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const headerInfoButtonClass =
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[348px]:w-auto min-[348px]:max-w-[min(100%,11rem)] min-[348px]:justify-start min-[348px]:gap-1.5 min-[348px]:px-2.5 min-[348px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
@@ -998,9 +1000,9 @@ export function HomeClient({ initialData }: Props) {
         <div className="flex shrink-0 items-center gap-1.5 min-[415px]:gap-2">
           <Dialog>
             <DialogTrigger asChild>
-              <button type="button" className={headerActionButtonClass} aria-label={t("aboutTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">info</span>
-                <span className="hidden truncate min-[415px]:inline">{t("headerInfoButton")}</span>
+              <button type="button" className={headerInfoButtonClass} aria-label={t("aboutTitle")}>
+                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[348px]:text-xl">info</span>
+                <span className="hidden truncate min-[348px]:inline">{t("headerInfoButton")}</span>
               </button>
             </DialogTrigger>
             <DialogContent className="max-w-md gap-0 overflow-y-auto sm:max-w-md">

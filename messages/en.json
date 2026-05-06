@@ -238,6 +238,7 @@
     "playerFallback": "Player",
     "earlySupporterBadge": "Early supporter",
     "historyLinkAria": "View past leaderboard history",
+    "historyButtonLabel": "Results",
     "historyTitle": "History",
     "historyBack": "Back",
     "historyWeekHeading": "Week of {date}",

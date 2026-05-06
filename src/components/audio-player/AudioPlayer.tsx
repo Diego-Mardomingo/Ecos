@@ -45,6 +45,24 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   /** id de requestAnimationFrame para el bucle de progreso (preview / YouTube) */
   const playbackRafRef = useRef<number | null>(null);
+  /** setTimeout de hard-stop absoluto — fallback cuando RAF se throttlea en móvil */
+  const stopTimeoutRef = useRef<number | null>(null);
+  /** setInterval que mantiene Media Session suprimida mientras YouTube reproduce */
+  const mediaSessionSuppressRef = useRef<number | null>(null);
+
+  const cancelHardStop = useCallback(() => {
+    if (stopTimeoutRef.current !== null) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+  }, []);
+
+  const cancelMediaSessionSuppress = useCallback(() => {
+    if (mediaSessionSuppressRef.current !== null) {
+      clearInterval(mediaSessionSuppressRef.current);
+      mediaSessionSuppressRef.current = null;
+    }
+  }, []);
 
   const cancelPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current !== null) {
@@ -82,12 +100,30 @@ ref: React.Ref<AudioPlayerHandle>) => {
       try {
         navigator.mediaSession.setPositionState(null);
         navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = "none";
         navigator.mediaSession.setActionHandler("seekto", null);
       } catch {
         // ignore
       }
     }
   }, []);
+
+  /** Inicia un interval que mantiene la Media Session suprimida mientras YouTube reproduce.
+   *  YouTube IFrame API puede sobreescribir metadata/playbackState de forma asíncrona. */
+  const startMediaSessionSuppress = useCallback(() => {
+    cancelMediaSessionSuppress();
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const suppress = () => {
+      try {
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = "none";
+      } catch {
+        // ignore
+      }
+    };
+    suppress();
+    mediaSessionSuppressRef.current = window.setInterval(suppress, 300);
+  }, [cancelMediaSessionSuppress]);
 
   useEffect(() => {
     onPlayingChange?.(isPlaying);
@@ -130,6 +166,14 @@ ref: React.Ref<AudioPlayerHandle>) => {
         if (playbackRafRef.current !== null) {
           cancelAnimationFrame(playbackRafRef.current);
           playbackRafRef.current = null;
+        }
+        if (stopTimeoutRef.current !== null) {
+          clearTimeout(stopTimeoutRef.current);
+          stopTimeoutRef.current = null;
+        }
+        if (mediaSessionSuppressRef.current !== null) {
+          clearInterval(mediaSessionSuppressRef.current);
+          mediaSessionSuppressRef.current = null;
         }
         if (playerRef.current) {
           playerRef.current.stopVideo();
@@ -184,6 +228,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
           cancelAnimationFrame(playbackRafRef.current);
           playbackRafRef.current = null;
         }
+        if (stopTimeoutRef.current !== null) {
+          clearTimeout(stopTimeoutRef.current);
+          stopTimeoutRef.current = null;
+        }
         audio.pause();
         audio.src = "";
         audioRef.current = null;
@@ -201,11 +249,13 @@ ref: React.Ref<AudioPlayerHandle>) => {
       audioRef.current.currentTime = 0;
     }
     cancelPlaybackLoop();
+    cancelHardStop();
+    cancelMediaSessionSuppress();
     setCurrentTime(0);
     setIsPlaying(false);
     clearMediaSession();
     onTimeUpdate?.(0);
-  }, [cancelPlaybackLoop, clearMediaSession, onTimeUpdate]);
+  }, [cancelPlaybackLoop, cancelHardStop, cancelMediaSessionSuppress, clearMediaSession, onTimeUpdate]);
 
   const stopIfPlaying = useCallback(() => {
     if (!isLoadedRef.current || !isPlayingRef.current) return;
@@ -235,9 +285,20 @@ ref: React.Ref<AudioPlayerHandle>) => {
         return;
       }
 
-      player.seekTo(0, true);
+      // cueVideoById respeta endSeconds internamente (YouTube corta por su lado)
+      player.cueVideoById({ videoId: youtubeId, startSeconds: 0, endSeconds: maxDuration });
       player.playVideo();
       setIsPlaying(true);
+
+      // Suprimir Media Session: YouTube IFrame API registra el título real del video
+      startMediaSessionSuppress();
+
+      // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
+      cancelHardStop();
+      stopTimeoutRef.current = window.setTimeout(() => {
+        stopAndReset();
+        onEnded?.();
+      }, (maxDuration + 0.5) * 1000);
 
       cancelPlaybackLoop();
       const tickYoutube = () => {
@@ -290,6 +351,8 @@ ref: React.Ref<AudioPlayerHandle>) => {
             artist: "",
             album: "",
           });
+          // playbackState "none" evita que aparezca en controles del sistema
+          navigator.mediaSession.playbackState = "none";
           updateMediaSessionPosition(0);
           navigator.mediaSession.setActionHandler("seekto", (details) => {
             const audio = audioRef.current;
@@ -305,6 +368,13 @@ ref: React.Ref<AudioPlayerHandle>) => {
           // ignore
         }
       }
+
+      // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
+      cancelHardStop();
+      stopTimeoutRef.current = window.setTimeout(() => {
+        stopAndReset();
+        onEnded?.();
+      }, (maxDuration + 0.5) * 1000);
 
       cancelPlaybackLoop();
       const tickPreview = () => {
@@ -334,7 +404,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       };
       playbackRafRef.current = requestAnimationFrame(tickPreview);
     }
-  }, [cancelPlaybackLoop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition]);
+  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, youtubeId, stopAndReset, startMediaSessionSuppress, onEnded, onTimeUpdate, updateMediaSessionPosition]);
 
   useImperativeHandle(ref, () => ({
     togglePlay,

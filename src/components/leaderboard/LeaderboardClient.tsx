@@ -135,23 +135,29 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
       <header
-        className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 pt-safe backdrop-blur-md"
-        style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}
+        className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-3 backdrop-blur-md"
+        style={{
+          background: "color-mix(in srgb, var(--background) 85%, transparent)",
+          paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
+        }}
       >
-        <div className="flex h-9 w-9" aria-hidden />
+        <div className="flex-1" />
         <h1 className="text-base font-bold">{t("title")}</h1>
-        <Link
-          href="/ranking/history"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-brand transition-opacity hover:opacity-80"
-          aria-label={t("historyLinkAria")}
-        >
-          <span
-            className="material-symbols-outlined text-2xl"
-            style={{ fontVariationSettings: "'FILL' 1" }}
+        <div className="flex flex-1 justify-end">
+          <Link
+            href="/ranking/history"
+            className="inline-flex h-9 w-auto shrink-0 items-center justify-start gap-1.5 rounded-xl border border-border bg-muted px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground max-w-[min(100%,11rem)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t("historyLinkAria")}
           >
-            history
-          </span>
-        </Link>
+            <span
+              className="material-symbols-outlined shrink-0 text-xl text-brand/70"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              history
+            </span>
+            <span className="truncate">{t("historyButtonLabel")}</span>
+          </Link>
+        </div>
       </header>
 
       <div

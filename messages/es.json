@@ -238,6 +238,7 @@
     "playerFallback": "Jugador",
     "earlySupporterBadge": "Primeros en apoyar",
     "historyLinkAria": "Ver historial de rankings pasados",
+    "historyButtonLabel": "Resultados",
     "historyTitle": "Historial",
     "historyBack": "Volver",
     "historyWeekHeading": "Semana del {date}",
