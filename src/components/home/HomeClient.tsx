@@ -127,6 +127,13 @@ const PREVIOUS_DAY_COLORS = [
 /** Prioridad en next/image solo para las primeras carátulas del histórico (equilibrio con LCP). */
 const HOME_COVER_IMAGE_PRIORITY_COUNT = 16;
 
+function titleCaseWords(input: string): string {
+  return input
+    .split(" ")
+    .map((token) => (/^\p{L}/u.test(token) ? token[0]!.toUpperCase() + token.slice(1) : token))
+    .join(" ");
+}
+
 function MonthGroupSummaryContent({
   stats,
   t,
@@ -1181,14 +1188,15 @@ export function HomeClient({ initialData }: Props) {
           {/* Esquina superior izquierda: fecha + id */}
           <div className="absolute left-4 top-4 rounded-xl bg-white/5 px-3 py-2.5 backdrop-blur-xl">
             <p
-              className="text-[10px] font-bold uppercase tracking-widest text-white/60"
+              className="text-[10px] font-bold tracking-widest text-white/60"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
             >
-              {format(new Date(), "d", { locale: dateFnsLocale })}{" "}
-              {format(new Date(), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
+              {titleCaseWords(format(new Date(), "EEE", { locale: dateFnsLocale }))}{" "}
+              <span className="text-white/40">|</span>{" "}
+              {titleCaseWords(format(new Date(), "d MMM", { locale: dateFnsLocale }))}
               {todaysGame?.game_number != null && (
                 <>
-                  <span className="text-white/40"> · </span>
+                  <span className="text-white/40"> | </span>
                   <span className="tabular-nums">#{todaysGame.game_number}</span>
                 </>
               )}
@@ -2084,7 +2092,13 @@ function PreviousDaysSection({
                     /* Grid: fecha encima de la portada (centrada), portada, id debajo */
                     <div className="flex h-full flex-col rounded-2xl px-3 py-1.5">
                       <p className="mb-1.5 text-center text-[10px] text-muted-foreground">
-                        {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
+                        {titleCaseWords(
+                          format(parseISO(day.date), "EEE", { locale: dateFnsLocale })
+                        )}
+                        <span className="text-muted-foreground/60"> | </span>
+                        {titleCaseWords(
+                          format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })
+                        )}
                       </p>
                       <div className="relative mb-1.5 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
                         {played && displayCover ? (
@@ -2177,7 +2191,13 @@ function PreviousDaysSection({
                   {/* Info */}
                   <div className="min-w-0 flex-1">
                     <p className="mb-0.5 text-xs text-muted-foreground">
-                      {format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })}
+                      {titleCaseWords(
+                        format(parseISO(day.date), "EEE", { locale: dateFnsLocale })
+                      )}
+                      <span className="text-muted-foreground/60"> | </span>
+                      {titleCaseWords(
+                        format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })
+                      )}
                       <span className="text-muted-foreground/60"> | </span>
                       <span className="tabular-nums text-muted-foreground/70">#{day.game_number}</span>
                     </p>
