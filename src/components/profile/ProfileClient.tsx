@@ -165,7 +165,7 @@ export function ProfileClient({ initialData }: Props) {
   ] as const;
 
   return (
-    <div className="flex min-h-full flex-col gap-5 px-4 pb-28">
+    <div className="flex flex-col gap-5 px-4 pb-4">
       {/* Header */}
       <header className="py-3 text-center text-base font-bold">
         {t("title")}
