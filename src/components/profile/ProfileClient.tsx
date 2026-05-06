@@ -17,7 +17,7 @@ import { LanguageSelector } from "@/components/profile/LanguageSelector";
 import { cn } from "@/lib/utils";
 import { ProfileSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { BellOff, Loader2 } from "lucide-react";
 
 interface Profile {
   id: string;
@@ -74,7 +74,13 @@ export function ProfileClient({ initialData }: Props) {
       }
     } else {
       await notifications.disable();
-      toast.success(tn("disabledToast"));
+      toast(tn("disabledToast"), {
+        icon: <BellOff className="size-4 text-destructive" aria-hidden />,
+        classNames: {
+          toast:
+            "border-destructive/45 bg-destructive/12 text-foreground dark:bg-destructive/20 [&_[data-icon]]:text-destructive",
+        },
+      });
     }
   };
 

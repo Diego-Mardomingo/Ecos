@@ -323,7 +323,7 @@
     "modalDismiss": "Not now",
     "modalDone": "Done",
     "permissionDenied": "Permission denied by the browser. Enable it from your browser settings.",
-    "enabledToast": "Notifications enabled",
-    "disabledToast": "Notifications disabled"
+    "enabledToast": "Notifications enabled successfully",
+    "disabledToast": "Notifications disabled successfully"
   }
 }
