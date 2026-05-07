@@ -60,7 +60,7 @@ export function BottomNav() {
   }, [router]);
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t-[3px] border-brand/45 bg-card">
+    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t-[3px] border-brand/45 bg-card min-[670px]:hidden">
       {/* Blob verde sutil centrado en Inicio */}
       <div
         className="pointer-events-none absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/8 blur-[50px]"
