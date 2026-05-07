@@ -1128,7 +1128,6 @@ export function HomeClient({ initialData }: Props) {
             rounded + overflow-hidden rompe el recorte; el motion.div va dentro sin border-radius en el padre animado */}
         <div
           className="relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08]"
-          style={{ aspectRatio: "4/3" }}
         >
           <motion.div
             role="button"
@@ -1142,181 +1141,179 @@ export function HomeClient({ initialData }: Props) {
                 navigateToPlayToday();
               }
             }}
-            className="absolute inset-0 origin-center will-change-transform"
+            className="flex w-full flex-col origin-center will-change-transform"
           >
-          {/* Fondo: cover con blur cuando completado, sino oscuro */}
-          {todaysCompleted && heroBackdropUrl ? (
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage: `url(${heroBackdropUrl})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                filter: "blur(1px)",
-              }}
-            />
-          ) : (
-            <div className="absolute inset-0 bg-[#0a0f0c]" />
-          )}
-          {/* Efectos visuales: orbs, stardust y gradiente radial — verde si acertado, rojo si fallido */}
-          <div
-            className={cn(
-              "absolute -top-[10%] -left-[10%] h-[60%] w-[60%] rounded-full blur-[80px] opacity-40",
-              todaysCompleted && !todaysWon ? "bg-red-500/20" : "bg-brand/20"
-            )}
-            aria-hidden
-          />
-          <div
-            className={cn(
-              "absolute -bottom-[5%] -right-[5%] h-[50%] w-[50%] rounded-full blur-[80px] opacity-40",
-              todaysCompleted && !todaysWon ? "bg-red-600/10" : "bg-emerald-600/10"
-            )}
-            aria-hidden
-          />
-          <div
-            className="absolute inset-0 opacity-20 pointer-events-none bg-repeat"
-            style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/stardust.png')" }}
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                todaysCompleted && !todaysWon
-                  ? "radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.15) 0%, rgba(10, 19, 14, 0.98) 80%)"
-                  : "radial-gradient(circle at 50% 0%, rgba(43, 238, 121, 0.15) 0%, rgba(10, 19, 14, 0.98) 80%)",
-            }}
-          />
-
-          {/* Esquina superior izquierda: fecha + id */}
-          <div className="absolute left-4 top-4 rounded-xl bg-white/5 px-3 py-2.5 backdrop-blur-xl">
-            <p
-              className="text-[10px] font-bold tracking-widest text-white/60"
-              style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-            >
-              {titleCaseWords(format(new Date(), "EEE", { locale: dateFnsLocale }))}{" "}
-              <span className="text-white/40">|</span>{" "}
-              {titleCaseWords(format(new Date(), "d MMM", { locale: dateFnsLocale }))}
-              {todaysGame?.game_number != null && (
-                <>
-                  <span className="text-white/40"> | </span>
-                  <span className="tabular-nums">#{todaysGame.game_number}</span>
-                </>
+            {/* Imagen */}
+            <div className="relative overflow-hidden" style={{ aspectRatio: "2 / 1" }}>
+              {todaysCompleted && heroBackdropUrl ? (
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    backgroundImage: `url(${heroBackdropUrl})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }}
+                />
+              ) : (
+                <div className="absolute inset-0 bg-card dark:bg-[#0a0f0c]" />
               )}
-            </p>
-          </div>
 
-          {/* Esquina superior derecha: badge (acertado / fallado / en curso / no jugado) */}
-          <div className="absolute right-4 top-4 px-3 py-2.5">
-            <TodaysCardBadge
-              todaysCompleted={todaysCompleted}
-              todaysInProgress={todaysInProgress}
-              todaysWon={todaysWon}
-              t={t}
-            />
-          </div>
+              <div
+                className="absolute inset-0 opacity-10 pointer-events-none bg-repeat"
+                style={{
+                  backgroundImage: "url('https://www.transparenttextures.com/patterns/stardust.png')",
+                }}
+              />
 
-          {/* Waveform decorativa (oculta cuando completado) */}
-          {!todaysCompleted && <WaveformBars />}
+              {/* Scrim suave: solo para que el badge respire arriba */}
+              <div
+                className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/0 to-black/20 dark:from-black/35 dark:via-black/0 dark:to-transparent"
+                aria-hidden
+              />
 
-          {/* Zona central: texto y progreso (entre waveform y botones) */}
-          <div
-            className="absolute left-0 right-0 flex flex-col items-center justify-center px-4"
-            style={{ top: "50%", bottom: "5.5rem" }}
-          >
-            {todaysCompleted ? (
-              <div className="flex flex-col items-center rounded-xl bg-white/5 px-4 py-3 backdrop-blur-xl">
-                <h3
-                  className="max-w-full text-center text-[1.35rem] font-bold leading-tight text-white line-clamp-2 sm:text-[1.5rem]"
-                  style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
-                  title={todaysDisplayTitle || undefined}
-                >
-                  {todaysDisplayTitle || "—"}
-                </h3>
-                {todaysDisplayArtist && (
-                  <p
-                    className="mt-1 max-w-full text-center text-sm text-white/70 line-clamp-2"
-                    style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)" }}
-                  >
-                    {todaysDisplayArtist}
-                  </p>
+              {/* Badge (único overlay informativo) */}
+              <div className="absolute right-4 top-4">
+                <TodaysCardBadge
+                  todaysCompleted={todaysCompleted}
+                  todaysInProgress={todaysInProgress}
+                  todaysWon={todaysWon}
+                  t={t}
+                />
+              </div>
+
+              {/* Waveform decorativa (se mantiene en la parte superior cuando NO está completado) */}
+              {!todaysCompleted && <WaveformBars />}
+            </div>
+
+            {/* Panel inferior sólido (info + acciones) */}
+            <div className="relative border-t border-border bg-card px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                {/* Fecha + game number */}
+                <p className="min-w-0 text-[10px] font-bold tracking-widest text-muted-foreground">
+                  {titleCaseWords(format(new Date(), "EEE", { locale: dateFnsLocale }))}{" "}
+                  <span className="opacity-60">|</span>{" "}
+                  {titleCaseWords(format(new Date(), "d MMM", { locale: dateFnsLocale }))}
+                  {todaysGame?.game_number != null && (
+                    <>
+                      <span className="opacity-60"> | </span>
+                      <span className="tabular-nums">#{todaysGame.game_number}</span>
+                    </>
+                  )}
+                </p>
+
+                {/* Puntuación (arriba derecha) cuando completado */}
+                {todaysCompleted ? (
+                  <div className="flex shrink-0 items-center gap-2 text-xs font-semibold">
+                    <span
+                      className={cn(
+                        todaysDisplayScore === 0 ? "text-destructive dark:text-[color:var(--ecos-bright-destructive)]" : "text-brand dark:text-[color:var(--ecos-bright-brand)]"
+                      )}
+                    >
+                      {t("score")}:
+                    </span>
+                    <span
+                      className={cn(
+                        todaysDisplayScore === 0 ? "text-destructive dark:text-[color:var(--ecos-bright-destructive)]" : "text-brand dark:text-[color:var(--ecos-bright-brand)]"
+                      )}
+                    >
+                      {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
+                      {tc("points")}
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Progreso a la derecha (solo si está en curso) */}
+                {!todaysCompleted && todaysInProgress && (
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                      {t("progress")}
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={cn(
+                            "h-2 w-2 shrink-0 rounded-full",
+                            i < todaysGuesses.length
+                              ? "bg-destructive dark:bg-[var(--ecos-bright-destructive)]"
+                              : i === todaysGuesses.length
+                                ? "bg-muted-foreground/70 dark:bg-foreground/80"
+                                : "bg-muted-foreground/45 dark:bg-white/40"
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
-            ) : null}
-            {todaysInProgress && (
-              <div className="mt-3 flex flex-col items-center gap-2">
-                <p className="text-[10px] font-medium uppercase tracking-widest text-white/50">
-                  {t("progress")}
-                </p>
-                <div className="flex items-center justify-center gap-1.5">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "h-2 w-2 shrink-0 rounded-full",
-                        i < todaysGuesses.length
-                          ? "bg-[var(--ecos-bright-destructive)]"
-                          : i === todaysGuesses.length
-                            ? "bg-white/80"
-                            : "bg-white/40"
-                      )}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Botones o puntuación */}
-          <div className="absolute bottom-0 left-0 right-0 p-4">
-            <div className="flex items-center justify-between gap-2 sm:gap-3">
               {todaysCompleted ? (
-                <div className="flex w-fit items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md">
-                  <span
-                    className={
-                      todaysDisplayScore === 0
-                        ? "text-[color:var(--ecos-bright-destructive)]"
-                        : "text-[color:var(--ecos-bright-brand)]"
-                    }
-                  >
-                    {t("score")}:
-                  </span>
-                  <span
-                    className={
-                      todaysDisplayScore === 0
-                        ? "text-[color:var(--ecos-bright-destructive)]"
-                        : "text-[color:var(--ecos-bright-brand)]"
-                    }
-                  >
-                    {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
-                    {tc("points")}
-                  </span>
-                </div>
+                <>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3
+                        className="max-w-full text-pretty text-[1.1rem] font-bold leading-snug text-foreground line-clamp-2"
+                        title={todaysDisplayTitle || undefined}
+                      >
+                        {todaysDisplayTitle || "—"}
+                      </h3>
+                      {todaysDisplayArtist && (
+                        <p className="mt-1 max-w-full text-[0.95rem] text-muted-foreground line-clamp-2">
+                          {todaysDisplayArtist}
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleShareHome}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
+                    >
+                      <span
+                        className="material-symbols-outlined text-lg text-[color:var(--brand)]"
+                        style={{ fontVariationSettings: "'FILL' 0" }}
+                      >
+                        share
+                      </span>
+                    </button>
+                  </div>
+                </>
               ) : (
-                <div
-                  className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_color-mix(in_srgb,var(--brand)_40%,transparent)]"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 50%, var(--brand) 100%)",
-                  }}
-                >
-                  <span
-                    className="material-symbols-outlined text-lg text-primary-foreground"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
-                  >
-                    play_arrow
-                  </span>
-                  {t("playNow")}
-                </div>
+                <>
+                  <div className="mt-3 flex items-center justify-between gap-2 sm:gap-3">
+                    <div
+                      className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_color-mix(in_srgb,var(--brand)_40%,transparent)]"
+                      style={{
+                        background:
+                          "linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 50%, var(--brand) 100%)",
+                      }}
+                    >
+                      <span
+                        className="material-symbols-outlined text-lg text-primary-foreground"
+                        style={{ fontVariationSettings: "'FILL' 1" }}
+                      >
+                        play_arrow
+                      </span>
+                      {t("playNow")}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleShareHome}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
+                    >
+                      <span
+                        className="material-symbols-outlined text-lg text-[color:var(--brand)]"
+                        style={{ fontVariationSettings: "'FILL' 0" }}
+                      >
+                        share
+                      </span>
+                    </button>
+                  </div>
+
+                </>
               )}
-              <button
-                type="button"
-                onClick={handleShareHome}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#282828] text-[color:var(--ecos-bright-brand)] shadow-md transition-all hover:bg-[#383838] hover:opacity-90 hover:shadow-lg active:scale-95"
-              >
-                <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0" }}>share</span>
-              </button>
             </div>
-          </div>
           </motion.div>
         </div>
       </section>
@@ -1624,7 +1621,7 @@ function HeaderBrandWaveform() {
   );
 }
 
-function WaveformBars() {
+function WaveformBars({ className }: { className?: string }) {
   const isSm = useMediaQuery("(min-width: 640px)");
   const isMd = useMediaQuery("(min-width: 768px)");
 
@@ -1648,7 +1645,10 @@ function WaveformBars() {
 
   return (
     <div
-      className="absolute inset-x-0 top-[52%] flex -translate-y-1/2 items-center justify-center px-4 opacity-60"
+      className={cn(
+        "absolute inset-x-0 top-[52%] flex -translate-y-1/2 items-center justify-center px-4 opacity-60",
+        className
+      )}
       style={{ gap: `${gap}px` }}
     >
       <div
