@@ -33,6 +33,10 @@ interface Props {
   initialData?: {
     profile: Profile;
     stats: UserStats | null;
+    notifications?: {
+      enabled: boolean;
+      modalDismissCount: number;
+    };
   };
 }
 
@@ -59,7 +63,10 @@ export function ProfileClient({ initialData }: Props) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const locale = useLocale();
-  const notifications = useNotifications({ enabled: true });
+  const notifications = useNotifications({
+    enabled: true,
+    initialStatus: initialData?.notifications,
+  });
 
   const handleToggleNotifications = async (next: boolean) => {
     if (next) {

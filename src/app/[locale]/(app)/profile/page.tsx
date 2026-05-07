@@ -21,13 +21,19 @@ export default async function ProfilePage() {
     redirectToLoginWithReturn(locale, localizedPath(locale, "/profile"));
   }
 
-  const [stats, { data: dbProfile }] = await Promise.all([
+  const [stats, { data: dbProfile }, { data: pushSubs }] = await Promise.all([
     getUserStats(user.id),
     supabase
       .from("ecos_profiles")
-      .select("display_name, avatar_url, role, username, show_avatar_in_rankings")
+      .select(
+        "display_name, avatar_url, role, username, show_avatar_in_rankings, notifications_modal_dismiss_count"
+      )
       .eq("user_id", user.id)
       .single(),
+    supabase
+      .from("ecos_push_subscriptions")
+      .select("enabled")
+      .eq("user_id", user.id),
   ]);
 
   const db = dbProfile as {
@@ -36,6 +42,7 @@ export default async function ProfilePage() {
     role?: string;
     username?: string;
     show_avatar_in_rankings?: boolean;
+    notifications_modal_dismiss_count?: number;
   } | null;
   const profile = {
     id: user.id,
@@ -56,11 +63,17 @@ export default async function ProfilePage() {
     role: db?.role ?? null,
   };
 
+  const notifications = {
+    enabled: (pushSubs ?? []).some((s) => s.enabled),
+    modalDismissCount: db?.notifications_modal_dismiss_count ?? 0,
+  };
+
   return (
     <ProfileClient
       initialData={{
         profile,
         stats: stats ?? null,
+        notifications,
       }}
     />
   );

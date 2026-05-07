@@ -24,6 +24,8 @@ interface UseNotificationsReturn {
   modalPromptExhausted: boolean;
   /** Alguna operación en curso (subscribe / unsubscribe / fetch). */
   isLoading: boolean;
+  /** El estado real de `isEnabled` ya se cargó desde el servidor (evita animar el toggle al montar). */
+  isInitialized: boolean;
   /** Activar notificaciones: pide permiso, suscribe y guarda en BD. */
   enable: () => Promise<boolean>;
   /** Desactivar notificaciones: elimina la suscripción y desactiva en BD. */
@@ -64,17 +66,28 @@ async function getRegistration(): Promise<ServiceWorkerRegistration | null> {
 export function useNotifications(options?: {
   /** Si es false, no consulta el estado al montar (útil para usuarios no logueados). */
   enabled?: boolean;
+  /**
+   * Estado inicial obtenido en SSR (página de perfil). Si se proporciona,
+   * el hook arranca ya inicializado y se salta el `GET /api/push/status` al montar.
+   */
+  initialStatus?: {
+    enabled: boolean;
+    modalDismissCount: number;
+  };
 }): UseNotificationsReturn {
   const queryEnabled = options?.enabled ?? true;
+  const initialStatus = options?.initialStatus;
+  const hasInitialStatus = initialStatus !== undefined;
 
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
-  const [isEnabled, setIsEnabled] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(initialStatus?.enabled ?? false);
   /** Asumir agotado hasta cargar el perfil (evita flash del modal). */
   const [modalDismissCount, setModalDismissCount] = useState(
-    NOTIFICATIONS_MODAL_MAX_DISMISSES
+    initialStatus?.modalDismissCount ?? NOTIFICATIONS_MODAL_MAX_DISMISSES
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(hasInitialStatus);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -101,12 +114,15 @@ export function useNotifications(options?: {
       );
     } catch (err) {
       console.error("useNotifications: refreshStatus failed", err);
+    } finally {
+      setIsInitialized(true);
     }
   }, [queryEnabled, isSupported]);
 
   useEffect(() => {
+    if (hasInitialStatus) return;
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [hasInitialStatus, refreshStatus]);
 
   const enable = useCallback(async (): Promise<boolean> => {
     if (!isSupported) return false;
@@ -232,6 +248,7 @@ export function useNotifications(options?: {
     modalDismissCount,
     modalPromptExhausted,
     isLoading,
+    isInitialized,
     enable,
     disable,
     recordModalDismiss,
