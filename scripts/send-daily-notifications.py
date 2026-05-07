@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """
-Notificacion diaria de Web Push: avisa a las 17:00 hora Madrid a los usuarios
-que aun NO han completado el reto del dia.
+Notificacion diaria de Web Push: avisa a los usuarios que aun NO han
+completado el reto del dia.
 
-Como GitHub Actions solo entiende UTC, programamos el workflow para correr a
-las 15:00 UTC y a las 16:00 UTC; dentro del script comprobamos que en Madrid
-sean exactamente las 17:00, asi nos cubrimos del cambio horario (CEST/CET) sin
-mantener dos crons diferentes ni recordar moverlos cada marzo/octubre.
-
-"Completado" = existe fila en `ecos_scores` para (user_id, game_id de hoy).
+Corre a las 15:00 UTC (via GitHub Actions cron). "Completado" = existe fila
+en `ecos_scores` para (user_id, game_id de hoy).
 Los usuarios in-progress (sin score aun) SI reciben la notificacion.
 
 Requiere: pip install -r scripts/requirements-notifications.txt
@@ -45,7 +41,6 @@ except ImportError:
     sys.exit(1)
 
 MADRID = ZoneInfo("Europe/Madrid")
-TARGET_HOUR_MADRID = 17
 
 # El emoji va en título; el campo `icon` del sistema sigue siendo una URL (ver service worker).
 NOTIFICATION_TITLE = "\U0001f3a7 Tu reto ECOS de hoy"  # 🎧
@@ -71,15 +66,8 @@ def main() -> None:
     log = setup_logging()
     start_ms = int(datetime.now().timestamp() * 1000)
 
-    force_run = os.environ.get("FORCE_RUN", "").lower() in {"1", "true", "yes"}
     now_madrid = datetime.now(MADRID)
-    if not force_run and now_madrid.hour != TARGET_HOUR_MADRID:
-        log.info(
-            "Hora Madrid %02d:00, distinta de %02d:00; saliendo (usa FORCE_RUN=1 para forzar)",
-            now_madrid.hour,
-            TARGET_HOUR_MADRID,
-        )
-        return
+    log.info("Ejecutando a las %s hora Madrid", now_madrid.strftime("%H:%M"))
 
     url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
     key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
