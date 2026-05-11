@@ -8,7 +8,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <QueryProvider>
       <AuthProvider>
         <ScrollRestoration />
-        <div className="relative flex min-h-dvh w-full overflow-hidden bg-background min-[670px]:overflow-visible">
+        <div className="relative flex min-h-dvh w-full min-w-0 overflow-hidden bg-background min-[670px]:overflow-visible">
           <AppLayoutClient>{children}</AppLayoutClient>
         </div>
       </AuthProvider>

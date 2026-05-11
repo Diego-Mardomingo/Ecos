@@ -50,6 +50,7 @@ import type { PreviousDayGame, GameWithSong } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import { HomeSkeleton } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MarqueeText } from "@/components/ui/marquee-text";
 import {
   Collapsible,
   CollapsibleContent,
@@ -978,7 +979,7 @@ export function HomeClient({ initialData }: Props) {
     "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[348px]:w-auto min-[348px]:max-w-[min(100%,11rem)] min-[348px]:justify-start min-[348px]:gap-1.5 min-[348px]:px-2.5 min-[348px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
-    <div className="flex min-h-full flex-col gap-5 px-4 pb-6">
+    <div className="flex min-h-full min-w-0 flex-col gap-5 px-4 pb-6">
       {/* Header + Hero más compactos */}
       <div className="flex flex-col gap-1">
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
@@ -2080,11 +2081,12 @@ function PreviousDaysSection({
                 }
                 onMouseEnter={() => prefetchPlayRoute(day.id)}
                 onFocus={() => prefetchPlayRoute(day.id)}
+                className="block w-full min-w-0"
               >
                 <motion.div
                   whileTap={{ scale: 0.99 }}
                   className={cn(
-                    "border-0 transition-colors active:opacity-90",
+                    "w-full min-w-0 border-0 transition-colors active:opacity-90",
                     viewMode === "list"
                       ? "flex items-center gap-3 rounded-2xl bg-card p-3 active:bg-card/70"
                       : "flex flex-col rounded-2xl bg-card active:bg-card/70"
@@ -2203,9 +2205,10 @@ function PreviousDaysSection({
                       <span className="text-muted-foreground/60"> | </span>
                       <span className="tabular-nums text-muted-foreground/70">#{day.game_number}</span>
                     </p>
-                    <p className="truncate font-semibold">
-                      {completed ? displayTitle || "—" : t("guessTheSong")}
-                    </p>
+                    <MarqueeText
+                      text={completed ? displayTitle || "—" : t("guessTheSong")}
+                      className="font-semibold"
+                    />
                     {completed && displayScore !== null ? (
                       <p className={cn("text-xs font-medium", displayScore === 0 ? "text-destructive" : "text-brand")}>
                         {t("score")}: {displayScore.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
@@ -2243,7 +2246,7 @@ function PreviousDaysSection({
   };
 
   return (
-    <section>
+    <section className="min-w-0">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">{t("previousDays")}</h2>
@@ -2388,17 +2391,17 @@ function PreviousDaysSection({
           </div>
           <div
             className={cn(
-              "gap-2",
+              "min-w-0 gap-2",
               viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
             )}
           >
             {filteredGroupsByMonth[0][1].map((day, coverIndex) => (
-              <div key={day.id}>{renderDayCard(day, coverIndex)}</div>
+              <div key={day.id} className="min-w-0">{renderDayCard(day, coverIndex)}</div>
             ))}
           </div>
         </>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           {filteredGroupsByMonth.map(([key, days]) => {
             const [y, m] = key.split("-").map(Number);
             const monthLabel = `${monthNamesFull[m - 1]} ${y}`;
@@ -2409,7 +2412,7 @@ function PreviousDaysSection({
                 key={key}
                 open={isOpen}
                 onOpenChange={(open) => handleOpenMonthsChange(key, open)}
-                className="group"
+                className="group min-w-0"
               >
                 <CollapsibleTrigger asChild>
                   <button
@@ -2436,12 +2439,12 @@ function PreviousDaysSection({
                 <CollapsibleContent>
                   <div
                     className={cn(
-                      "mt-2 gap-2",
+                      "mt-2 min-w-0 gap-2",
                       viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
                     )}
                   >
                     {days.map((day, coverIndex) => (
-                      <div key={day.id}>{renderDayCard(day, coverIndex)}</div>
+                      <div key={day.id} className="min-w-0">{renderDayCard(day, coverIndex)}</div>
                     ))}
                   </div>
                 </CollapsibleContent>

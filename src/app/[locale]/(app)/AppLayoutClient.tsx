@@ -20,17 +20,17 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
   return (
     <>
       <OfflineBanner />
-      <div className="flex min-h-0 flex-1 flex-col min-[670px]:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col min-[670px]:flex-row">
         {showNav && <SidebarNav />}
         <main
           className={cn(
-            "flex min-h-0 flex-1 flex-col overflow-y-auto",
+            "flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto",
             showNav
               ? "pt-6 pt-safe pb-24 min-[670px]:pt-8 min-[670px]:pb-6"
               : "pt-0 pb-6"
           )}
         >
-          <div className="mx-auto w-full max-w-md">{children}</div>
+          <div className="mx-auto w-full min-w-0 max-w-md">{children}</div>
         </main>
       </div>
       <PlayNavigationPendingOverlay />
