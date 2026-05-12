@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Selección diaria: elige 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
-Ejecutar 1x/día a las 22:00 Madrid (GitHub Action). Crea el juego del día 8 el día 7 a las 22:00.
+Ejecutar 1x/día ~22:00 Madrid (GitHub Action). Crea el juego del día siguiente si falta;
+si el cron llega tarde y ya es medianoche en Madrid, rellena primero el día en curso.
 
 Pool elegible: preview_url + preview_duration_seconds >= MIN_PREVIEW_SECONDS + spotify_playlist_id en
 ecos_spotify_playlists con is_active = true.
@@ -86,6 +87,16 @@ def get_special_genre(genre: str | None, playlist_name: str | None) -> str | Non
     return None
 
 
+def get_pending_game_date(supabase: Client, now_madrid: datetime) -> str | None:
+    """Primer día en [hoy, mañana] (Madrid) sin juego. Cubre retrasos del cron tras medianoche."""
+    for offset in (0, 1):
+        candidate = (now_madrid.date() + timedelta(days=offset)).isoformat()
+        r_existing = supabase.table("ecos_games").select("id").eq("date", candidate).limit(1).execute()
+        if not r_existing.data:
+            return candidate
+    return None
+
+
 def main() -> None:
     log = setup_logging()
     start_ms = int(datetime.now().timestamp() * 1000)
@@ -98,11 +109,29 @@ def main() -> None:
 
     supabase: Client = create_client(url_env, key_env)
     now_madrid = datetime.now(MADRID)
-    # Juego del día siguiente (el cron corre a las 22:00, crea para mañana)
-    target_date = (now_madrid + timedelta(days=1)).date().isoformat()
+    target_date = get_pending_game_date(supabase, now_madrid)
+    if not target_date:
+        log.info("Ya existen juegos para hoy y mañana en Madrid, nada que hacer")
+        try:
+            supabase.table("ecos_system_logs").insert({
+                "job_type": "daily_game",
+                "status": "success",
+                "summary": "Juegos ya existían para hoy y mañana",
+                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
+                "details": {
+                    "skipped": True,
+                    "madrid_now": now_madrid.isoformat(),
+                },
+            }).execute()
+        except Exception:
+            pass
+        return
+
     cutoff_14 = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
-    # Para reglas de rotación: evitar repetir década/género del juego actual (hoy)
-    today_for_rotation = now_madrid.date().isoformat()
+    # Rotación respecto al juego del día anterior al que vamos a crear
+    rotation_reference_date = (
+        datetime.strptime(target_date, "%Y-%m-%d").date() - timedelta(days=1)
+    ).isoformat()
 
     # Usadas en ecos_games
     r_used = supabase.table("ecos_games").select("song_id").execute()
@@ -111,12 +140,12 @@ def main() -> None:
     # ¿Ya existe juego para hoy?
     r_existing = supabase.table("ecos_games").select("id").eq("date", target_date).execute()
     if r_existing.data and len(r_existing.data) > 0:
-        log.info("Ya existe juego para %s (visible a las 00:00), nada que hacer", target_date)
+        log.info("Ya existe juego para %s, nada que hacer", target_date)
         try:
             supabase.table("ecos_system_logs").insert({
                 "job_type": "daily_game",
                 "status": "success",
-                "summary": "Juego ya existía para mañana",
+                "summary": "Juego ya existía para la fecha objetivo",
                 "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
                 "details": {"target_date": format_date_ddmmyyyy(target_date), "skipped": True},
             }).execute()
@@ -186,7 +215,7 @@ def main() -> None:
     for g in recent_games:
         song = g.get("ecos_songs") or {}
         date_str = g.get("date", "")
-        if date_str == today_for_rotation:
+        if date_str == rotation_reference_date:
             yesterday_decade = get_decade(song.get("release_date"))
             yesterday_genre = get_special_genre(song.get("genre"), song.get("spotify_playlist_name"))
 

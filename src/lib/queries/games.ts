@@ -300,13 +300,15 @@ export async function getInProgressGames(
 }
 
 /** Versión cacheada usando createServiceClient (no cookies). */
-export function getTodaysGameCached() {
+export async function getTodaysGameCached() {
   const effectiveDate = getEffectiveGameDate();
-  return unstable_cache(
+  const cachedGame = await unstable_cache(
     async () => getTodaysGameWithClient(createServiceClient()),
     ["todays-game", effectiveDate],
     { revalidate: 300, tags: ["games"] }
   )();
+  if (cachedGame) return cachedGame;
+  return getTodaysGameWithClient(createServiceClient());
 }
 
 /** Versión cacheada usando createServiceClient (no cookies). */
