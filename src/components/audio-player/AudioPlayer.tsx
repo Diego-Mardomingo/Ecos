@@ -134,7 +134,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
   }, [isLoaded, onLoadedChange]);
 
   const source: AudioSource | null =
-    youtubeId ? "youtube" : previewUrl ? "preview" : null;
+    previewUrl ? "preview" : youtubeId ? "youtube" : null;
 
   useEffect(() => {
     if (!source) return;
