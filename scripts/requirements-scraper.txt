@@ -1,2 +1,3 @@
 # Dependencias para scripts de ingesta con SpotifyScraper
-spotifyscraper>=2.0.0
+# spotifyscraper 3.x es una reescritura de la API; estos scripts usan la 2.x.
+spotifyscraper>=2.0.0,<3

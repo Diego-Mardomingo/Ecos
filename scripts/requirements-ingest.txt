@@ -1,3 +1,5 @@
-spotifyscraper>=2.0.0
+# spotifyscraper 3.x es una reescritura de la API (sin spotify_scraper.parsers,
+# cambia SpotifyClient.get_playlist_info/get_album_info). Pinear a la serie 2.x.
+spotifyscraper>=2.0.0,<3
 supabase>=2.0.0
 mutagen>=1.47.0

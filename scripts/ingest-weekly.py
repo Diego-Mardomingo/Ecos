@@ -40,6 +40,7 @@ try:
     from supabase import create_client, Client
     from preview_audio import get_mp3_duration_seconds
 except ImportError as e:
+    print(f"Error importando dependencias: {e}")
     print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
     sys.exit(1)
 
