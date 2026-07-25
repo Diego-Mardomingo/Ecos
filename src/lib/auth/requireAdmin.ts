@@ -9,6 +9,10 @@ import { createClient } from "@/lib/supabase/server";
  * del middleware. Cada acción/página admin debe llamar a esto por su cuenta (defensa en
  * profundidad, no confiar solo en el middleware).
  *
+ * La regla de quién es admin vive en la RPC `is_admin()` de Postgres, que es la que ya usa la
+ * base de datos: aquí no se replica leyendo `ecos_profiles`, para que no haya dos definiciones
+ * que puedan divergir.
+ *
  * @returns `null` si es admin, o un objeto `{ error }` listo para devolver desde la action.
  */
 export async function requireAdmin(): Promise<{ error: string } | null> {
@@ -19,13 +23,19 @@ export async function requireAdmin(): Promise<{ error: string } | null> {
 
   if (!user) return { error: "unauthorized" };
 
-  const { data: profile } = await supabase
-    .from("ecos_profiles")
-    .select("role")
-    .eq("user_id", user.id)
-    .single();
+  // `is_admin()` no recibe argumentos: saca el usuario de `auth.uid()`. Por eso tiene que ir con
+  // el cliente ligado a cookies y nunca con service role, donde `auth.uid()` es null y siempre
+  // devolvería false. Como no acepta un user_id, tampoco se puede usar para suplantar a nadie.
+  const { data: isAdmin, error } = await supabase.rpc("is_admin");
 
-  if (profile?.role !== "admin") return { error: "forbidden" };
+  if (error) {
+    // Denegar, sin comprobarlo por otra vía: un fallback que leyera `ecos_profiles` a mano podría
+    // resultar más permisivo que la función canónica si esta exige algo más que el rol.
+    console.error("requireAdmin: fallo al invocar is_admin()", error);
+    return { error: "forbidden" };
+  }
+
+  if (isAdmin !== true) return { error: "forbidden" };
   return null;
 }
 

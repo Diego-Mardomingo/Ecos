@@ -64,12 +64,11 @@ export async function proxy(request: NextRequest) {
     if (!user) {
       return new NextResponse(null, { status: 404 });
     }
-    const { data: profile } = await supabase
-      .from("ecos_profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (profile?.role !== "admin") {
+    // Misma fuente de verdad que requireAdmin(): la RPC is_admin() de Postgres, que deriva el
+    // usuario de auth.uid(). Esto es solo conveniencia de routing; la autorización real la hace
+    // cada página y cada server action por su cuenta (ver src/lib/auth/requireAdmin.ts).
+    const { data: isAdmin, error } = await supabase.rpc("is_admin");
+    if (error || isAdmin !== true) {
       return new NextResponse(null, { status: 404 });
     }
   }
