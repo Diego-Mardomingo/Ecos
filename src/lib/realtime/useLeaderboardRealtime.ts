@@ -16,14 +16,23 @@ export function useLeaderboardRealtime() {
 
   useEffect(() => {
     const supabase = createClient();
-    const syncRanking = async () => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.ranking.all,
-      });
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.ranking.all,
-        type: "active",
-      });
+
+    // Debounce: en hora punta llegan muchos INSERT de ecos_scores casi a la vez
+    // (todo el mundo terminando el reto del día). Agrupamos en una sola recarga.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleSync = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void queryClient
+          .invalidateQueries({ queryKey: queryKeys.ranking.all })
+          .then(() =>
+            queryClient.refetchQueries({
+              queryKey: queryKeys.ranking.all,
+              type: "active",
+            })
+          );
+      }, 4000);
     };
 
     const channel = supabase
@@ -35,9 +44,7 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_scores",
         },
-        () => {
-          void syncRanking();
-        }
+        scheduleSync
       )
       .on(
         "postgres_changes",
@@ -46,13 +53,12 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_leaderboard",
         },
-        () => {
-          void syncRanking();
-        }
+        scheduleSync
       )
       .subscribe();
 
     return () => {
+      if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
