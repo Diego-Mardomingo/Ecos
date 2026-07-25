@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { createEventCoalescer } from "./coalesce";
 
 /**
  * Porcentaje de aciertos de la canción de hoy, actualizado en tiempo real.
@@ -31,6 +32,12 @@ export function useTodaysWinRate(gameId: string | null) {
     // La carga inicial se lanza desde un callback y no desde el cuerpo del efecto,
     // para no encadenar un render síncrono al montar.
     const raf = requestAnimationFrame(() => void fetchWinRate());
+
+    // Está filtrado por game_id, pero en hora punta ese único juego recibe muchos INSERT
+    // seguidos: sin agrupar era una petición a /api/win-rate por cada partida que cerraba
+    // cualquier usuario. El porcentaje no necesita ir al segundo.
+    const sync = createEventCoalescer(() => void fetchWinRate());
+
     const supabase = createClient();
     const channel = supabase
       .channel(`win-rate-${gameId}`)
@@ -42,12 +49,13 @@ export function useTodaysWinRate(gameId: string | null) {
           table: "ecos_scores",
           filter: `game_id=eq.${gameId}`,
         },
-        fetchWinRate
+        sync.schedule
       )
       .subscribe();
 
     return () => {
       cancelAnimationFrame(raf);
+      sync.cancel();
       supabase.removeChannel(channel);
     };
   }, [gameId, fetchWinRate]);

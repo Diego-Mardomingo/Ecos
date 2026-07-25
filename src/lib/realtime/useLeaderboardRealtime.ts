@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/hooks/queries";
+import { createEventCoalescer } from "./coalesce";
 
 /**
  * Suscripción a cambios para actualizar el ranking en tiempo real.
@@ -17,23 +18,11 @@ export function useLeaderboardRealtime() {
   useEffect(() => {
     const supabase = createClient();
 
-    // Debounce: en hora punta llegan muchos INSERT de ecos_scores casi a la vez
-    // (todo el mundo terminando el reto del día). Agrupamos en una sola recarga.
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleSync = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        void queryClient
-          .invalidateQueries({ queryKey: queryKeys.ranking.all })
-          .then(() =>
-            queryClient.refetchQueries({
-              queryKey: queryKeys.ranking.all,
-              type: "active",
-            })
-          );
-      }, 4000);
-    };
+    // Basta con invalidar: TanStack Query ya refetchea por su cuenta las queries activas que
+    // marca como stale. El refetchQueries que había después duplicaba cada petición.
+    const sync = createEventCoalescer(() => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all });
+    });
 
     const channel = supabase
       .channel("leaderboard-changes")
@@ -44,7 +33,7 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_scores",
         },
-        scheduleSync
+        sync.schedule
       )
       .on(
         "postgres_changes",
@@ -53,12 +42,12 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_leaderboard",
         },
-        scheduleSync
+        sync.schedule
       )
       .subscribe();
 
     return () => {
-      if (timer) clearTimeout(timer);
+      sync.cancel();
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
