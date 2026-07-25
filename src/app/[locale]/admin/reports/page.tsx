@@ -27,7 +27,7 @@ export default async function AdminReportsPage() {
 
   const reportItems = (reports ?? []).map((r) => ({
     ...r,
-    ecos_songs: r.ecos_songs as { title: string; artist_name: string } | null,
+    ecos_songs: r.ecos_songs as unknown as { title: string; artist_name: string } | null,
   }));
 
   return (

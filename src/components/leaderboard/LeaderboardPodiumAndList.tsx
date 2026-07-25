@@ -27,7 +27,7 @@ export {
 
 type RankingT = {
   (key: string): string;
-  (key: string, values?: Record<string, string | number | boolean | Date>): string;
+  (key: string, values?: Record<string, string | number | Date>): string;
 };
 
 export function LeaderboardPodiumAndList({

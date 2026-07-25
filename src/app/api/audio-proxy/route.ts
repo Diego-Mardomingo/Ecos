@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse("Game not found", { status: 404 });
     }
 
-    const song = data.ecos_songs as { preview_url: string | null } | null;
+    const song = data.ecos_songs as unknown as { preview_url: string | null } | null;
     const previewUrl = song?.preview_url;
 
     if (!previewUrl) {

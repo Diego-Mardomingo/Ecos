@@ -15,5 +15,17 @@ export default async function AdminSchedulePage() {
     .order("date", { ascending: false })
     .order("game_number", { ascending: false });
 
-  return <ScheduleClient games={games ?? []} />;
+  // Supabase tipa el join to-one como array; en runtime es un objeto.
+  const gameItems = (games ?? []).map((g) => ({
+    id: g.id,
+    date: g.date,
+    game_number: g.game_number,
+    ecos_songs: g.ecos_songs as unknown as {
+      title: string;
+      artist_name: string;
+      spotify_playlist_name?: string | null;
+    },
+  }));
+
+  return <ScheduleClient games={gameItems} />;
 }

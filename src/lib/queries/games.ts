@@ -224,7 +224,7 @@ export async function getTodaysCompletedResult(
     .select("ecos_songs(cover_url, title, artist_name)")
     .eq("id", todaysGameId)
     .single();
-  const song = game?.ecos_songs as { cover_url: string; title: string; artist_name: string } | null;
+  const song = game?.ecos_songs as unknown as { cover_url: string; title: string; artist_name: string } | null;
   if (!song) return null;
   return {
     title: song.title ?? "",
@@ -276,7 +276,7 @@ export async function getInProgressGames(
   const gameDateMap = new Map((games ?? []).map((g) => [g.id, g.date ?? ""]));
 
   const byGameId: Record<string, InProgressProgress> = {};
-  const byGame = new Map<string, typeof guesses>();
+  const byGame = new Map<string, NonNullable<typeof guesses>>();
   for (const g of guesses ?? []) {
     if (!byGame.has(g.game_id)) byGame.set(g.game_id, []);
     byGame.get(g.game_id)!.push(g);
