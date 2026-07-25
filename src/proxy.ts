@@ -12,6 +12,19 @@ function enPrefixedPath(pathname: string, path: string): string {
   return pathname.startsWith("/en/") ? `/en${path}` : path;
 }
 
+/** Quita el prefijo de locale (solo "en" es explícito; "es" es el default sin prefijo). */
+function stripLocale(pathname: string): string {
+  if (pathname === "/en") return "/";
+  if (pathname.startsWith("/en/")) return pathname.slice(3);
+  return pathname;
+}
+
+/** Coincidencia por segmento: `/admin` o `/admin/...`, no `/songs/admin-tips`. */
+function matchesRoute(pathname: string, base: string): boolean {
+  const p = stripLocale(pathname);
+  return p === base || p.startsWith(`${base}/`);
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -46,7 +59,7 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAdminPath = pathname.includes("/admin");
+  const isAdminPath = matchesRoute(pathname, "/admin");
   if (isAdminPath) {
     if (!user) {
       return new NextResponse(null, { status: 404 });
@@ -62,7 +75,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const isProtected = protectedRoutes.some((route) =>
-    pathname.includes(route)
+    matchesRoute(pathname, route)
   );
   if (isProtected && !user) {
     const loginUrl = new URL(enPrefixedPath(pathname, "/login"), request.url);
@@ -70,7 +83,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const isCompleteProfilePath = pathname.includes("/profile/complete");
+  const isCompleteProfilePath = matchesRoute(pathname, "/profile/complete");
   if (user && isProtected && !isCompleteProfilePath) {
     const { data: profile } = await supabase
       .from("ecos_profiles")

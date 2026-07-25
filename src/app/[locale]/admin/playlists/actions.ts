@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 
 function extractSpotifyPlaylistId(input: string): string | null {
   const raw = input.trim();
@@ -28,6 +29,9 @@ export async function addSpotifyPlaylist(params: {
   name?: string;
   ingest_mode: "default" | "all";
 }) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   const supabase = createServiceClient();
   const spotify_playlist_id = extractSpotifyPlaylistId(params.source);
   if (!spotify_playlist_id) return { error: "No se pudo extraer el ID de la playlist" };
@@ -48,7 +52,8 @@ export async function addSpotifyPlaylist(params: {
     if (String(error.code) === "23505") {
       return { error: "Esa playlist ya existe en el pool" };
     }
-    return { error: error.message };
+    console.error("addSpotifyPlaylist error:", error);
+    return { error: "No se pudo añadir la playlist" };
   }
 
   revalidatePath("/admin/playlists");
@@ -56,36 +61,57 @@ export async function addSpotifyPlaylist(params: {
 }
 
 export async function setPlaylistActive(id: string, is_active: boolean) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("ecos_spotify_playlists")
     .update({ is_active })
     .eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("setPlaylistActive error:", error);
+    return { error: "No se pudo actualizar la playlist" };
+  }
   revalidatePath("/admin/playlists");
   return { ok: true };
 }
 
 export async function setPlaylistMode(id: string, ingest_mode: "default" | "all") {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("ecos_spotify_playlists")
     .update({ ingest_mode })
     .eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("setPlaylistMode error:", error);
+    return { error: "No se pudo actualizar la playlist" };
+  }
   revalidatePath("/admin/playlists");
   return { ok: true };
 }
 
 export async function deletePlaylist(id: string) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   const supabase = createServiceClient();
   const { error } = await supabase.from("ecos_spotify_playlists").delete().eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("deletePlaylist error:", error);
+    return { error: "No se pudo eliminar la playlist" };
+  }
   revalidatePath("/admin/playlists");
   return { ok: true };
 }
 
 export async function reorderPlaylists(idsInOrder: string[]) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   const supabase = createServiceClient();
   if (!Array.isArray(idsInOrder) || idsInOrder.length === 0) {
     return { ok: true };
@@ -99,7 +125,10 @@ export async function reorderPlaylists(idsInOrder: string[]) {
       .from("ecos_spotify_playlists")
       .update({ sort_order: i + 1 })
       .eq("id", id);
-    if (error) return { error: error.message };
+    if (error) {
+      console.error("reorderPlaylists error:", error);
+      return { error: "No se pudo reordenar la playlist" };
+    }
   }
 
   revalidatePath("/admin/playlists");
