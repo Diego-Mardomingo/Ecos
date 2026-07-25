@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { unwrapToOne } from "@/lib/supabase/relations";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 
 /**
@@ -25,7 +26,7 @@ export async function GET() {
   }
 
   const { ecos_songs, ...gameData } = data;
-  const song = ecos_songs as unknown as { id: string } | null;
+  const song = unwrapToOne<{ id: string }>(ecos_songs);
 
   return NextResponse.json({
     ...gameData,

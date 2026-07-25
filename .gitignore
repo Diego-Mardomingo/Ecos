@@ -65,8 +65,9 @@ package-lock.json
 # project_overview.md
 project_overview.md
 
-# supabase
-supabase/
+# supabase (solo el directorio de la raiz: sin la barra inicial tambien se comia
+# src/lib/supabase/, y cualquier fichero nuevo ahi quedaba sin versionar en silencio)
+/supabase/
 
 # pnpm
 .pnpm-store/

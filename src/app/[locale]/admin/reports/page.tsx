@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { unwrapToOne } from "@/lib/supabase/relations";
 import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { AdminReportsClient } from "./AdminReportsClient";
 
@@ -30,7 +31,7 @@ export default async function AdminReportsPage() {
 
   const reportItems = (reports ?? []).map((r) => ({
     ...r,
-    ecos_songs: r.ecos_songs as unknown as { title: string; artist_name: string } | null,
+    ecos_songs: unwrapToOne<{ title: string; artist_name: string }>(r.ecos_songs),
   }));
 
   return (

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { unwrapToOne } from "@/lib/supabase/relations";
 import { artistsMatch, normalizeForCompare } from "@/lib/artist-match";
 import { computeFinalizeParams } from "@/lib/ecos-finalize-helpers";
 import { getEffectiveGameDate } from "@/lib/date-utils";
@@ -55,12 +56,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Game not found" }, { status: 404 });
     }
 
-    const song = (game.ecos_songs as unknown) as {
+    const song = unwrapToOne<{
       id: string;
       title: string;
       artist_name: string;
       album_title: string | null;
-    } | null;
+    }>(game.ecos_songs);
 
     if (!song) {
       return NextResponse.json({ error: "Song not found" }, { status: 404 });

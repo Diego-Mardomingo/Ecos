@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { unwrapToOne } from "@/lib/supabase/relations";
 
 /**
  * Proxy de audio para preview de Spotify.
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse("Game not found", { status: 404 });
     }
 
-    const song = data.ecos_songs as unknown as { preview_url: string | null } | null;
+    const song = unwrapToOne<{ preview_url: string | null }>(data.ecos_songs);
     const previewUrl = song?.preview_url;
 
     if (!previewUrl) {
