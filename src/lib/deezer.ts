@@ -1,4 +1,5 @@
 const DEEZER_BASE = "https://api.deezer.com";
+const DEEZER_TIMEOUT_MS = 8000;
 
 export interface DeezerTrack {
   id: number;
@@ -38,11 +39,21 @@ export async function searchTracks(
   if (!query || query.trim().length < 2) return [];
 
   const url = `${DEEZER_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}&output=json`;
-  const res = await fetch(url, { next: { revalidate: 60 } });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      next: { revalidate: 60 },
+      signal: AbortSignal.timeout(DEEZER_TIMEOUT_MS),
+    });
+  } catch {
+    return [];
+  }
 
   if (!res.ok) return [];
 
-  const data: DeezerSearchResult = await res.json();
+  const data = (await res.json()) as Partial<DeezerSearchResult>;
+  // Deezer puede devolver { error } con HTTP 200 (p. ej. rate-limit).
+  if (!Array.isArray(data?.data)) return [];
   return data.data.filter((t) => t.preview);
 }
 
@@ -61,10 +72,19 @@ export async function fetchLatinPopularTracks(
   const query = queries[Math.floor(Math.random() * queries.length)];
   const url = `${DEEZER_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}&output=json`;
 
-  const res = await fetch(url, { cache: "no-store" });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEEZER_TIMEOUT_MS),
+    });
+  } catch {
+    return [];
+  }
   if (!res.ok) return [];
 
-  const data: DeezerSearchResult = await res.json();
+  const data = (await res.json()) as Partial<DeezerSearchResult>;
+  if (!Array.isArray(data?.data)) return [];
 
   return data.data.filter(
     (t) => t.preview && t.rank > 400000
@@ -73,9 +93,15 @@ export async function fetchLatinPopularTracks(
 
 // Obtener track individual por ID
 export async function getTrackById(id: number): Promise<DeezerTrack | null> {
-  const res = await fetch(`${DEEZER_BASE}/track/${id}`, {
-    next: { revalidate: 3600 },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${DEEZER_BASE}/track/${id}`, {
+      next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(DEEZER_TIMEOUT_MS),
+    });
+  } catch {
+    return null;
+  }
 
   if (!res.ok) return null;
   return res.json();

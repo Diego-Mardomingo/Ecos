@@ -38,12 +38,10 @@ export function artistsMatch(guess: string, correct: string): boolean {
   const nc = normalizeForCompare(correct);
 
   if (ng === nc) return true;
-  if (ng.includes(nc) || nc.includes(ng)) return true;
 
-  const partsGuess = splitArtists(guess);
-  const partsCorrect = splitArtists(correct);
-
-  return partsGuess.some((pg) =>
-    partsCorrect.some((pc) => pg === pc || pg.includes(pc) || pc.includes(pg))
-  );
+  // Comparar por artista individual con IGUALDAD exacta de token (no substring).
+  // Así "Bad Bunny" acierta contra "Bad Bunny, Tainy" (comparten el token exacto),
+  // pero "Luna" NO acierta contra "Lunay" ni "Camila" contra "Camila Cabello".
+  const partsCorrect = new Set(splitArtists(correct));
+  return splitArtists(guess).some((pg) => partsCorrect.has(pg));
 }

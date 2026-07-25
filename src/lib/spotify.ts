@@ -6,6 +6,7 @@
 
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
 const API_BASE = "https://api.spotify.com/v1";
+const SPOTIFY_TIMEOUT_MS = 10000;
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
@@ -45,6 +46,7 @@ async function getAccessToken(): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: "grant_type=client_credentials",
+    signal: AbortSignal.timeout(SPOTIFY_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -66,6 +68,7 @@ async function apiGet<T>(path: string): Promise<T> {
   const token = await getAccessToken();
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(SPOTIFY_TIMEOUT_MS),
   });
 
   if (!res.ok) {
