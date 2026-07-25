@@ -935,7 +935,9 @@ export function GameClient({ game, userId }: Props) {
             gameDate: game.date,
             played: true,
             won: false,
-            score: null,
+            // 0 (no null): una derrota es una partida jugada. Con null, homeDayDerived
+            // la trata como "no jugada" (completed = played && score !== null).
+            score: 0,
             title: game.ecos_songs.title,
             artist_name: game.ecos_songs.artist_name,
             cover_url: game.ecos_songs.cover_url ?? undefined,
@@ -1316,7 +1318,7 @@ function PreviousAttempts({
         {/* Contenido: etiqueta, título y artista alineados a la izquierda */}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
           <span className={cn("text-xs font-semibold", labelClass)}>
-            {t(GUESS_LABEL_KEYS[labelKey] as keyof IntlMessages["game"])}
+            {t(GUESS_LABEL_KEYS[labelKey] as string)}
           </span>
           {title ? <p className="break-words text-sm font-medium">{title}</p> : null}
           {artist ? (

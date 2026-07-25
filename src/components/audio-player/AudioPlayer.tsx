@@ -71,11 +71,14 @@ ref: React.Ref<AudioPlayerHandle>) => {
     }
   }, []);
   const sourceRef = useRef<AudioSource | null>(null);
+  /** Listener "ended" activo del preview, para poder retirarlo y no acumularlos. */
+  const endedHandlerRef = useRef<(() => void) | null>(null);
   const maxDurationRef = useRef(maxDuration);
   maxDurationRef.current = maxDuration;
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
   const isPlayingRef = useRef(false);
   const isLoadedRef = useRef(false);
   isPlayingRef.current = isPlaying;
@@ -98,7 +101,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const clearMediaSession = useCallback(() => {
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       try {
-        navigator.mediaSession.setPositionState(null);
+        navigator.mediaSession.setPositionState();
         navigator.mediaSession.metadata = null;
         navigator.mediaSession.playbackState = "none";
         navigator.mediaSession.setActionHandler("seekto", null);
@@ -140,6 +143,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
     if (!source) return;
 
     setIsLoaded(false);
+    setHasError(false);
     setCurrentTime(0);
     setIsPlaying(false);
     sourceRef.current = source;
@@ -150,11 +154,21 @@ ref: React.Ref<AudioPlayerHandle>) => {
         "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;";
       document.body.appendChild(wrapper);
 
+      // Guard anti-carrera: si el componente se desmonta antes de que el player
+      // resuelva, destruimos el player y no tocamos estado (evita iframe huérfano
+      // y setState tras unmount).
+      let cancelled = false;
+
       createYoutubePlayer({
         videoId: youtubeId,
         containerRef: { current: wrapper },
       })
         .then((player) => {
+          if (cancelled) {
+            player.destroy();
+            wrapper.remove();
+            return;
+          }
           playerRef.current = player;
           setIsLoaded(true);
         })
@@ -163,6 +177,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
         });
 
       return () => {
+        cancelled = true;
         if (playbackRafRef.current !== null) {
           cancelAnimationFrame(playbackRafRef.current);
           playbackRafRef.current = null;
@@ -191,6 +206,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       const onLoaded = () => setIsLoaded(true);
       const onError = () => {
         audioRef.current = null;
+        setHasError(true);
       };
 
       const clampPreviewTime = () => {
@@ -224,6 +240,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
         audio.removeEventListener("error", onError);
         audio.removeEventListener("seeking", onSeeking);
         audio.removeEventListener("timeupdate", onTimeUpdate);
+        if (endedHandlerRef.current) {
+          audio.removeEventListener("ended", endedHandlerRef.current);
+          endedHandlerRef.current = null;
+        }
         if (playbackRafRef.current !== null) {
           cancelAnimationFrame(playbackRafRef.current);
           playbackRafRef.current = null;
@@ -247,6 +267,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      if (endedHandlerRef.current) {
+        audioRef.current.removeEventListener("ended", endedHandlerRef.current);
+        endedHandlerRef.current = null;
+      }
     }
     cancelPlaybackLoop();
     cancelHardStop();
@@ -334,7 +358,13 @@ ref: React.Ref<AudioPlayerHandle>) => {
       }
 
       audio.currentTime = 0;
-      audio.play();
+      // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
+      // manejarlo para no quedar con isPlaying=true sin audio.
+      void audio.play().catch(() => {
+        setIsPlaying(false);
+        cancelHardStop();
+        cancelPlaybackLoop();
+      });
       setIsPlaying(true);
 
       const onEndedNative = () => {
@@ -342,7 +372,12 @@ ref: React.Ref<AudioPlayerHandle>) => {
         stopAndReset();
         onEnded?.();
       };
-      audio.addEventListener("ended", onEndedNative, { once: true });
+      // Retirar cualquier listener previo para no acumularlos entre ciclos play/stop.
+      if (endedHandlerRef.current) {
+        audio.removeEventListener("ended", endedHandlerRef.current);
+      }
+      endedHandlerRef.current = onEndedNative;
+      audio.addEventListener("ended", onEndedNative);
 
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         try {
@@ -357,7 +392,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
           navigator.mediaSession.setActionHandler("seekto", (details) => {
             const audio = audioRef.current;
             if (!audio || sourceRef.current !== "preview") return;
-            const t = details.seekTime ?? details.endTime ?? 0;
+            const t = details.seekTime ?? 0;
             const clamped = Math.min(Math.max(0, t), maxDuration);
             audio.currentTime = clamped;
             setCurrentTime(clamped);
@@ -411,7 +446,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
     stopIfPlaying,
   }), [togglePlay, stopIfPlaying]);
 
-  if (!source) {
+  if (!source || hasError) {
     return (
       <div className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}>
         {t("noAudio")}
