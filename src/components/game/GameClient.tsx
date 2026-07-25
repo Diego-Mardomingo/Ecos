@@ -64,6 +64,8 @@ import { PLAY_NAVIGATION_END_EVENT } from "@/lib/navigation/playNavigationEvents
 const FULL_PREVIEW_SECONDS = 30;
 /** Ventana corta para ignorar dobles taps accidentales en “Saltar intento”. */
 const SKIP_BUTTON_DOUBLE_TAP_GUARD_MS = 500;
+/** Perímetro del anillo de progreso (2πr con r=80), para el dash del SVG. */
+const RING_CIRCUMFERENCE = 502.65;
 
 const CONFETTI_COLORS_DARK = ["#2bee79", "#ffffff", "#0a2015"] as const;
 const CONFETTI_COLORS_LIGHT = ["#059669", "#ffffff", "#f8fafc"] as const;
@@ -101,13 +103,23 @@ const ResultGameView = memo(function ResultGameView({
   const locale = useLocale();
   const dateFnsLocale = locale === "es" ? es : enUS;
   const navigateBackToHome = useNavigateBackToHome();
-  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  /** Segundo completo transcurrido: el contador solo cambia una vez por segundo. */
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
   const song = game.ecos_songs;
 
-  const progress = Math.min((audioCurrentTime / FULL_PREVIEW_SECONDS) * 100, 100);
+  /** Mismo motivo que en PlayingGameAudioSection: no re-renderizar esta pantalla a 60 fps. */
+  const handleAudioTimeUpdate = useCallback((currentTime: number) => {
+    const ratio = Math.min(currentTime / FULL_PREVIEW_SECONDS, 1);
+    if (progressBarRef.current) {
+      progressBarRef.current.style.width = `${ratio * 100}%`;
+    }
+    const whole = Math.floor(currentTime);
+    setElapsedSeconds((prev) => (prev === whole ? prev : whole));
+  }, []);
 
   return (
     <div className="relative flex min-h-dvh flex-col bg-background">
@@ -161,15 +173,17 @@ const ResultGameView = memo(function ResultGameView({
                 )}
               </button>
               <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                {/* El ancho lo escribe handleAudioTimeUpdate; aquí el valor de partida. */}
                 <div
+                  ref={progressBarRef}
                   className="h-1 rounded-full bg-brand"
-                  style={{ width: `${progress}%` }}
+                  style={{ width: "0%" }}
                 />
               </div>
             </div>
             <span className="-mt-0.5 leading-none text-[9px] tabular-nums text-muted-foreground">
-              {String(Math.floor(audioCurrentTime / 60)).padStart(2, "0")}:
-              {String(Math.floor(audioCurrentTime % 60)).padStart(2, "0")} / 00:
+              {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:
+              {String(elapsedSeconds % 60).padStart(2, "0")} / 00:
               {String(FULL_PREVIEW_SECONDS).padStart(2, "0")}
             </span>
           </div>
@@ -195,12 +209,12 @@ const ResultGameView = memo(function ResultGameView({
         youtubeId={song.youtube_id ?? ""}
         previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
         maxDuration={FULL_PREVIEW_SECONDS}
-        onTimeUpdate={setAudioCurrentTime}
+        onTimeUpdate={handleAudioTimeUpdate}
         onPlayingChange={setAudioPlaying}
         onLoadedChange={setAudioLoaded}
         onEnded={() => {
-          setAudioCurrentTime(0);
-          setTimeout(() => setAudioCurrentTime(0), 150);
+          handleAudioTimeUpdate(0);
+          setTimeout(() => handleAudioTimeUpdate(0), 150);
         }}
         hideControls
       />
@@ -227,10 +241,45 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
-  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const ringRef = useRef<SVGCircleElement | null>(null);
   const song = game.ecos_songs;
+
+  /**
+   * `onTimeUpdate` llega en cada requestAnimationFrame. Guardarlo en estado re-renderizaba toda
+   * esta sección ~60 veces por segundo mientras suena el fragmento: el anillo SVG de 192 px, el
+   * botón de framer-motion y los puntos de intento.
+   *
+   * El progreso continuo se escribe directamente en el DOM de los dos nodos que lo pintan, y el
+   * estado solo cambia cuando cambia el segundo que se muestra en el contador (una vez por
+   * segundo en vez de sesenta).
+   */
+  const handleAudioTimeUpdate = useCallback(
+    (currentTime: number) => {
+      const ratio =
+        audioDuration > 0 ? Math.min(currentTime / audioDuration, 1) : 0;
+
+      if (progressBarRef.current) {
+        progressBarRef.current.style.width = `${ratio * 100}%`;
+      }
+      if (ringRef.current) {
+        ringRef.current.style.strokeDashoffset = String(
+          RING_CIRCUMFERENCE * (1 - ratio)
+        );
+      }
+
+      const whole = Math.floor(currentTime);
+      setElapsedSeconds((prev) => (prev === whole ? prev : whole));
+    },
+    [audioDuration]
+  );
+
+  // Derivado en render: si cambia la duración del intento, el contador se ajusta solo.
+  const secondsRemaining = Math.max(0, audioDuration - elapsedSeconds);
 
   const formatTimeRemaining = (s: number) => {
     if (s <= 0) return "00:00";
@@ -242,14 +291,14 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
     <>
       <div className="flex w-full flex-col items-center px-4 pb-4 pt-1">
         <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
-          {formatTimeRemaining(Math.max(0, audioDuration - audioCurrentTime))}
+          {formatTimeRemaining(secondsRemaining)}
         </span>
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          {/* El ancho lo escribe handleAudioTimeUpdate; aquí solo el valor de partida. */}
           <div
+            ref={progressBarRef}
             className="h-full rounded-full bg-brand"
-            style={{
-              width: `${Math.min((audioCurrentTime / audioDuration) * 100, 100)}%`,
-            }}
+            style={{ width: "0%" }}
           />
         </div>
       </div>
@@ -282,7 +331,9 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
                 strokeWidth="6"
                 className="text-muted dark:text-white/5"
               />
+              {/* strokeDashoffset lo escribe handleAudioTimeUpdate; aquí el valor de partida. */}
               <circle
+                ref={ringRef}
                 cx="96"
                 cy="96"
                 r="80"
@@ -291,8 +342,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
                 strokeWidth="6"
                 strokeLinecap="round"
                 className="text-brand"
-                strokeDasharray={502.65}
-                strokeDashoffset={502.65 * (1 - Math.min(audioCurrentTime / audioDuration, 1))}
+                strokeDasharray={RING_CIRCUMFERENCE}
+                strokeDashoffset={RING_CIRCUMFERENCE}
               />
             </svg>
             <motion.button
@@ -368,7 +419,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
           youtubeId={song.youtube_id ?? ""}
           previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
           maxDuration={audioDuration}
-          onTimeUpdate={setAudioCurrentTime}
+          onTimeUpdate={handleAudioTimeUpdate}
           onPlayingChange={setAudioPlaying}
           onLoadedChange={setAudioLoaded}
           hideControls

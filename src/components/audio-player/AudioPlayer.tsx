@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle, memo } from "react";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -75,7 +75,19 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const maxDurationRef = useRef(maxDuration);
   const [isPlaying, setIsPlaying] = useState(false);
+  /**
+   * Solo alimenta los controles propios del reproductor. Con `hideControls` no se pinta, y el
+   * bucle de progreso corre a 60 fps, así que ahí no se toca: quien dibuja es el padre a través
+   * de `onTimeUpdate`.
+   */
   const [currentTime, setCurrentTime] = useState(0);
+  const setCurrentTimeIfVisible = useCallback(
+    (value: number) => {
+      if (hideControls) return;
+      setCurrentTime(value);
+    },
+    [hideControls]
+  );
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const isPlayingRef = useRef(false);
@@ -358,7 +370,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
           }, 120);
           return;
         }
-        setCurrentTime(seek);
+        setCurrentTimeIfVisible(seek);
         onTimeUpdate?.(seek);
         playbackRafRef.current = requestAnimationFrame(tickYoutube);
       };
@@ -451,14 +463,14 @@ ref: React.Ref<AudioPlayerHandle>) => {
           }, 120);
           return;
         }
-        setCurrentTime(seek);
+        setCurrentTimeIfVisible(seek);
         onTimeUpdate?.(seek);
         updateMediaSessionPosition(seek);
         playbackRafRef.current = requestAnimationFrame(tickPreview);
       };
       playbackRafRef.current = requestAnimationFrame(tickPreview);
     }
-  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, youtubeId, stopAndReset, startMediaSessionSuppress, onEnded, onTimeUpdate, updateMediaSessionPosition]);
+  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, youtubeId, stopAndReset, startMediaSessionSuppress, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible]);
 
   useImperativeHandle(ref, () => ({
     togglePlay,
@@ -531,4 +543,8 @@ ref: React.Ref<AudioPlayerHandle>) => {
   );
 };
 
-export const AudioPlayer = forwardRef(AudioPlayerComponent);
+/**
+ * `memo` para que un re-render del padre no arrastre al reproductor: monta el iframe de YouTube y
+ * el <audio>, y sus props son estables mientras dura la partida.
+ */
+export const AudioPlayer = memo(forwardRef(AudioPlayerComponent));
