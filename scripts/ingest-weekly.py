@@ -21,7 +21,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Cargar .env.local
@@ -221,7 +221,7 @@ def search_youtube(title: str, artist: str, api_key: str) -> str | None:
 
 def main() -> None:
     log = setup_logging()
-    start_ms = int(datetime.utcnow().timestamp() * 1000)
+    start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
     key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -375,7 +375,7 @@ def main() -> None:
                             total_no_yt += 1
                             continue
 
-                    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     uses_preview = not yt_id and preview_url
                     row = {
                         "spotify_id": sid,
@@ -442,7 +442,7 @@ def main() -> None:
     finally:
         client.close()
 
-    duration_ms = int(datetime.utcnow().timestamp() * 1000) - start_ms
+    duration_ms = int(datetime.now(timezone.utc).timestamp() * 1000) - start_ms
     status = "failure" if errors and total_inserted == 0 else ("partial" if errors else "success")
     summary = f"{total_inserted} canciones insertadas" if total_inserted > 0 else (errors[0][:100] if errors else "Sin canciones nuevas")
 

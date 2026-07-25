@@ -169,6 +169,7 @@ def main() -> None:
                 vapid_private_key=vapid_private,
                 vapid_claims={"sub": vapid_subject},
                 ttl=12 * 60 * 60,
+                timeout=10,
             )
             sent += 1
         except WebPushException as exc:
@@ -212,6 +213,12 @@ def main() -> None:
         },
         errors=errors,
     )
+
+    # Si había destinatarios y NO se envió ni una sola notificación (p. ej. VAPID
+    # inválida), fallar para que el workflow lo marque en rojo y alguien lo vea.
+    if sent == 0 and expired == 0 and errors:
+        log.error("Ninguna notificación enviada de %d pendientes", len(pending_subs))
+        sys.exit(1)
 
 
 def _log_run(

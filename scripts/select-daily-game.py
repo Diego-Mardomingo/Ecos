@@ -87,72 +87,24 @@ def get_special_genre(genre: str | None, playlist_name: str | None) -> str | Non
     return None
 
 
-def get_pending_game_date(supabase: Client, now_madrid: datetime) -> str | None:
-    """Primer día en [hoy, mañana] (Madrid) sin juego. Cubre retrasos del cron tras medianoche."""
+def get_pending_game_dates(supabase: Client, now_madrid: datetime) -> list[str]:
+    """TODOS los días en [hoy, mañana] (Madrid) sin juego, en orden.
+
+    Crítico: si el cron se salta un día (GitHub cron es best-effort), hay que rellenar
+    tanto el día en curso como el siguiente para no dejar la web sin juego y para que
+    el desfase no se arrastre indefinidamente.
+    """
+    pending: list[str] = []
     for offset in (0, 1):
         candidate = (now_madrid.date() + timedelta(days=offset)).isoformat()
         r_existing = supabase.table("ecos_games").select("id").eq("date", candidate).limit(1).execute()
         if not r_existing.data:
-            return candidate
-    return None
+            pending.append(candidate)
+    return pending
 
 
-def main() -> None:
-    log = setup_logging()
-    start_ms = int(datetime.now().timestamp() * 1000)
-
-    url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url_env or not key_env:
-        log.error("NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridos")
-        sys.exit(1)
-
-    supabase: Client = create_client(url_env, key_env)
-    now_madrid = datetime.now(MADRID)
-    target_date = get_pending_game_date(supabase, now_madrid)
-    if not target_date:
-        log.info("Ya existen juegos para hoy y mañana en Madrid, nada que hacer")
-        try:
-            supabase.table("ecos_system_logs").insert({
-                "job_type": "daily_game",
-                "status": "success",
-                "summary": "Juegos ya existían para hoy y mañana",
-                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-                "details": {
-                    "skipped": True,
-                    "madrid_now": now_madrid.isoformat(),
-                },
-            }).execute()
-        except Exception:
-            pass
-        return
-
-    cutoff_14 = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
-    # Rotación respecto al juego del día anterior al que vamos a crear
-    rotation_reference_date = (
-        datetime.strptime(target_date, "%Y-%m-%d").date() - timedelta(days=1)
-    ).isoformat()
-
-    # Usadas en ecos_games
-    r_used = supabase.table("ecos_games").select("song_id").execute()
-    used_song_ids = {str(r["song_id"]) for r in (r_used.data or []) if r.get("song_id")}
-
-    # ¿Ya existe juego para hoy?
-    r_existing = supabase.table("ecos_games").select("id").eq("date", target_date).execute()
-    if r_existing.data and len(r_existing.data) > 0:
-        log.info("Ya existe juego para %s, nada que hacer", target_date)
-        try:
-            supabase.table("ecos_system_logs").insert({
-                "job_type": "daily_game",
-                "status": "success",
-                "summary": "Juego ya existía para la fecha objetivo",
-                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-                "details": {"target_date": format_date_ddmmyyyy(target_date), "skipped": True},
-            }).execute()
-        except Exception:
-            pass
-        return
-
+def _load_eligible_pool(supabase: Client, log: logging.Logger) -> list[dict]:
+    """Canciones activas que cumplen playlist activa + preview_url + duración mínima."""
     r_pl = (
         supabase.table("ecos_spotify_playlists")
         .select("spotify_playlist_id")
@@ -184,24 +136,32 @@ def main() -> None:
         except (TypeError, ValueError):
             return False
 
-    all_songs = [s for s in (r_songs.data or []) if is_eligible_pool(s)]
-    if not all_songs:
-        msg = (
-            f"Pool elegible vacío: ninguna canción cumple preview ≥ {MIN_PREVIEW_SECONDS:g}s, "
-            "playlist activa y preview_url"
-        )
-        log.error(msg)
-        _log_failure(supabase, start_ms, msg)
-        sys.exit(1)
+    return [s for s in (r_songs.data or []) if is_eligible_pool(s)]
+
+
+def select_song_for_date(
+    supabase: Client,
+    target_date: str,
+    now_madrid: datetime,
+    all_songs: list[dict],
+    used_song_ids: set[str],
+    log: logging.Logger,
+) -> tuple[dict | None, str | None]:
+    """Aplica las reglas de selección para una fecha. Devuelve (song, error).
+
+    Relee el contexto de rotación desde la BD, así que si en esta misma ejecución se
+    creó el juego de hoy, la selección de mañana ya lo tiene en cuenta.
+    """
+    cutoff_14 = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
+    rotation_reference_date = (
+        datetime.strptime(target_date, "%Y-%m-%d").date() - timedelta(days=1)
+    ).isoformat()
 
     # Regla 1: nunca repetir
     pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]
     if not pool:
-        log.error("Pool vacío: todas las canciones elegibles ya se usaron en un juego")
-        _log_failure(supabase, start_ms, "Pool vacío: no quedan canciones no usadas")
-        sys.exit(1)
+        return None, "Pool vacío: no quedan canciones no usadas"
 
-    # Últimos 14 días de juegos con datos de canción (para reglas 2, 3, 4, 5)
     r_recent = supabase.table("ecos_games").select(
         "date, ecos_songs(release_date, genre, spotify_playlist_id, spotify_playlist_name, artist_name)"
     ).gte("date", cutoff_14).order("date", desc=True).execute()
@@ -229,7 +189,6 @@ def main() -> None:
     cutoff_priority = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
     priority_playlists = {pl for pl, d in playlist_last_date.items() if d < cutoff_priority}
 
-    # Reglas 3, 4, 5: filtrar candidatos
     def is_valid(s: dict) -> bool:
         decade = get_decade(s.get("release_date"))
         if yesterday_decade and decade == yesterday_decade:
@@ -257,48 +216,110 @@ def main() -> None:
 
     song = random.choice(candidates)
 
-    # Validar campos mínimos
     if not song.get("title") or not song.get("artist_name"):
-        log.error("Canción sin title o artist_name")
-        _log_failure(supabase, start_ms, "Campos requeridos faltantes")
+        return None, "Campos requeridos faltantes (title/artist_name)"
+
+    return song, None
+
+
+def main() -> None:
+    log = setup_logging()
+    start_ms = int(datetime.now().timestamp() * 1000)
+
+    url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url_env or not key_env:
+        log.error("NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridos")
         sys.exit(1)
 
-    # Siguiente game_number
+    supabase: Client = create_client(url_env, key_env)
+    now_madrid = datetime.now(MADRID)
+
+    pending_dates = get_pending_game_dates(supabase, now_madrid)
+    if not pending_dates:
+        log.info("Ya existen juegos para hoy y mañana en Madrid, nada que hacer")
+        try:
+            supabase.table("ecos_system_logs").insert({
+                "job_type": "daily_game",
+                "status": "success",
+                "summary": "Juegos ya existían para hoy y mañana",
+                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
+                "details": {"skipped": True, "madrid_now": now_madrid.isoformat()},
+            }).execute()
+        except Exception as log_err:
+            log.warning("No se pudo guardar log: %s", log_err)
+        return
+
+    all_songs = _load_eligible_pool(supabase, log)
+    if not all_songs:
+        msg = (
+            f"Pool elegible vacío: ninguna canción cumple preview ≥ {MIN_PREVIEW_SECONDS:g}s, "
+            "playlist activa y preview_url"
+        )
+        log.error(msg)
+        _log_failure(supabase, start_ms, msg)
+        sys.exit(1)
+
+    r_used = supabase.table("ecos_games").select("song_id").execute()
+    used_song_ids = {str(r["song_id"]) for r in (r_used.data or []) if r.get("song_id")}
+
     r_count = supabase.table("ecos_games").select("*", count="exact", head=True).execute()
     next_game_number = (r_count.count or 0) + 1
 
-    try:
-        supabase.table("ecos_games").insert({
-            "song_id": song["id"],
-            "date": target_date,
-            "game_number": next_game_number,
-        }).execute()
+    created: list[str] = []
+    for target_date in pending_dates:
+        song, err = select_song_for_date(
+            supabase, target_date, now_madrid, all_songs, used_song_ids, log
+        )
+        if err or not song:
+            log.error("No se pudo seleccionar para %s: %s", target_date, err)
+            _log_failure(supabase, start_ms, f"{target_date}: {err}")
+            # Si falla el primer día seguimos intentando el segundo; solo abortamos
+            # con exit!=0 al final si no se creó ninguno.
+            continue
+
+        try:
+            supabase.table("ecos_games").insert({
+                "song_id": song["id"],
+                "date": target_date,
+                "game_number": next_game_number,
+            }).execute()
+        except Exception as e:
+            # Otra ejecución concurrente pudo crear el juego (unique en date): tratar como benigno.
+            log.warning("No se pudo insertar juego para %s (¿ya existe?): %s", target_date, e)
+            _log_failure(supabase, start_ms, f"insert {target_date}: {e}")
+            continue
+
         log.info("Ecos #%d para %s: %s / %s",
                  next_game_number, target_date, song.get("title", "")[:40], song.get("artist_name", "")[:30])
-    except Exception as e:
-        log.error("Error insertando juego: %s", e)
-        _log_failure(supabase, start_ms, str(e))
-        sys.exit(1)
 
-    duration_ms = int(datetime.now().timestamp() * 1000) - start_ms
-    try:
-        supabase.table("ecos_system_logs").insert({
-            "job_type": "daily_game",
-            "status": "success",
-            "summary": f"1 juego creado para {format_date_ddmmyyyy(target_date)}",
-            "duration_ms": duration_ms,
-            "details": {
-                "target_date": format_date_ddmmyyyy(target_date),
-                "game_number": next_game_number,
-                "song_id": str(song["id"]),
-                "title": song.get("title"),
-                "artist": song.get("artist_name"),
-                "playlist": song.get("spotify_playlist_name") or None,
-                "playlist_id": song.get("spotify_playlist_id") or None,
-            },
-        }).execute()
-    except Exception as log_err:
-        log.warning("No se pudo guardar log: %s", log_err)
+        # Actualizar estado local para que la siguiente fecha no repita canción.
+        used_song_ids.add(str(song["id"]))
+        try:
+            supabase.table("ecos_system_logs").insert({
+                "job_type": "daily_game",
+                "status": "success",
+                "summary": f"1 juego creado para {format_date_ddmmyyyy(target_date)}",
+                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
+                "details": {
+                    "target_date": format_date_ddmmyyyy(target_date),
+                    "game_number": next_game_number,
+                    "song_id": str(song["id"]),
+                    "title": song.get("title"),
+                    "artist": song.get("artist_name"),
+                    "playlist": song.get("spotify_playlist_name") or None,
+                    "playlist_id": song.get("spotify_playlist_id") or None,
+                },
+            }).execute()
+        except Exception as log_err:
+            log.warning("No se pudo guardar log: %s", log_err)
+
+        created.append(target_date)
+        next_game_number += 1
+
+    if not created:
+        log.error("No se creó ningún juego para las fechas pendientes: %s", pending_dates)
+        sys.exit(1)
 
 
 def _log_failure(supabase: Client, start_ms: int, error: str) -> None:
