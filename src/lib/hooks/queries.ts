@@ -173,6 +173,10 @@ export interface ValidateGuessResponse {
   correctArtist?: boolean;
   correctAlbum?: boolean;
   totalPoints?: number;
+  /** Intento con el que el servidor ha registrado la jugada; puede no ser el enviado. */
+  attemptNumber?: number;
+  /** La partida ya estaba cerrada: la respuesta trae la puntuación guardada, sin repuntuar. */
+  alreadyFinalized?: boolean;
   error?: string;
 }
 
@@ -183,6 +187,10 @@ export interface SkipAttemptRequest {
 
 export interface SkipAttemptResponse {
   ok?: boolean;
+  /** Intento con el que el servidor ha registrado el salto; puede no ser el enviado. */
+  attemptNumber?: number;
+  /** La partida ya estaba cerrada: no se ha vuelto a puntuar. */
+  alreadyFinalized?: boolean;
   error?: string;
 }
 
