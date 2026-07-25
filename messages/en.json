@@ -12,7 +12,12 @@
     "days": "days",
     "day": "day",
     "enter": "Sign in",
-    "offline": "You're offline. Some features may be unavailable."
+    "offline": "You're offline. Some features may be unavailable.",
+    "unexpectedError": "Something unexpected went wrong. Please try again in a moment.",
+    "errorReference": "Error reference",
+    "goHome": "Go to home",
+    "notFoundTitle": "Page not found",
+    "notFoundDescription": "This link doesn't exist, or the challenge you're looking for is no longer available."
   },
   "nav": {
     "home": "Home",

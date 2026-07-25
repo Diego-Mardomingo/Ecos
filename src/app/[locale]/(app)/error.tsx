@@ -24,9 +24,15 @@ export default function AppError({
       </span>
       <div className="text-center">
         <h2 className="text-lg font-semibold">{t("error")}</h2>
+        {/* Genérico y sin `error.message`: mismo criterio que en [locale]/error.tsx. */}
         <p className="mt-1 text-sm text-muted-foreground">
-          {error.message || "Ha ocurrido un error inesperado"}
+          {t("unexpectedError")}
         </p>
+        {error.digest ? (
+          <p className="mt-2 text-xs text-muted-foreground/70">
+            {t("errorReference")}: <code className="font-mono">{error.digest}</code>
+          </p>
+        ) : null}
       </div>
       <Button onClick={reset} variant="outline">
         {t("retry")}
