@@ -11,6 +11,7 @@ import {
   useLeaderboard,
 } from "@/lib/hooks/queries";
 import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { cn } from "@/lib/utils";
 import {
   LeaderboardPodiumAndList,
@@ -41,23 +42,23 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
-  const isFirstSaveRun = useRef(true);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  // Restauración del último periodo ajustando el estado durante el render:
+  // `mounted` es false en servidor y al hidratar, así que el HTML coincide, y el
+  // valor guardado se aplica antes del primer pintado en cliente.
+  const mounted = useIsMounted();
+  const [hasRestoredTab, setHasRestoredTab] = useState(false);
+  if (mounted && !hasRestoredTab) {
+    setHasRestoredTab(true);
     const saved = localStorage.getItem(RANKING_PERIOD_STORAGE_KEY);
     const idx = saved != null ? PERIOD_ORDER.indexOf(saved as PeriodTab) : -1;
     if (idx >= 0) setActiveTab(PERIOD_ORDER[idx]);
-  }, []);
+  }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (isFirstSaveRun.current) {
-      isFirstSaveRun.current = false;
-      return;
-    }
+    // Persistir solo después de restaurar, para no pisar el valor guardado con el inicial.
+    if (!hasRestoredTab) return;
     localStorage.setItem(RANKING_PERIOD_STORAGE_KEY, activeTab);
-  }, [activeTab]);
+  }, [hasRestoredTab, activeTab]);
 
   useEffect(() => {
     if (!initialByPeriod) return;
@@ -89,11 +90,15 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   useLeaderboardRealtime();
   const entries = data?.entries ?? [];
 
-  const lastUserIdRef = useRef<string | null>(null);
-  if (data?.currentUserId !== undefined) {
-    lastUserIdRef.current = data.currentUserId;
+  // Conserva el último usuario conocido para que el banner de invitado no
+  // parpadee mientras `data` está indefinido al cambiar de periodo. Se guarda en
+  // estado ajustado durante el render, no en una ref: leer y escribir refs en
+  // render rompe las garantías del compilador de React.
+  const [lastUserId, setLastUserId] = useState<string | null>(null);
+  if (data?.currentUserId !== undefined && data.currentUserId !== lastUserId) {
+    setLastUserId(data.currentUserId);
   }
-  const currentUserId = data?.currentUserId ?? lastUserIdRef.current;
+  const currentUserId = data?.currentUserId ?? lastUserId;
 
   const touchStartX = useRef<number>(0);
   const handleTouchStart = useCallback((e: React.TouchEvent) => {

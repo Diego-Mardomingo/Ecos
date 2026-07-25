@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parse, startOfMonth } from "date-fns";
 import { es as esLocale, enUS } from "date-fns/locale";
@@ -83,9 +83,13 @@ export function LeaderboardHistoryListClient({
 
   const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
+  // Reset al cambiar de granularidad, ajustando el estado durante el render
+  // (patrón recomendado por React) en lugar de sincronizarlo con un efecto.
+  const [lastGranularity, setLastGranularity] = useState(granularity);
+  if (granularity !== lastGranularity) {
+    setLastGranularity(granularity);
     setOpenMonths({});
-  }, [granularity]);
+  }
 
   const isMonthOpen = (monthKey: string) => {
     if (openMonths[monthKey] !== undefined) return openMonths[monthKey];

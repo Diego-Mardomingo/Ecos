@@ -39,19 +39,11 @@ export function NotificationsModal() {
   } = useNotifications({ enabled: isAuthenticated });
 
   const [open, setOpen] = useState(false);
-  const [statusLoaded, setStatusLoaded] = useState(false);
   /** Si true, el próximo cierre del diálogo no incrementa el contador (p. ej. activación correcta). */
   const skipNextDismissIncrement = useRef(false);
 
-  useEffect(() => {
-    if (!isSupported) {
-      setStatusLoaded(true);
-      return;
-    }
-    if (modalPromptExhausted || isEnabled) {
-      setStatusLoaded(true);
-    }
-  }, [isSupported, modalPromptExhausted, isEnabled]);
+  /** Ya sabemos que el modal no toca mostrarse: derivado, no sincronizado por efecto. */
+  const statusLoaded = !isSupported || modalPromptExhausted || isEnabled;
 
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated || !isSupported) return;
@@ -60,10 +52,8 @@ export function NotificationsModal() {
       void recordModalDismiss({ exhaust: true });
       return;
     }
-    const timer = window.setTimeout(() => {
-      setOpen(true);
-      setStatusLoaded(true);
-    }, 600);
+    // setOpen basta: el guard de abajo ya deja pasar el render cuando open es true.
+    const timer = window.setTimeout(() => setOpen(true), 600);
     return () => window.clearTimeout(timer);
   }, [
     isAuthLoading,

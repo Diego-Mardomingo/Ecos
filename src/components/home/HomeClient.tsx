@@ -7,8 +7,10 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
@@ -108,6 +110,51 @@ const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
 const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
 const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
 const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
+
+type PreviousDaysPrefs = {
+  openMonths?: Set<string>;
+  filterYear?: number;
+  filterMonth?: number;
+  viewMode?: "list" | "grid";
+  sortOrder?: "asc" | "desc";
+};
+
+/** Lee de una vez las preferencias de la sección de días anteriores. Cada clave va en
+ *  su propio try: un valor corrupto no debe impedir restaurar los demás. */
+function readPreviousDaysPrefs(): PreviousDaysPrefs {
+  const prefs: PreviousDaysPrefs = {};
+  try {
+    const raw = sessionStorage.getItem(HOME_MONTHS_OPEN_STORAGE_KEY);
+    const arr = raw ? (JSON.parse(raw) as string[]) : null;
+    if (Array.isArray(arr) && arr.length > 0) prefs.openMonths = new Set(arr);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const raw = sessionStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as { filterYear?: number | null; filterMonth?: number | null };
+      if (typeof p.filterYear === "number") prefs.filterYear = p.filterYear;
+      if (typeof p.filterMonth === "number") prefs.filterMonth = p.filterMonth;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const raw = sessionStorage.getItem(HOME_VIEW_MODE_STORAGE_KEY);
+    if (raw === "list" || raw === "grid") prefs.viewMode = raw;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const raw = sessionStorage.getItem(HOME_SORT_ORDER_STORAGE_KEY);
+    if (raw === "asc" || raw === "desc") prefs.sortOrder = raw;
+  } catch {
+    /* ignore */
+  }
+  return prefs;
+}
+
 /**
  * Solo red de seguridad si la API devolviera nextMonth de forma errónea.
  * El histórico real termina cuando nextMonth es null.
@@ -384,11 +431,12 @@ export function HomeClient({ initialData }: Props) {
       return todayData.todaysInProgress ?? null;
     }
     return fromRsc;
+    // `initialData` entero: el compilador infiere esa dependencia, y desglosarla en
+    // propiedades sueltas le impide preservar la memoización del componente.
   }, [
     todayData,
     initialDataAligned,
-    initialData?.todaysGame,
-    initialData?.inProgressByGameId,
+    initialData,
     todaysCompletedResultEffective,
   ]);
 
@@ -469,34 +517,43 @@ export function HomeClient({ initialData }: Props) {
     });
   }, [queryClient, cacheUserId]);
 
+  // Acumulación de los meses que van llegando. Se hace ajustando el estado durante
+  // el render en lugar de en un efecto: así los updaters quedan puros. Antes las
+  // escrituras en la caché de queries vivían dentro del updater, que React puede
+  // ejecutar más de una vez.
+  const [lastMergedSource, setLastMergedSource] = useState<
+    HomePreviousDaysData | undefined
+  >(undefined);
+  if (previousDaysData?.previousDays && previousDaysData !== lastMergedSource) {
+    setLastMergedSource(previousDaysData);
+    setInProgressByGameId((prev) =>
+      mergeInProgressByGameId(prev, previousDaysData.inProgressByGameId)
+    );
+    setPreviousDaysMerged((prev) =>
+      mergePreviousDays(prev, previousDaysData.previousDays)
+    );
+  }
+
+  // Reflejar el resultado ya acumulado en la caché de queries (sistema externo).
   useEffect(() => {
     if (!previousDaysData?.previousDays) return;
-    setInProgressByGameId((prevInProgress) => {
-      const mergedInProgress = mergeInProgressByGameId(
-        prevInProgress,
-        previousDaysData.inProgressByGameId
-      );
-      primeHomeDayStatusCache(
-        queryClient,
-        previousDaysData.previousDays,
-        mergedInProgress
-      );
-      setPreviousDaysMerged((prev) => {
-        const merged = mergePreviousDays(prev, previousDaysData.previousDays);
-        queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-          previousDays: merged,
-          userId: previousDaysData.userId ?? resolvedUserId ?? null,
-          month: previousDaysData.month,
-          nextMonth: previousDaysData.nextMonth ?? null,
-          hasMoreOlder: previousDaysData.hasMoreOlder,
-          inProgressByGameId: mergedInProgress,
-        } satisfies HomePreviousDaysData);
-        return merged;
-      });
-      return mergedInProgress;
-    });
+    primeHomeDayStatusCache(
+      queryClient,
+      previousDaysData.previousDays,
+      inProgressByGameId
+    );
+    queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+      previousDays: previousDaysMerged,
+      userId: previousDaysData.userId ?? resolvedUserId ?? null,
+      month: previousDaysData.month,
+      nextMonth: previousDaysData.nextMonth ?? null,
+      hasMoreOlder: previousDaysData.hasMoreOlder,
+      inProgressByGameId,
+    } satisfies HomePreviousDaysData);
   }, [
     previousDaysData,
+    previousDaysMerged,
+    inProgressByGameId,
     queryClient,
     resolvedUserId,
     cacheUserId,
@@ -519,10 +576,14 @@ export function HomeClient({ initialData }: Props) {
           monthCursor &&
           count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
         ) {
+          // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
+          // bucle, y capturarlo directamente en el closure de queryFn confunde al
+          // análisis del compilador (además de ser frágil).
+          const month: string = monthCursor;
           try {
             const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-              queryKey: queryKeys.home.previousDays(monthCursor, cacheUserId),
-              queryFn: () => fetchHomePreviousDaysData(monthCursor!),
+              queryKey: queryKeys.home.previousDays(month, cacheUserId),
+              queryFn: () => fetchHomePreviousDaysData(month),
               staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
               gcTime: HOME_PREVIOUS_DAYS_GC_MS,
             });
@@ -577,10 +638,14 @@ export function HomeClient({ initialData }: Props) {
           monthCursor &&
           count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
         ) {
+          // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
+          // bucle, y capturarlo directamente en el closure de queryFn confunde al
+          // análisis del compilador (además de ser frágil).
+          const month: string = monthCursor;
           try {
             const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-              queryKey: queryKeys.home.previousDays(monthCursor, cacheUserId),
-              queryFn: () => fetchHomePreviousDaysData(monthCursor!),
+              queryKey: queryKeys.home.previousDays(month, cacheUserId),
+              queryFn: () => fetchHomePreviousDaysData(month),
               staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
               gcTime: HOME_PREVIOUS_DAYS_GC_MS,
             });
@@ -833,7 +898,9 @@ export function HomeClient({ initialData }: Props) {
         }
       );
     },
-    [reportType, reportMessage, reportEmail, submitFeedback]
+    // Los setters de useState son estables; van declarados porque el compilador
+    // los infiere como dependencias y si no coinciden descarta la optimización.
+    [reportType, reportMessage, reportEmail, submitFeedback, setReportMessage, setReportEmail]
   );
 
   const handleReportOpenChange = useCallback((open: boolean) => {
@@ -1453,13 +1520,15 @@ function RollingCountdownSegment({
   value: number;
   suffix: "h" | "m" | "s";
 }) {
-  const prevRef = useRef<number | undefined>(undefined);
-  const prev = prevRef.current;
-  const downward = prev === undefined || value < prev;
-
-  useLayoutEffect(() => {
-    prevRef.current = value;
-  }, [value]);
+  // Dirección de la animación guardada junto al valor que la produjo. En estado, no
+  // en una ref: leer una ref durante el render impide al compilador de React saber
+  // cuándo cambia el valor. Se guardan juntos para que el render extra que dispara
+  // el ajuste no invierta la dirección.
+  const [prev, setPrev] = useState({ value, downward: true });
+  if (prev.value !== value) {
+    setPrev({ value, downward: value < prev.value });
+  }
+  const downward = prev.value === value ? prev.downward : value < prev.value;
 
   return (
     <span className="inline-flex shrink-0 items-baseline tabular-nums">
@@ -1497,26 +1566,27 @@ function Countdown({
   onCountdownUnder10s?: () => void;
   onCountdownZero?: () => void;
 }) {
-  const [mounted, setMounted] = useState(false);
+  // ms = 0 significa "todavía sin medir": es lo que se renderiza en servidor y al
+  // hidratar, así que no hace falta un flag `mounted` aparte.
   const [ms, setMs] = useState(0);
   const prevMsRef = useRef<number | null>(null);
   const hasTriggeredRef = useRef(false);
   const hasTriggeredUnder10Ref = useRef(false);
 
   useEffect(() => {
-    setMounted(true);
-    setMs(getMsUntilNextMidnightMadrid());
+    const tick = () => setMs(getMsUntilNextMidnightMadrid());
+    // La primera medición va en un rAF y no en el cuerpo del efecto, para no
+    // encadenar un render síncrono nada más montar.
+    const raf = requestAnimationFrame(tick);
+    const id = setInterval(tick, 1000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
-    if (!mounted) return;
-    const tick = () => setMs(getMsUntilNextMidnightMadrid());
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [mounted]);
-
-  useEffect(() => {
-    if (!mounted) return;
+    if (ms <= 0) return;
     if (
       onCountdownUnder10s &&
       ms < PREFETCH_UNDER_MS &&
@@ -1525,19 +1595,19 @@ function Countdown({
       hasTriggeredUnder10Ref.current = true;
       onCountdownUnder10s();
     }
-  }, [mounted, ms, onCountdownUnder10s]);
+  }, [ms, onCountdownUnder10s]);
 
   useEffect(() => {
-    if (!mounted || !onCountdownZero || hasTriggeredRef.current) return;
+    if (ms <= 0 || !onCountdownZero || hasTriggeredRef.current) return;
     const prev = prevMsRef.current;
     prevMsRef.current = ms;
     if (prev !== null && prev < 60000 && ms > MS_PER_HOUR) {
       hasTriggeredRef.current = true;
       onCountdownZero();
     }
-  }, [mounted, ms, onCountdownZero]);
+  }, [ms, onCountdownZero]);
 
-  const parts = mounted ? getCountdownParts(ms) : null;
+  const parts = ms > 0 ? getCountdownParts(ms) : null;
 
   return (
     <span className="inline-flex flex-wrap items-baseline gap-x-1 text-xs font-medium tabular-nums">
@@ -1560,15 +1630,21 @@ function Countdown({
 }
 
 function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    const m = window.matchMedia(query);
-    setMatches(m.matches);
-    const handler = () => setMatches(m.matches);
-    m.addEventListener("change", handler);
-    return () => m.removeEventListener("change", handler);
-  }, [query]);
-  return matches;
+  // matchMedia es exactamente el tipo de fuente externa para la que existe
+  // useSyncExternalStore: evita el setState síncrono dentro del efecto.
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const m = window.matchMedia(query);
+      m.addEventListener("change", onChange);
+      return () => m.removeEventListener("change", onChange);
+    },
+    [query]
+  );
+  return useSyncExternalStore(
+    subscribe,
+    () => window.matchMedia(query).matches,
+    () => false
+  );
 }
 
 /** Waveform compacta junto al nombre: misma lógica que WaveformBars (ola centrada verticalmente). */
@@ -1694,17 +1770,33 @@ function HomeStatsCarousel({
   // Restaurar último período guardado y persistir al cambiar
   useEffect(() => {
     if (!api) return;
-    const saved = typeof window !== "undefined" ? localStorage.getItem(HOME_STATS_PERIOD_STORAGE_KEY) : null;
-    const idx = saved != null ? periods.indexOf(saved as (typeof periods)[number]) : -1;
-    const initialIndex = idx >= 0 ? idx : 0;
-    if (initialIndex !== 0) api.scrollTo(initialIndex);
-    setSelectedIndex(initialIndex);
-    if (typeof window !== "undefined") localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[initialIndex]);
-    api.on("select", () => {
+
+    const onSelect = () => {
       const i = api.selectedScrollSnap();
       setSelectedIndex(i);
-      if (typeof window !== "undefined") localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[i]);
-    });
+      try {
+        localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[i]);
+      } catch {
+        /* ignore */
+      }
+    };
+    // Suscribir antes de mover el carrusel, para no perder el evento que emite scrollTo.
+    api.on("select", onSelect);
+
+    const saved = localStorage.getItem(HOME_STATS_PERIOD_STORAGE_KEY);
+    const idx = saved != null ? periods.indexOf(saved as (typeof periods)[number]) : -1;
+    const initialIndex = idx >= 0 ? idx : 0;
+    if (initialIndex !== 0) api.scrollTo(initialIndex, true);
+
+    // Sincronizar con la posición real en el siguiente frame: cubre el caso de que
+    // scrollTo no llegue a emitir "select", sin hacer setState en el cuerpo del efecto.
+    const raf = requestAnimationFrame(onSelect);
+    return () => {
+      cancelAnimationFrame(raf);
+      api.off("select", onSelect);
+    };
+    // `periods` es una constante literal, no cambia entre renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);
 
   const scrollTo = useCallback(
@@ -1857,9 +1949,25 @@ function PreviousDaysSection({
   const [nowY, nowM] = getMadridDate().split("-").map(Number);
   const currentMonthKey = `${nowY}-${String(nowM).padStart(2, "0")}`;
 
-  // Estado inicial igual en servidor y cliente para evitar hydration mismatch; sessionStorage se aplica en useEffect
+  // Estado inicial igual en servidor y cliente para evitar hydration mismatch;
+  // sessionStorage se aplica justo después de hidratar (ver bloque de restauración).
   const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([currentMonthKey]));
-  const hasRestoredRef = useRef(false);
+
+  const mounted = useIsMounted();
+  const [hasRestored, setHasRestored] = useState(false);
+
+  // Restauración desde sessionStorage ajustando el estado durante el render, no en
+  // un efecto: `mounted` es false en servidor y en el render de hidratación, así que
+  // el HTML coincide, y el ajuste se aplica antes del primer pintado en cliente.
+  if (mounted && !hasRestored) {
+    setHasRestored(true);
+    const stored = readPreviousDaysPrefs();
+    if (stored.openMonths) setOpenMonths(stored.openMonths);
+    if (stored.filterYear != null) setFilterYear(stored.filterYear);
+    if (stored.filterMonth != null) setFilterMonth(stored.filterMonth);
+    if (stored.viewMode) setViewMode(stored.viewMode);
+    if (stored.sortOrder) setSortOrder(stored.sortOrder);
+  }
 
   const dayStatusQueries = useQueries({
     queries: previousDays.map((day) => {
@@ -1905,46 +2013,6 @@ function PreviousDaysSection({
     return map;
   }, [previousDays, dayStatusQueries]);
 
-  // Restaurar todo desde sessionStorage al montar (solo cliente); marcar restaurado para no pisar en los efectos de persist
-  useEffect(() => {
-    try {
-      const sOpen = sessionStorage.getItem(HOME_MONTHS_OPEN_STORAGE_KEY);
-      if (sOpen) {
-        const arr = JSON.parse(sOpen) as string[];
-        if (Array.isArray(arr) && arr.length > 0) setOpenMonths(new Set(arr));
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const sFilter = sessionStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
-      if (sFilter) {
-        const p = JSON.parse(sFilter) as { filterYear?: number | null; filterMonth?: number | null };
-        if (typeof p.filterYear === "number") setFilterYear(p.filterYear);
-        if (typeof p.filterMonth === "number") setFilterMonth(p.filterMonth);
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const sView = sessionStorage.getItem(HOME_VIEW_MODE_STORAGE_KEY);
-      if (sView === "list" || sView === "grid") setViewMode(sView);
-    } catch {
-      /* ignore */
-    }
-    try {
-      const sSort = sessionStorage.getItem(HOME_SORT_ORDER_STORAGE_KEY);
-      if (sSort === "asc" || sSort === "desc") setSortOrder(sSort);
-    } catch {
-      /* ignore */
-    }
-    // Marcar como restaurado en el siguiente tick para que los efectos de persist no escriban con estado inicial
-    const id = setTimeout(() => {
-      hasRestoredRef.current = true;
-    }, 0);
-    return () => clearTimeout(id);
-  }, []);
-
   // openMonths: persistir solo cuando el usuario abre/cierra un mes (no al montar, así no pisamos lo restaurado)
   const handleOpenMonthsChange = useCallback((key: string, open: boolean) => {
     setOpenMonths((prev) => {
@@ -1962,7 +2030,7 @@ function PreviousDaysSection({
 
   // Filtro año/mes, viewMode y sortOrder: solo persistir después de haber restaurado para no pisar storage al montar
   useEffect(() => {
-    if (!hasRestoredRef.current) return;
+    if (!hasRestored) return;
     try {
       sessionStorage.setItem(
         PREVIOUS_DAYS_FILTER_STORAGE_KEY,
@@ -1971,26 +2039,26 @@ function PreviousDaysSection({
     } catch {
       /* ignore */
     }
-  }, [filterYear, filterMonth]);
+  }, [hasRestored, filterYear, filterMonth]);
 
   // viewMode y sortOrder
   useEffect(() => {
-    if (!hasRestoredRef.current) return;
+    if (!hasRestored) return;
     try {
       sessionStorage.setItem(HOME_VIEW_MODE_STORAGE_KEY, viewMode);
     } catch {
       /* ignore */
     }
-  }, [viewMode]);
+  }, [hasRestored, viewMode]);
 
   useEffect(() => {
-    if (!hasRestoredRef.current) return;
+    if (!hasRestored) return;
     try {
       sessionStorage.setItem(HOME_SORT_ORDER_STORAGE_KEY, sortOrder);
     } catch {
       /* ignore */
     }
-  }, [sortOrder]);
+  }, [hasRestored, sortOrder]);
 
   const monthNamesFull =
     locale === "es"

@@ -74,15 +74,22 @@ ref: React.Ref<AudioPlayerHandle>) => {
   /** Listener "ended" activo del preview, para poder retirarlo y no acumularlos. */
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const maxDurationRef = useRef(maxDuration);
-  maxDurationRef.current = maxDuration;
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const isPlayingRef = useRef(false);
   const isLoadedRef = useRef(false);
-  isPlayingRef.current = isPlaying;
-  isLoadedRef.current = isLoaded;
+
+  // Espejos del último valor, para que los callbacks imperativos (rAF, handlers de
+  // <audio>, el handle expuesto por ref) los lean sin recrearse en cada cambio.
+  // Se escriben tras el commit y no durante el render, que rompe las garantías
+  // del compilador de React.
+  useEffect(() => {
+    maxDurationRef.current = maxDuration;
+    isPlayingRef.current = isPlaying;
+    isLoadedRef.current = isLoaded;
+  });
 
   const updateMediaSessionPosition = useCallback((position: number) => {
     if (typeof navigator !== "undefined" && "mediaSession" in navigator && sourceRef.current === "preview") {
@@ -128,6 +135,30 @@ ref: React.Ref<AudioPlayerHandle>) => {
     mediaSessionSuppressRef.current = window.setInterval(suppress, 300);
   }, [cancelMediaSessionSuppress]);
 
+  /** Declarado aquí, antes del efecto de montaje del reproductor, porque ese efecto
+   *  lo usa: si se declara después queda en zona muerta temporal y la referencia
+   *  capturada no se actualiza cuando cambia. */
+  const stopAndReset = useCallback(() => {
+    if (playerRef.current) {
+      playerRef.current.stopVideo();
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      if (endedHandlerRef.current) {
+        audioRef.current.removeEventListener("ended", endedHandlerRef.current);
+        endedHandlerRef.current = null;
+      }
+    }
+    cancelPlaybackLoop();
+    cancelHardStop();
+    cancelMediaSessionSuppress();
+    setCurrentTime(0);
+    setIsPlaying(false);
+    clearMediaSession();
+    onTimeUpdate?.(0);
+  }, [cancelPlaybackLoop, cancelHardStop, cancelMediaSessionSuppress, clearMediaSession, onTimeUpdate]);
+
   useEffect(() => {
     onPlayingChange?.(isPlaying);
   }, [isPlaying, onPlayingChange]);
@@ -139,13 +170,22 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const source: AudioSource | null =
     previewUrl ? "preview" : youtubeId ? "youtube" : null;
 
-  useEffect(() => {
-    if (!source) return;
-
+  // Reset al cambiar de pista, ajustando el estado durante el render en lugar de
+  // en el efecto de montaje del reproductor. En el primer render no hace nada,
+  // porque estos son ya los valores iniciales.
+  const trackKey = `${youtubeId ?? ""}|${previewUrl ?? ""}`;
+  const [lastTrackKey, setLastTrackKey] = useState(trackKey);
+  if (trackKey !== lastTrackKey) {
+    setLastTrackKey(trackKey);
     setIsLoaded(false);
     setHasError(false);
     setCurrentTime(0);
     setIsPlaying(false);
+  }
+
+  useEffect(() => {
+    if (!source) return;
+
     sourceRef.current = source;
 
     if (source === "youtube") {
@@ -258,28 +298,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
         clearMediaSession();
       };
     }
-  }, [youtubeId, previewUrl, source, clearMediaSession]);
-
-  const stopAndReset = useCallback(() => {
-    if (playerRef.current) {
-      playerRef.current.stopVideo();
-    }
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      if (endedHandlerRef.current) {
-        audioRef.current.removeEventListener("ended", endedHandlerRef.current);
-        endedHandlerRef.current = null;
-      }
-    }
-    cancelPlaybackLoop();
-    cancelHardStop();
-    cancelMediaSessionSuppress();
-    setCurrentTime(0);
-    setIsPlaying(false);
-    clearMediaSession();
-    onTimeUpdate?.(0);
-  }, [cancelPlaybackLoop, cancelHardStop, cancelMediaSessionSuppress, clearMediaSession, onTimeUpdate]);
+  }, [youtubeId, previewUrl, source, clearMediaSession, stopAndReset]);
 
   const stopIfPlaying = useCallback(() => {
     if (!isLoadedRef.current || !isPlayingRef.current) return;

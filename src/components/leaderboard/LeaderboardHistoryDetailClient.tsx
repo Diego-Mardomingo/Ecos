@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { format, parse } from "date-fns";
+import { format, parse, type Locale } from "date-fns";
 import { es as esLocale, enUS } from "date-fns/locale";
 import { Link } from "@/i18n/navigation";
 import {
@@ -12,6 +12,25 @@ import {
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import { useLeaderboardHistoryDetail } from "@/lib/hooks/queries";
+
+/** parse() exige fecha de referencia, pero con un patrón yyyy-MM-dd completo no
+ *  influye en el resultado. Una constante evita el new Date() impuro en render. */
+const PARSE_REFERENCE = new Date(0);
+
+function buildSubtitle(
+  periodStart: string | undefined,
+  periodEnd: string | undefined,
+  granularity: "weekly" | "monthly" | null,
+  dfLocale: Locale
+): string {
+  if (!periodStart || !periodEnd || !granularity) return "";
+  const a = parse(periodStart, "yyyy-MM-dd", PARSE_REFERENCE);
+  const b = parse(periodEnd, "yyyy-MM-dd", PARSE_REFERENCE);
+  if (granularity === "weekly") {
+    return `${format(a, "d MMM", { locale: dfLocale })} – ${format(b, "d MMM yyyy", { locale: dfLocale })}`;
+  }
+  return format(a, "LLLL yyyy", { locale: dfLocale });
+}
 
 export function LeaderboardHistoryDetailClient() {
   const t = useTranslations("ranking");
@@ -40,15 +59,11 @@ export function LeaderboardHistoryDetailClient() {
     [locale]
   );
 
-  const subtitle = useMemo(() => {
-    if (!data?.periodStart || !data?.periodEnd || !granularity) return "";
-    const a = parse(data.periodStart, "yyyy-MM-dd", new Date());
-    const b = parse(data.periodEnd, "yyyy-MM-dd", new Date());
-    if (granularity === "weekly") {
-      return `${format(a, "d MMM", { locale: dfLocale })} – ${format(b, "d MMM yyyy", { locale: dfLocale })}`;
-    }
-    return format(a, "LLLL yyyy", { locale: dfLocale });
-  }, [data?.periodStart, data?.periodEnd, granularity, dfLocale]);
+  // Sin useMemo: las deps manuales (data?.periodStart, data?.periodEnd) eran más
+  // específicas que la inferida (data), y eso hacía que el compilador de React
+  // descartara la optimización del componente entero. Es un cálculo de strings,
+  // así que se deja que lo memoice el compilador.
+  const subtitle = buildSubtitle(data?.periodStart, data?.periodEnd, granularity, dfLocale);
 
   const getDisplayName = (entry: LeaderboardEntry) => {
     const name = entry.profiles?.display_name?.trim();

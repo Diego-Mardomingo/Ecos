@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   PLAY_SKELETON_VARIANT_KEY,
   type PlaySkeletonVariant,
@@ -20,13 +20,19 @@ function readVariantFromSession(): PlaySkeletonVariant {
   }
 }
 
+/** sessionStorage no emite eventos propios: la variante se lee una vez, no se suscribe a nada. */
+const subscribeToNothing = () => () => {};
+const getServerVariant = (): PlaySkeletonVariant => "in_progress";
+
 /** Skeleton de ruta /play/[gameId] mientras llega el RSC; variante según navegación desde la home. */
 export function PlayGameRouteLoading() {
-  const [variant, setVariant] = useState<PlaySkeletonVariant>("in_progress");
-
-  useLayoutEffect(() => {
-    setVariant(readVariantFromSession());
-  }, []);
+  // useSyncExternalStore en lugar de leer en un efecto: el snapshot de servidor
+  // evita el desajuste de hidratación sin pasar por un render extra.
+  const variant = useSyncExternalStore(
+    subscribeToNothing,
+    readVariantFromSession,
+    getServerVariant
+  );
 
   return variant === "completed" ? (
     <PlayGameCompletedDetailSkeleton />

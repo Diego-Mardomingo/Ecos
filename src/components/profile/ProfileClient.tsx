@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Link } from "@/i18n/navigation";
@@ -11,6 +10,7 @@ import { useLocale } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfile } from "@/lib/hooks/queries";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import type { UserStats } from "@/lib/queries/users";
 import { LanguageSelector } from "@/components/profile/LanguageSelector";
@@ -61,7 +61,7 @@ export function ProfileClient({ initialData }: Props) {
   const tc = useTranslations("common");
   const tn = useTranslations("notifications");
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsMounted();
   const locale = useLocale();
   const notifications = useNotifications({
     enabled: true,
@@ -91,8 +91,6 @@ export function ProfileClient({ initialData }: Props) {
     }
   };
 
-  // Evitar hydration mismatch: el tema se lee de localStorage solo en el cliente
-  useEffect(() => setMounted(true), []);
   const dateFnsLocale = locale === "es" ? es : enUS;
 
   if (isLoading && !data) {

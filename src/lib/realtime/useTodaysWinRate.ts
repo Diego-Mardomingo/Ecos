@@ -8,9 +8,11 @@ import { createClient } from "@/lib/supabase/client";
  * Usa la API (público) para que funcione con usuarios no autenticados.
  * Escucha INSERT en ecos_scores para refrescar al recibir nuevas puntuaciones.
  */
+/** Resultado anclado al gameId que lo produjo, para no mostrar datos de otra partida. */
+type WinRateState = { gameId: string; winRate: number | null; total: number };
+
 export function useTodaysWinRate(gameId: string | null) {
-  const [winRate, setWinRate] = useState<number | null>(null);
-  const [total, setTotal] = useState(0);
+  const [state, setState] = useState<WinRateState | null>(null);
 
   const fetchWinRate = useCallback(async () => {
     if (!gameId) return;
@@ -18,20 +20,17 @@ export function useTodaysWinRate(gameId: string | null) {
       const res = await fetch(`/api/win-rate?gameId=${encodeURIComponent(gameId)}`);
       if (!res.ok) return;
       const { winRate: wr, total: t } = await res.json();
-      setTotal(t ?? 0);
-      setWinRate(wr ?? null);
+      setState({ gameId, winRate: wr ?? null, total: t ?? 0 });
     } catch {
       /* ignore */
     }
   }, [gameId]);
 
   useEffect(() => {
-    if (!gameId) {
-      setWinRate(null);
-      setTotal(0);
-      return;
-    }
-    fetchWinRate();
+    if (!gameId) return;
+    // La carga inicial se lanza desde un callback y no desde el cuerpo del efecto,
+    // para no encadenar un render síncrono al montar.
+    const raf = requestAnimationFrame(() => void fetchWinRate());
     const supabase = createClient();
     const channel = supabase
       .channel(`win-rate-${gameId}`)
@@ -48,9 +47,13 @@ export function useTodaysWinRate(gameId: string | null) {
       .subscribe();
 
     return () => {
+      cancelAnimationFrame(raf);
       supabase.removeChannel(channel);
     };
   }, [gameId, fetchWinRate]);
 
-  return { winRate, total };
+  // Derivado en render, no sincronizado por efecto: si no hay gameId, o el dato
+  // guardado es de una partida anterior, se descarta en lugar de mostrarse stale.
+  const current = gameId && state?.gameId === gameId ? state : null;
+  return { winRate: current?.winRate ?? null, total: current?.total ?? 0 };
 }
