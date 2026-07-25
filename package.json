@@ -2,6 +2,7 @@
   "name": "ecos",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.29.2",
   "pnpm": {
     "overrides": {
       "react": "19.2.3",
@@ -13,6 +14,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "ingest-weekly": "python scripts/ingest-weekly.py",
     "verify-youtube": "tsx scripts/verify-youtube.ts"
   },

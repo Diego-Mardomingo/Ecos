@@ -1,0 +1,15 @@
+{
+  // El service worker vive fuera del tsconfig principal: su
+  // `/// <reference no-default-lib="true" />` desactivaría la lib `dom` para
+  // TODO el programa y rompería la app entera. Aquí se comprueba por separado,
+  // con las libs de worker en lugar de las de navegador.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext", "webworker"],
+    "types": [],
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["src/app/sw.ts"],
+  "exclude": ["node_modules"]
+}
