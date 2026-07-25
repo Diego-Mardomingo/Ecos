@@ -161,6 +161,11 @@ function readPreviousDaysPrefs(): PreviousDaysPrefs {
  */
 const MAX_PREFETCH_HISTORY_MONTHS_SAFETY = 600;
 const PREFETCH_BATCH_SIZE = 8;
+/**
+ * Tope del prefetch eager de partidas. El mes en curso nunca pasa de 31 días, así que esto solo
+ * actúa si `previousDaysMerged` llegara con fechas inesperadas.
+ */
+const HOME_EAGER_PREFETCH_MAX = 31;
 const HOME_PREFETCH_STRATEGY: "sequential" | "full-parallel" =
   process.env.NEXT_PUBLIC_HOME_PREFETCH_STRATEGY === "sequential"
     ? "sequential"
@@ -481,15 +486,34 @@ export function HomeClient({ initialData }: Props) {
     initialData,
   ]);
 
-  const orderedGameIdsForPrefetch = useMemo(() => {
+  /**
+   * Partidas que se prefetchean al cargar: el reto de hoy y los días del mes en curso.
+   *
+   * Antes eran **todas** las del histórico. Como el bucle hace hasta cuatro peticiones por día
+   * (ruta, juego, progreso y estado) y el progreso va con `staleTime: 0`, con un año de juego eso
+   * son ~1.500 peticiones en cada carga de la home, creciendo cada día que pasa.
+   *
+   * El resto de días ya los cubre `PrefetchPlayOnVisible` cuando la tarjeta entra en el viewport,
+   * más su `onMouseEnter`/`onFocus`: el mismo trabajo, pero solo para los días que el usuario
+   * llega a ver. Hacerlo también aquí era duplicarlo por adelantado.
+   */
+  const eagerPrefetchGameIds = useMemo(() => {
     const ids: string[] = [];
     const tg = todayData?.todaysGame ?? initialData?.todaysGame;
     if (tg?.id) ids.push(tg.id);
     for (const d of previousDaysMerged) {
-      if (d.id !== tg?.id) ids.push(d.id);
+      if (d.id === tg?.id) continue;
+      if (!d.date.startsWith(currentMonthKey)) continue;
+      if (ids.length >= HOME_EAGER_PREFETCH_MAX) break;
+      ids.push(d.id);
     }
     return ids;
-  }, [todayData?.todaysGame, initialData?.todaysGame, previousDaysMerged]);
+  }, [
+    todayData?.todaysGame,
+    initialData?.todaysGame,
+    previousDaysMerged,
+    currentMonthKey,
+  ]);
 
   useEffect(() => {
     const cache = queryClient.getQueryCache();
@@ -567,63 +591,72 @@ export function HomeClient({ initialData }: Props) {
     prefetchStartedRef.current = true;
 
     let cancelled = false;
+
+    /**
+     * Recorre el histórico mes a mes siguiendo `nextMonth`. Lo usan tanto la estrategia
+     * secuencial como el fallback de `full-parallel` cuando `/api/home/months` no responde.
+     */
+    const walkMonthsSequentially = async (from: string | null) => {
+      let monthCursor: string | null = from;
+      let count = 0;
+      while (
+        !cancelled &&
+        monthCursor &&
+        count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
+      ) {
+        // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
+        // bucle, y capturarlo directamente en el closure de queryFn confunde al
+        // análisis del compilador (además de ser frágil).
+        const month: string = monthCursor;
+        try {
+          const payload: HomePreviousDaysData = await queryClient.fetchQuery({
+            queryKey: queryKeys.home.previousDays(month, cacheUserId),
+            queryFn: () => fetchHomePreviousDaysData(month),
+            staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+            gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+          });
+          setInProgressByGameId((prevInProgress) => {
+            const mergedInProgress = mergeInProgressByGameId(
+              prevInProgress,
+              payload.inProgressByGameId
+            );
+            primeHomeDayStatusCache(
+              queryClient,
+              payload.previousDays ?? [],
+              mergedInProgress
+            );
+            return mergedInProgress;
+          });
+          setPreviousDaysMerged((prev) => {
+            const merged = mergePreviousDays(prev, payload.previousDays ?? []);
+            const previousAll =
+              queryClient.getQueryData<HomePreviousDaysData>(
+                queryKeys.home.previousDaysAll(cacheUserId)
+              );
+            queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+              previousDays: merged,
+              userId: previousAll?.userId ?? resolvedUserId ?? null,
+              nextMonth: payload.nextMonth ?? null,
+              hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
+              month: previousAll?.month,
+              inProgressByGameId: mergeInProgressByGameId(
+                previousAll?.inProgressByGameId ?? {},
+                payload.inProgressByGameId
+              ),
+            } satisfies HomePreviousDaysData);
+            return merged;
+          });
+          monthCursor = payload.nextMonth ?? null;
+        } catch {
+          break;
+        }
+        count += 1;
+      }
+    };
+
     const run = async () => {
       if (HOME_PREFETCH_STRATEGY === "sequential") {
-        let monthCursor: string | null = startMonth;
-        let count = 0;
-        while (
-          !cancelled &&
-          monthCursor &&
-          count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
-        ) {
-          // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
-          // bucle, y capturarlo directamente en el closure de queryFn confunde al
-          // análisis del compilador (además de ser frágil).
-          const month: string = monthCursor;
-          try {
-            const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-              queryKey: queryKeys.home.previousDays(month, cacheUserId),
-              queryFn: () => fetchHomePreviousDaysData(month),
-              staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-              gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-            });
-            setInProgressByGameId((prevInProgress) => {
-              const mergedInProgress = mergeInProgressByGameId(
-                prevInProgress,
-                payload.inProgressByGameId
-              );
-              primeHomeDayStatusCache(
-                queryClient,
-                payload.previousDays ?? [],
-                mergedInProgress
-              );
-              return mergedInProgress;
-            });
-            setPreviousDaysMerged((prev) => {
-              const merged = mergePreviousDays(prev, payload.previousDays ?? []);
-              const previousAll =
-                queryClient.getQueryData<HomePreviousDaysData>(
-                  queryKeys.home.previousDaysAll(cacheUserId)
-                );
-              queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-                previousDays: merged,
-                userId: previousAll?.userId ?? resolvedUserId ?? null,
-                nextMonth: payload.nextMonth ?? null,
-                hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
-                month: previousAll?.month,
-                inProgressByGameId: mergeInProgressByGameId(
-                  previousAll?.inProgressByGameId ?? {},
-                  payload.inProgressByGameId
-                ),
-              } satisfies HomePreviousDaysData);
-              return merged;
-            });
-            monthCursor = payload.nextMonth ?? null;
-          } catch {
-            break;
-          }
-          count += 1;
-        }
+        await walkMonthsSequentially(startMonth);
         return;
       }
 
@@ -631,61 +664,7 @@ export function HomeClient({ initialData }: Props) {
         () => null
       );
       if (!monthsRes?.ok || cancelled) {
-        let monthCursor: string | null = startMonth;
-        let count = 0;
-        while (
-          !cancelled &&
-          monthCursor &&
-          count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
-        ) {
-          // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
-          // bucle, y capturarlo directamente en el closure de queryFn confunde al
-          // análisis del compilador (además de ser frágil).
-          const month: string = monthCursor;
-          try {
-            const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-              queryKey: queryKeys.home.previousDays(month, cacheUserId),
-              queryFn: () => fetchHomePreviousDaysData(month),
-              staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-              gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-            });
-            setInProgressByGameId((prevInProgress) => {
-              const mergedInProgress = mergeInProgressByGameId(
-                prevInProgress,
-                payload.inProgressByGameId
-              );
-              primeHomeDayStatusCache(
-                queryClient,
-                payload.previousDays ?? [],
-                mergedInProgress
-              );
-              return mergedInProgress;
-            });
-            setPreviousDaysMerged((prev) => {
-              const merged = mergePreviousDays(prev, payload.previousDays ?? []);
-              const previousAll =
-                queryClient.getQueryData<HomePreviousDaysData>(
-                  queryKeys.home.previousDaysAll(cacheUserId)
-                );
-              queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-                previousDays: merged,
-                userId: previousAll?.userId ?? resolvedUserId ?? null,
-                nextMonth: payload.nextMonth ?? null,
-                hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
-                month: previousAll?.month,
-                inProgressByGameId: mergeInProgressByGameId(
-                  previousAll?.inProgressByGameId ?? {},
-                  payload.inProgressByGameId
-                ),
-              } satisfies HomePreviousDaysData);
-              return merged;
-            });
-            monthCursor = payload.nextMonth ?? null;
-          } catch {
-            break;
-          }
-          count += 1;
-        }
+        await walkMonthsSequentially(startMonth);
         return;
       }
       const monthsPayload = (await monthsRes.json()) as { monthKeys?: string[] };
@@ -751,13 +730,13 @@ export function HomeClient({ initialData }: Props) {
     router.prefetch("/play");
   }, [router]);
 
-  /** Prefetch secuencial: día actual primero, luego histórico del más reciente al más antiguo. */
+  /** Prefetch secuencial del mes en curso: día actual primero, luego del más reciente al más antiguo. */
   useEffect(() => {
-    if (!todayData || !previousDaysData || orderedGameIdsForPrefetch.length === 0) return;
+    if (!todayData || !previousDaysData || eagerPrefetchGameIds.length === 0) return;
 
     let cancelled = false;
     const run = async () => {
-      for (const gameId of orderedGameIdsForPrefetch) {
+      for (const gameId of eagerPrefetchGameIds) {
         if (cancelled) break;
         if (!prefetchedGameIdsRef.current.has(gameId)) {
           prefetchedGameIdsRef.current.add(gameId);
@@ -787,7 +766,7 @@ export function HomeClient({ initialData }: Props) {
   }, [
     todayData,
     previousDaysData,
-    orderedGameIdsForPrefetch,
+    eagerPrefetchGameIds,
     queryClient,
     router,
     cacheUserId,
