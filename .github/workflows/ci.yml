@@ -1,0 +1,45 @@
+# Red de seguridad del repo: no hay tests, así que lint + typecheck + build son la única
+# comprobación automática. Los otros tres workflows son jobs de datos (crons), no CI.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lee la versión de `packageManager` en package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      # Comprueba la app y, por separado, el service worker (tsconfig.worker.json).
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Valores ficticios a propósito: ninguna página se prerenderiza contra Supabase, así que el
+      # build no necesita los secretos de producción y CI no depende de su configuración.
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-dummy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-key
+        run: pnpm build
