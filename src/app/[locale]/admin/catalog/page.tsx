@@ -1,7 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { CatalogClient } from "./CatalogClient";
 
 export default async function AdminCatalogPage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const { data: songs } = await supabase

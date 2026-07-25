@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,8 @@ function JobDetailsSummary({
 }
 
 export default async function AdminLogsPage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const { data: logs } = await supabase

@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import Link from "next/link";
 import { format } from "date-fns";
 
@@ -18,6 +19,8 @@ const JOB_LABELS: Record<string, string> = {
 };
 
 export default async function AdminDashboardPage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const [

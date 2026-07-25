@@ -2,12 +2,18 @@ import { AuthProvider } from "@/components/providers/AuthProvider";
 import { BottomNav } from "@/components/bottom-nav/BottomNav";
 import { BackButton } from "@/components/admin/BackButton";
 import { QueryProvider } from "@/components/providers/QueryProvider";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Defensa en profundidad: `src/proxy.ts` ya filtra /admin, pero el middleware no es la
+  // frontera de autorización. Cada página vuelve a comprobarlo por su cuenta porque en las
+  // navegaciones de cliente Next puede no re-ejecutar este layout.
+  await requireAdminPage();
+
   return (
     <QueryProvider>
       <AuthProvider>

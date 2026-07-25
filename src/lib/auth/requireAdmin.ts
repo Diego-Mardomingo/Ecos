@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -26,4 +27,17 @@ export async function requireAdmin(): Promise<{ error: string } | null> {
 
   if (profile?.role !== "admin") return { error: "forbidden" };
   return null;
+}
+
+/**
+ * Igual que {@link requireAdmin} pero para Server Components: corta el render con `notFound()`
+ * en vez de devolver un error, para no revelar que la ruta de admin existe.
+ *
+ * Hay que llamarlo en **cada página** de admin, no solo en el layout: en las navegaciones de
+ * cliente Next puede reutilizar el layout ya renderizado y pedir únicamente el RSC de la
+ * página, con lo que un guard puesto solo en el layout no se volvería a ejecutar.
+ */
+export async function requireAdminPage(): Promise<void> {
+  const denied = await requireAdmin();
+  if (denied) notFound();
 }

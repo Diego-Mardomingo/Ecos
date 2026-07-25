@@ -1,7 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { ScheduleClient } from "./ScheduleClient";
 
 export default async function AdminSchedulePage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const { data: games } = await supabase

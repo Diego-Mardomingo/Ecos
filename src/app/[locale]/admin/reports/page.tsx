@@ -1,7 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { AdminReportsClient } from "./AdminReportsClient";
 
 export default async function AdminReportsPage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const [
