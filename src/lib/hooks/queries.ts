@@ -277,6 +277,10 @@ export async function fetchHomePreviousDaysData(
   return res.json();
 }
 
+/**
+ * `/api/game/[gameId]` exige sesión (el payload lleva title/artist_name).
+ * Los invitados no deben llamarlo: usan el juego que ya trae el Server Component.
+ */
 export async function fetchGameById(gameId: string): Promise<GameWithSong | null> {
   const res = await fetch(`/api/game/${gameId}`);
   if (!res.ok) {
@@ -374,12 +378,16 @@ export function useHomeDayStatus(
   });
 }
 
-export function useGameById(gameId: string, initialData?: GameWithSong | null) {
+export function useGameById(
+  gameId: string,
+  initialData?: GameWithSong | null,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: queryKeys.game.byId(gameId),
     queryFn: () => fetchGameById(gameId),
     initialData,
-    enabled: !!gameId,
+    enabled: (options?.enabled ?? true) && !!gameId,
     staleTime: 5 * 60 * 1000,
   });
 }

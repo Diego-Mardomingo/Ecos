@@ -2,21 +2,21 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 
+/**
+ * Metadatos mínimos del reto de hoy.
+ *
+ * NOTA: ningún componente de la app lo usa (el juego llega por el Server Component de `/play`).
+ * Se mantiene como endpoint público, así que aquí no puede salir nada que revele la canción:
+ * ni título, ni artista, ni carátula, ni `youtube_id` (buscable), ni `preview_url` (la URL cruda
+ * del CDN que `/api/audio-proxy` existe precisamente para ocultar).
+ */
 export async function GET() {
   const supabase = await createClient();
   const effectiveDate = getEffectiveGameDate();
 
   const { data, error } = await supabase
     .from("ecos_games")
-    .select(
-      `
-      id, date, game_number,
-      ecos_songs (
-        id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre, release_date
-      )
-    `
-    )
+    .select("id, date, game_number, ecos_songs ( id )")
     .eq("date", effectiveDate)
     .single();
 
@@ -24,29 +24,11 @@ export async function GET() {
     return NextResponse.json({ error: "No game today" }, { status: 404 });
   }
 
-  // No exponer el título/artista en la respuesta pública
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { ecos_songs, ...gameData } = data;
-  const song = (ecos_songs as unknown) as {
-    id: string;
-    title: string;
-    artist_name: string;
-    album_title: string;
-    cover_url: string;
-    youtube_id: string | null;
-    preview_url: string | null;
-    genre: string | null;
-    release_date: string | null;
-  };
+  const song = ecos_songs as unknown as { id: string } | null;
 
   return NextResponse.json({
     ...gameData,
-    song: {
-      id: song.id,
-      cover_url: song.cover_url,
-      youtube_id: song.youtube_id,
-      preview_url: song.preview_url ?? null,
-      // Título y artista se revelan solo al acertar o perder
-    },
+    song: song ? { id: song.id } : null,
   });
 }

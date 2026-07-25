@@ -762,7 +762,11 @@ export function HomeClient({ initialData }: Props) {
         if (!prefetchedGameIdsRef.current.has(gameId)) {
           prefetchedGameIdsRef.current.add(gameId);
           router.prefetch(`/play/${gameId}`);
-          await prefetchGameById(queryClient, gameId).catch(() => undefined);
+          // Solo autenticados: `/api/game/[gameId]` responde 401 a invitados y dejaría la
+          // entrada de caché en error, tapando el `initialData` del servidor en /play.
+          if (cacheUserId) {
+            await prefetchGameById(queryClient, gameId).catch(() => undefined);
+          }
         }
         if (cacheUserId) {
           if (!prefetchedProgressIdsRef.current.has(gameId)) {
@@ -992,8 +996,8 @@ export function HomeClient({ initialData }: Props) {
     const tg = todayData?.todaysGame ?? initialData?.todaysGame;
     if (!tg?.id) return;
     router.prefetch("/play");
-    void prefetchGameById(queryClient, tg.id).catch(() => undefined);
     if (cacheUserId) {
+      void prefetchGameById(queryClient, tg.id).catch(() => undefined);
       void prefetchGameProgressById(queryClient, tg.id).catch(() => undefined);
     }
     void prefetchHomeDayStatusById(queryClient, tg.id).catch(() => undefined);
@@ -1932,8 +1936,8 @@ function PreviousDaysSection({
   const prefetchPlayRoute = useCallback(
     (gameId: string) => {
       router.prefetch(`/play/${gameId}`);
-      void prefetchGameById(queryClient, gameId).catch(() => undefined);
       if (userId) {
+        void prefetchGameById(queryClient, gameId).catch(() => undefined);
         void prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
       }
       void prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);

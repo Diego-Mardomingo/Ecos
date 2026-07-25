@@ -13,7 +13,10 @@ interface Props {
 
 export function PlayGameWrapper({ gameId, initialGame, userId }: Props) {
   const t = useTranslations("game");
-  const { data: game, isLoading, isError } = useGameById(gameId, initialGame);
+  // `/api/game/[gameId]` exige sesión: para invitados basta con el juego que trae el servidor.
+  const { data: game, isLoading, isError } = useGameById(gameId, initialGame, {
+    enabled: !!userId,
+  });
 
   if (isError || (!game && !isLoading)) {
     return (

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getGameById } from "@/lib/queries/games";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 import { PlayGameWrapper } from "@/components/game/PlayGameWrapper";
 
 export default async function PlayGamePage({
@@ -16,7 +17,9 @@ export default async function PlayGamePage({
 
   const game = await getGameById(gameId);
 
-  if (!game) {
+  // El juego del día siguiente ya existe en la BD (scripts/select-daily-game.py) y esta página
+  // manda la canción completa al cliente: no se puede servir antes de su fecha.
+  if (!game || game.date > getEffectiveGameDate()) {
     notFound();
   }
 
