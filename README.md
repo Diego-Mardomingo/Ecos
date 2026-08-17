@@ -8,7 +8,7 @@
 </span>
 
 **Adivina la canción del día escuchando solo unos segundos.**  
-Música en español y latina · Un reto nuevo cada día para todos
+Música en español · Un reto nuevo cada día para todos
 
 <br>
 
