@@ -42,8 +42,6 @@ next-env.d.ts
 
 # cursor (incluye mcp.json con tokens)
 .cursor/
-**/mcp.json
-*.mcp.json
 
 # secrets y tokens
 *.publishable-key
