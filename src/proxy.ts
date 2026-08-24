@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import createIntlMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
+import { matchesLocalizedRoute } from "./i18n/locale-path";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
@@ -10,19 +11,6 @@ const protectedRoutes = ["/profile"];
 /** Prefijo /en para login y complete cuando la ruta actual es en inglés (as-needed). */
 function enPrefixedPath(pathname: string, path: string): string {
   return pathname.startsWith("/en/") ? `/en${path}` : path;
-}
-
-/** Quita el prefijo de locale (solo "en" es explícito; "es" es el default sin prefijo). */
-function stripLocale(pathname: string): string {
-  if (pathname === "/en") return "/";
-  if (pathname.startsWith("/en/")) return pathname.slice(3);
-  return pathname;
-}
-
-/** Coincidencia por segmento: `/admin` o `/admin/...`, no `/songs/admin-tips`. */
-function matchesRoute(pathname: string, base: string): boolean {
-  const p = stripLocale(pathname);
-  return p === base || p.startsWith(`${base}/`);
 }
 
 export async function proxy(request: NextRequest) {
@@ -59,7 +47,7 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAdminPath = matchesRoute(pathname, "/admin");
+  const isAdminPath = matchesLocalizedRoute(pathname, "/admin");
   if (isAdminPath) {
     if (!user) {
       return new NextResponse(null, { status: 404 });
@@ -79,7 +67,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const isProtected = protectedRoutes.some((route) =>
-    matchesRoute(pathname, route)
+    matchesLocalizedRoute(pathname, route)
   );
   if (isProtected && !user) {
     const loginUrl = new URL(enPrefixedPath(pathname, "/login"), request.url);
@@ -87,7 +75,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const isCompleteProfilePath = matchesRoute(pathname, "/profile/complete");
+  const isCompleteProfilePath = matchesLocalizedRoute(pathname, "/profile/complete");
   if (user && isProtected && !isCompleteProfilePath) {
     const { data: profile } = await supabase
       .from("ecos_profiles")

@@ -7,9 +7,10 @@ import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { PlayNavigationPendingOverlay } from "@/components/navigation/PlayNavigationPendingOverlay";
 import { NotificationsModal } from "@/components/notifications/NotificationsModal";
 import { cn } from "@/lib/utils";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 
 function isPlayRoute(pathname: string): boolean {
-  const normalized = pathname.replace(/^\/(es|en)/, "") || "/";
+  const normalized = stripLocalePrefix(pathname);
   return normalized === "/play" || normalized.startsWith("/play/");
 }
 

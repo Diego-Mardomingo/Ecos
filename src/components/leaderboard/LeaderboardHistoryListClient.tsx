@@ -20,6 +20,7 @@ import {
   type LeaderboardHistorySummary,
 } from "@/lib/hooks/queries";
 import { RankingHistoryListContentSkeleton } from "@/components/skeletons";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 type Granularity = "weekly" | "monthly";
 
@@ -96,11 +97,7 @@ export function LeaderboardHistoryListClient({
     return monthKey === defaultOpenMonthKey;
   };
 
-  const formatPoints = useMemo(
-    () => (n: number) =>
-      n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
-    [locale]
-  );
+  const { formatNumber: formatPoints } = useAppFormatters();
 
   const formatRange = (start: string, end: string) => {
     const a = parse(start, "yyyy-MM-dd", new Date());

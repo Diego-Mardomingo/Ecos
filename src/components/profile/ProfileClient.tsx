@@ -5,8 +5,6 @@ import { toast } from "sonner";
 import { Link } from "@/i18n/navigation";
 import { useTheme } from "next-themes";
 import { format } from "date-fns";
-import { es, enUS } from "date-fns/locale";
-import { useLocale } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfile } from "@/lib/hooks/queries";
@@ -18,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { ProfileSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { BellOff, Loader2 } from "lucide-react";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 interface Profile {
   id: string;
@@ -62,7 +61,6 @@ export function ProfileClient({ initialData }: Props) {
   const tn = useTranslations("notifications");
   const { theme, setTheme } = useTheme();
   const mounted = useIsMounted();
-  const locale = useLocale();
   const notifications = useNotifications({
     enabled: true,
     initialStatus: initialData?.notifications,
@@ -91,7 +89,7 @@ export function ProfileClient({ initialData }: Props) {
     }
   };
 
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale } = useAppFormatters();
 
   if (isLoading && !data) {
     return <ProfileSkeleton />;

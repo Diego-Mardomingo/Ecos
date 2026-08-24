@@ -25,6 +25,7 @@ import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { getMadridDate } from "@/lib/date-utils";
 import { hasRecentGameCompleted } from "@/lib/consistencySync";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 
 interface NavItem {
   href: string;
@@ -55,7 +56,7 @@ export function SidebarNav() {
     2 * 60 * 1000
   );
 
-  const normalizedPath = pathname.replace(/^\/(es|en)/, "") || "/";
+  const normalizedPath = stripLocalePrefix(pathname);
 
   const isActive = (href: string) => {
     if (href === "/") return normalizedPath === "/";

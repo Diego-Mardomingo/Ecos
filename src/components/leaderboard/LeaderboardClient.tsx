@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useId } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import {
@@ -20,6 +20,7 @@ import {
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import type { RankingData } from "@/lib/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 const SWIPE_THRESHOLD = 50;
 const RANKING_PERIOD_STORAGE_KEY = "ecos-ranking-period";
@@ -38,7 +39,6 @@ const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 
 export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   const t = useTranslations("ranking");
-  const locale = useLocale();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
@@ -163,10 +163,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     [activeTab, selectTabAt]
   );
 
-  const formatPoints = useCallback(
-    (n: number) => n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
-    [locale]
-  );
+  const { formatNumber: formatPoints } = useAppFormatters();
 
   const getDisplayName = (entry: LeaderboardEntry) => {
     const name = entry.profiles?.display_name?.trim();

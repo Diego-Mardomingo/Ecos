@@ -14,7 +14,6 @@ import {
 } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
-import { es, enUS } from "date-fns/locale";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import confetti from "canvas-confetti";
@@ -60,6 +59,7 @@ import {
 } from "@/lib/navigation/useNavigateBackToHome";
 import { PLAY_SKELETON_VARIANT_KEY } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_END_EVENT } from "@/lib/navigation/playNavigationEvents";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
@@ -101,8 +101,7 @@ const ResultGameView = memo(function ResultGameView({
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
-  const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale } = useAppFormatters();
   const navigateBackToHome = useNavigateBackToHome();
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
@@ -438,8 +437,7 @@ export function GameClient({ game, userId }: Props) {
   const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
   const tc = useTranslations("common");
-  const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale } = useAppFormatters();
   const isGuest = !userId;
   const validateGuessMutation = useValidateGuessMutation();
   const skipAttemptMutation = useSkipAttemptMutation();
@@ -1486,7 +1484,7 @@ function ResultScreen({
   const t = useTranslations("game");
   const tc = useTranslations("common");
   const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale } = useAppFormatters();
   const won = phase === "won";
   const metaAlbum = song.album_title?.trim();
   const metaYear = releaseYearFromReleaseDate(song.release_date);

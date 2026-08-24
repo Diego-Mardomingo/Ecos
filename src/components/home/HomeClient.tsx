@@ -15,7 +15,6 @@ import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
-import { es, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
 import {
   getMadridDate,
@@ -95,6 +94,7 @@ import {
 } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
 const ABOUT_HOW_TO_PLAY_ICONS = [
@@ -850,7 +850,7 @@ export function HomeClient({ initialData }: Props) {
   const tc = useTranslations("common");
   const howToPlaySteps = t.raw("howToPlayStepsList") as { title: string; desc: string }[];
   const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale, formatNumber } = useAppFormatters();
   const { byGameId, saveProgress } = useGameProgressStore();
 
   const [reportOpen, setReportOpen] = useState(false);
@@ -1271,7 +1271,7 @@ export function HomeClient({ initialData }: Props) {
                         todaysDisplayScore === 0 ? "text-destructive dark:text-[color:var(--ecos-bright-destructive)]" : "text-brand dark:text-[color:var(--ecos-bright-brand)]"
                       )}
                     >
-                      {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
+                      {formatNumber(todaysDisplayScore ?? 0)}{" "}
                       {tc("points")}
                     </span>
                   </div>
@@ -1378,12 +1378,7 @@ export function HomeClient({ initialData }: Props) {
 
       {/* Stats por período: carrusel Global / Semanal / Mensual (bucle infinito) */}
       {userId && rankingStats ? (
-        <HomeStatsCarousel
-          rankingStats={rankingStats}
-          t={t}
-          tc={tc}
-          locale={locale}
-        />
+        <HomeStatsCarousel rankingStats={rankingStats} t={t} tc={tc} />
       ) : userId ? (
         <section className="grid grid-cols-2 gap-3">
           <Skeleton className="h-28 rounded-2xl" />
@@ -1745,13 +1740,12 @@ function HomeStatsCarousel({
   rankingStats,
   t,
   tc,
-  locale,
 }: {
   rankingStats: { global: { points: number; rank: number | null }; weekly: { points: number; rank: number | null }; monthly: { points: number; rank: number | null } };
   t: (key: string) => string;
   tc: (key: string) => string;
-  locale: string;
 }) {
+  const { formatNumber } = useAppFormatters();
   const [api, setApi] = useState<CarouselApi>(undefined);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const periods = ["global", "weekly", "monthly"] as const;
@@ -1834,7 +1828,7 @@ function HomeStatsCarousel({
                 <div className="grid grid-cols-2 gap-3">
                   <HomeStatCard
                     label={`${t("score")} ${t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}`}
-                    value={rankingStats[period].points.toLocaleString(locale === "es" ? "es-ES" : "en-US")}
+                    value={formatNumber(rankingStats[period].points)}
                     subLabel={tc("points")}
                     icon="emoji_events"
                     iconColor="text-brand"
@@ -1915,7 +1909,7 @@ function PreviousDaysSection({
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale, formatNumber } = useAppFormatters();
   const byGameId = useGameProgressStore((s) => s.byGameId);
 
   const prefetchPlayRoute = useCallback(
@@ -2268,7 +2262,7 @@ function PreviousDaysSection({
                     />
                     {completed && displayScore !== null ? (
                       <p className={cn("text-xs font-medium", displayScore === 0 ? "text-destructive" : "text-brand")}>
-                        {t("score")}: {displayScore.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
+                        {t("score")}: {formatNumber(displayScore)} {tc("points")}
                       </p>
                     ) : inProgress ? (
                       <div className="mt-1 flex items-center gap-1.5">

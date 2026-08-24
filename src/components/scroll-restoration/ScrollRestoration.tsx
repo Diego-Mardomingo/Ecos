@@ -2,11 +2,12 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 
 const SCROLL_SKIP_THRESHOLD_PX = 16;
 
 function normalizedAppPath(pathname: string): string {
-  return pathname.replace(/^\/(es|en)/, "") || "/";
+  return stripLocalePrefix(pathname);
 }
 
 export function ScrollRestoration() {

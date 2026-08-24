@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import {  } from "react";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parse, type Locale } from "date-fns";
@@ -12,6 +12,7 @@ import {
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import { useLeaderboardHistoryDetail } from "@/lib/hooks/queries";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 /** parse() exige fecha de referencia, pero con un patrón yyyy-MM-dd completo no
  *  influye en el resultado. Una constante evita el new Date() impuro en render. */
@@ -53,11 +54,7 @@ export function LeaderboardHistoryDetailClient() {
 
   const dfLocale = locale === "es" ? esLocale : enUS;
 
-  const formatPoints = useMemo(
-    () => (n: number) =>
-      n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
-    [locale]
-  );
+  const { formatNumber: formatPoints } = useAppFormatters();
 
   // Sin useMemo: las deps manuales (data?.periodStart, data?.periodEnd) eran más
   // específicas que la inferida (data), y eso hacía que el compilador de React

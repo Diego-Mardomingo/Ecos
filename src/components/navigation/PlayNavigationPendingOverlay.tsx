@@ -14,6 +14,7 @@ import {
   PlayGameCompletedDetailSkeleton,
   PlayGameInProgressDetailSkeleton,
 } from "@/components/skeletons/play-game-detail-skeletons";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 
 function readVariant(): PlaySkeletonVariant {
   if (typeof window === "undefined") return "in_progress";
@@ -60,7 +61,7 @@ export function PlayNavigationPendingOverlay() {
   const [lastPathname, setLastPathname] = useState(pathname);
   if (pathname !== lastPathname) {
     setLastPathname(pathname);
-    if (!isPlayGamePath(pathname.replace(/^\/(es|en)/, "") || "/")) {
+    if (!isPlayGamePath(stripLocalePrefix(pathname))) {
       setVisible(false);
     }
   }
