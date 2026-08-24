@@ -7,18 +7,16 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { useLocale } from "next-intl";
 import {
   getMadridDate,
-  getMsUntilNextMidnightMadrid,
   getTomorrowMadridDate,
 } from "@/lib/date-utils";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
@@ -83,6 +81,30 @@ import {
 import { Link, useRouter } from "@/i18n/navigation";
 import { PrefetchPlayOnVisible } from "@/components/home/PrefetchPlayOnVisible";
 import {
+  ABOUT_HOW_TO_PLAY_ICONS,
+  HOME_COVER_IMAGE_PRIORITY_COUNT,
+  HOME_EAGER_PREFETCH_MAX,
+  HOME_MONTHS_OPEN_STORAGE_KEY,
+  HOME_PREFETCH_STRATEGY,
+  HOME_SORT_ORDER_STORAGE_KEY,
+  HOME_STATS_PERIOD_STORAGE_KEY,
+  HOME_VIEW_MODE_STORAGE_KEY,
+  MAX_PREFETCH_HISTORY_MONTHS_SAFETY,
+  PREVIOUS_DAYS_FILTER_STORAGE_KEY,
+  mergeInProgressByGameId,
+  mergeInProgressPreferringMoreGuesses,
+  mergePreviousDays,
+  previousDayColor,
+  readPreviousDaysPrefs,
+  runBatched,
+  titleCaseWords,
+} from "@/components/home/homeHelpers";
+import { Countdown } from "@/components/home/HomeCountdown";
+import {
+  HeaderBrandWaveform,
+  WaveformBars,
+} from "@/components/home/HomeWaveform";
+import {
   aggregateMonthGroupStats,
   deriveHomeDayState,
   type MonthGroupStats,
@@ -95,97 +117,6 @@ import {
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
-
-/** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
-const ABOUT_HOW_TO_PLAY_ICONS = [
-  "calendar_today",
-  "graphic_eq",
-  "search",
-  "emoji_events",
-  "skip_next",
-] as const;
-
-const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
-const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
-const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
-const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
-const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
-
-type PreviousDaysPrefs = {
-  openMonths?: Set<string>;
-  filterYear?: number;
-  filterMonth?: number;
-  viewMode?: "list" | "grid";
-  sortOrder?: "asc" | "desc";
-};
-
-/** Lee de una vez las preferencias de la sección de días anteriores. Cada clave va en
- *  su propio try: un valor corrupto no debe impedir restaurar los demás. */
-function readPreviousDaysPrefs(): PreviousDaysPrefs {
-  const prefs: PreviousDaysPrefs = {};
-  try {
-    const raw = sessionStorage.getItem(HOME_MONTHS_OPEN_STORAGE_KEY);
-    const arr = raw ? (JSON.parse(raw) as string[]) : null;
-    if (Array.isArray(arr) && arr.length > 0) prefs.openMonths = new Set(arr);
-  } catch {
-    /* ignore */
-  }
-  try {
-    const raw = sessionStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as { filterYear?: number | null; filterMonth?: number | null };
-      if (typeof p.filterYear === "number") prefs.filterYear = p.filterYear;
-      if (typeof p.filterMonth === "number") prefs.filterMonth = p.filterMonth;
-    }
-  } catch {
-    /* ignore */
-  }
-  try {
-    const raw = sessionStorage.getItem(HOME_VIEW_MODE_STORAGE_KEY);
-    if (raw === "list" || raw === "grid") prefs.viewMode = raw;
-  } catch {
-    /* ignore */
-  }
-  try {
-    const raw = sessionStorage.getItem(HOME_SORT_ORDER_STORAGE_KEY);
-    if (raw === "asc" || raw === "desc") prefs.sortOrder = raw;
-  } catch {
-    /* ignore */
-  }
-  return prefs;
-}
-
-/**
- * Solo red de seguridad si la API devolviera nextMonth de forma errónea.
- * El histórico real termina cuando nextMonth es null.
- */
-const MAX_PREFETCH_HISTORY_MONTHS_SAFETY = 600;
-const PREFETCH_BATCH_SIZE = 8;
-/**
- * Tope del prefetch eager de partidas. El mes en curso nunca pasa de 31 días, así que esto solo
- * actúa si `previousDaysMerged` llegara con fechas inesperadas.
- */
-const HOME_EAGER_PREFETCH_MAX = 31;
-const HOME_PREFETCH_STRATEGY: "sequential" | "full-parallel" =
-  process.env.NEXT_PUBLIC_HOME_PREFETCH_STRATEGY === "sequential"
-    ? "sequential"
-    : "full-parallel";
-/** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
-const PREVIOUS_DAY_COLORS = [
-  "hsl(0, 55%, 40%)",   /* rojo */
-  "hsl(200, 50%, 40%)", /* azul */
-  "hsl(140, 45%, 35%)", /* verde */
-] as const;
-
-/** Prioridad en next/image solo para las primeras carátulas del histórico (equilibrio con LCP). */
-const HOME_COVER_IMAGE_PRIORITY_COUNT = 16;
-
-function titleCaseWords(input: string): string {
-  return input
-    .split(" ")
-    .map((token) => (/^\p{L}/u.test(token) ? token[0]!.toUpperCase() + token.slice(1) : token))
-    .join(" ");
-}
 
 function MonthGroupSummaryContent({
   stats,
@@ -209,73 +140,6 @@ function MonthGroupSummaryContent({
       </div>
     </div>
   );
-}
-
-function mergePreviousDays(
-  current: PreviousDayGame[],
-  incoming: PreviousDayGame[]
-): PreviousDayGame[] {
-  if (incoming.length === 0) return current;
-  const map = new Map<string, PreviousDayGame>();
-  for (const day of current) map.set(day.id, day);
-  for (const day of incoming) {
-    const existing = map.get(day.id);
-    if (!existing) {
-      map.set(day.id, day);
-      continue;
-    }
-    /**
-     * Evita downgrade visual por snapshots stale:
-     * si ya estaba completado y llega un bloque "sin empezar", conservamos completado.
-     */
-    if (existing.played && !day.played) {
-      map.set(day.id, existing);
-      continue;
-    }
-    map.set(day.id, day);
-  }
-  return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
-}
-
-function mergeInProgressByGameId(
-  current: Record<string, InProgressProgress>,
-  incoming?: Record<string, InProgressProgress>
-): Record<string, InProgressProgress> {
-  if (!incoming) return current;
-  return { ...current, ...incoming };
-}
-
-/** Por juego, conserva el mapa con más intentos (caché RQ tras /play vs snapshot RSC). */
-function mergeInProgressPreferringMoreGuesses(
-  a: Record<string, InProgressProgress>,
-  b: Record<string, InProgressProgress>
-): Record<string, InProgressProgress> {
-  const out: Record<string, InProgressProgress> = { ...a };
-  for (const [id, bProg] of Object.entries(b)) {
-    const aProg = out[id];
-    if (
-      !aProg ||
-      (bProg.guesses?.length ?? 0) > (aProg.guesses?.length ?? 0)
-    ) {
-      out[id] = bProg;
-    }
-  }
-  return out;
-}
-
-function previousDayColor(gameNumber: number): string {
-  return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
-}
-
-async function runBatched<T>(
-  items: T[],
-  worker: (item: T) => Promise<unknown>,
-  batchSize: number = PREFETCH_BATCH_SIZE
-) {
-  for (let i = 0; i < items.length; i += batchSize) {
-    const chunk = items.slice(i, i + batchSize);
-    await Promise.allSettled(chunk.map((item) => worker(item)));
-  }
 }
 
 interface Props {
@@ -1480,258 +1344,6 @@ function TodaysCardBadge({
         style={{ animationDuration: "2s" }}
       />
       {t("badgeNotPlayed")}
-    </div>
-  );
-}
-
-function getCountdownParts(ms: number): { value: number; suffix: "h" | "m" | "s" }[] {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const parts: { value: number; suffix: "h" | "m" | "s" }[] = [];
-  if (h > 0) parts.push({ value: h, suffix: "h" });
-  if (m > 0 || h > 0) parts.push({ value: m, suffix: "m" });
-  parts.push({ value: s, suffix: "s" });
-  return parts;
-}
-
-/** Carrusel vertical: al bajar el valor, el nuevo número entra desde abajo; al subir (p. ej. 0→59), desde arriba. */
-function RollingCountdownSegment({
-  value,
-  suffix,
-}: {
-  value: number;
-  suffix: "h" | "m" | "s";
-}) {
-  // Dirección de la animación guardada junto al valor que la produjo. En estado, no
-  // en una ref: leer una ref durante el render impide al compilador de React saber
-  // cuándo cambia el valor. Se guardan juntos para que el render extra que dispara
-  // el ajuste no invierta la dirección.
-  const [prev, setPrev] = useState({ value, downward: true });
-  if (prev.value !== value) {
-    setPrev({ value, downward: value < prev.value });
-  }
-  const downward = prev.value === value ? prev.downward : value < prev.value;
-
-  return (
-    <span className="inline-flex shrink-0 items-baseline tabular-nums">
-      <span className="relative inline-block w-[2ch] shrink-0 overflow-hidden text-end">
-        <span className="invisible block select-none tabular-nums" aria-hidden>
-          {value}
-        </span>
-        <AnimatePresence initial={false}>
-          <motion.span
-            key={value}
-            initial={{ y: downward ? "100%" : "-100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: downward ? "-100%" : "100%" }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 flex items-end justify-end tabular-nums"
-          >
-            {value}
-          </motion.span>
-        </AnimatePresence>
-      </span>
-      <span>{suffix}</span>
-    </span>
-  );
-}
-
-const MS_PER_HOUR = 3600 * 1000;
-const PREFETCH_UNDER_MS = 10_000;
-
-function Countdown({
-  t,
-  onCountdownUnder10s,
-  onCountdownZero,
-}: {
-  t: (key: string) => string;
-  onCountdownUnder10s?: () => void;
-  onCountdownZero?: () => void;
-}) {
-  // ms = 0 significa "todavía sin medir": es lo que se renderiza en servidor y al
-  // hidratar, así que no hace falta un flag `mounted` aparte.
-  const [ms, setMs] = useState(0);
-  const prevMsRef = useRef<number | null>(null);
-  const hasTriggeredRef = useRef(false);
-  const hasTriggeredUnder10Ref = useRef(false);
-
-  useEffect(() => {
-    const tick = () => setMs(getMsUntilNextMidnightMadrid());
-    // La primera medición va en un rAF y no en el cuerpo del efecto, para no
-    // encadenar un render síncrono nada más montar.
-    const raf = requestAnimationFrame(tick);
-    const id = setInterval(tick, 1000);
-    return () => {
-      cancelAnimationFrame(raf);
-      clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (ms <= 0) return;
-    if (
-      onCountdownUnder10s &&
-      ms < PREFETCH_UNDER_MS &&
-      !hasTriggeredUnder10Ref.current
-    ) {
-      hasTriggeredUnder10Ref.current = true;
-      onCountdownUnder10s();
-    }
-  }, [ms, onCountdownUnder10s]);
-
-  useEffect(() => {
-    if (ms <= 0 || !onCountdownZero || hasTriggeredRef.current) return;
-    const prev = prevMsRef.current;
-    prevMsRef.current = ms;
-    if (prev !== null && prev < 60000 && ms > MS_PER_HOUR) {
-      hasTriggeredRef.current = true;
-      onCountdownZero();
-    }
-  }, [ms, onCountdownZero]);
-
-  const parts = ms > 0 ? getCountdownParts(ms) : null;
-
-  return (
-    <span className="inline-flex flex-wrap items-baseline gap-x-1 text-xs font-medium tabular-nums">
-      <span className="shrink-0 text-muted-foreground">{t("nextSongIn")}</span>
-      {parts ? (
-        <span className="inline-flex shrink-0 items-baseline gap-1 text-primary">
-          {parts.map((p) => (
-            <RollingCountdownSegment
-              key={p.suffix}
-              value={p.value}
-              suffix={p.suffix}
-            />
-          ))}
-        </span>
-      ) : (
-        <span className="text-primary">—</span>
-      )}
-    </span>
-  );
-}
-
-function useMediaQuery(query: string) {
-  // matchMedia es exactamente el tipo de fuente externa para la que existe
-  // useSyncExternalStore: evita el setState síncrono dentro del efecto.
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      const m = window.matchMedia(query);
-      m.addEventListener("change", onChange);
-      return () => m.removeEventListener("change", onChange);
-    },
-    [query]
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => window.matchMedia(query).matches,
-    () => false
-  );
-}
-
-/** Waveform compacta junto al nombre: misma lógica que WaveformBars (ola centrada verticalmente). */
-function HeaderBrandWaveform() {
-  const barCount = 12;
-  const barWidth = 2;
-  const gap = 2;
-  const heightBase = 4;
-  const heightRange = 14;
-
-  const bars = useMemo(
-    () =>
-      Array.from({ length: barCount }, (_, i) => ({
-        key: i,
-        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
-        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
-        duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.04,
-      })),
-    []
-  );
-
-  return (
-    <div
-      className="ml-1.5 mr-1 flex min-h-0 min-w-0 max-w-[3.25rem] shrink-0 self-center opacity-75 sm:ml-2 sm:mr-2 sm:max-w-[3.75rem]"
-      aria-hidden
-    >
-      <div className="flex h-9 w-full items-center justify-center">
-        <div
-          className="flex items-center justify-center"
-          style={{ gap: `${gap}px` }}
-        >
-          {bars.map(({ key, heightA, heightB, duration, delay }) => (
-            <motion.div
-              key={key}
-              className="shrink-0 rounded-full bg-brand"
-              style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
-              animate={{ height: [`${heightA}px`, `${heightB}px`] }}
-              transition={{
-                duration,
-                repeat: Infinity,
-                repeatType: "reverse",
-                ease: "easeInOut",
-                delay,
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WaveformBars({ className }: { className?: string }) {
-  const isSm = useMediaQuery("(min-width: 640px)");
-  const isMd = useMediaQuery("(min-width: 768px)");
-
-  const { barCount, barWidth, heightBase, heightRange, gap } = useMemo(() => {
-    if (isMd) return { barCount: 52, barWidth: 4, heightBase: 12, heightRange: 32, gap: 3 };
-    if (isSm) return { barCount: 44, barWidth: 3, heightBase: 10, heightRange: 28, gap: 2.5 };
-    return { barCount: 36, barWidth: 2.5, heightBase: 8, heightRange: 24, gap: 2 };
-  }, [isSm, isMd]);
-
-  const bars = useMemo(
-    () =>
-      Array.from({ length: barCount }, (_, i) => ({
-        key: i,
-        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
-        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
-        duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.02,
-      })),
-    [barCount, heightBase, heightRange]
-  );
-
-  return (
-    <div
-      className={cn(
-        "absolute inset-x-0 top-[52%] flex -translate-y-1/2 items-center justify-center px-4 opacity-60",
-        className
-      )}
-      style={{ gap: `${gap}px` }}
-    >
-      <div
-        className="flex items-center justify-center"
-        style={{ gap: `${gap}px` }}
-      >
-      {bars.map(({ key, heightA, heightB, duration, delay }) => (
-        <motion.div
-          key={key}
-          className="rounded-full bg-brand shrink-0"
-          style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
-          animate={{ height: [`${heightA}px`, `${heightB}px`] }}
-          transition={{
-            duration,
-            repeat: Infinity,
-            repeatType: "reverse",
-            ease: "easeInOut",
-            delay,
-          }}
-        />
-      ))}
-      </div>
     </div>
   );
 }
