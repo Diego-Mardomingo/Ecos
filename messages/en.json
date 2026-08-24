@@ -261,7 +261,8 @@
     "historyBackToList": "Back to history",
     "historyDetailTitle": "Period leaderboard",
     "historyLoadError": "Could not load the ranking. Please try again.",
-    "historyWeekCount": "{count, plural, one {# week} other {# weeks}}"
+    "historyWeekCount": "{count, plural, one {# week} other {# weeks}}",
+    "periodTabsLabel": "Leaderboard period"
   },
   "profile": {
     "title": "Profile",

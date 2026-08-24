@@ -261,7 +261,8 @@
     "historyBackToList": "Volver al historial",
     "historyDetailTitle": "Clasificación del periodo",
     "historyLoadError": "No se pudo cargar el ranking. Inténtalo de nuevo.",
-    "historyWeekCount": "{count, plural, one {# semana} other {# semanas}}"
+    "historyWeekCount": "{count, plural, one {# semana} other {# semanas}}",
+    "periodTabsLabel": "Periodo del ranking"
   },
   "profile": {
     "title": "Perfil",

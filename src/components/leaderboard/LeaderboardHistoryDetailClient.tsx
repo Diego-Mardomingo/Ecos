@@ -113,7 +113,7 @@ export function LeaderboardHistoryDetailClient() {
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-brand transition-opacity hover:opacity-80"
           aria-label={t("historyBack")}
         >
-          <span className="material-symbols-outlined text-2xl">arrow_back</span>
+          <span aria-hidden className="material-symbols-outlined text-2xl">arrow_back</span>
         </Link>
         <div className="min-w-0 flex-1 pr-9 text-center">
           <h1 className="text-base font-bold leading-tight">{t("historyDetailTitle")}</h1>
@@ -131,7 +131,7 @@ export function LeaderboardHistoryDetailClient() {
           <RankingPodiumAndListSkeleton />
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-            <span
+            <span aria-hidden
               className="material-symbols-outlined mb-4 text-4xl text-muted-foreground"
               style={{ fontVariationSettings: "'FILL' 1" }}
             >

@@ -7,6 +7,7 @@ import {
   useState,
   useRef,
   useMemo,
+  useId,
   memo,
   type ReactNode,
   type RefObject,
@@ -135,7 +136,7 @@ const ResultGameView = memo(function ResultGameView({
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
             aria-label={tc("back")}
           >
-            <span className="material-symbols-outlined text-xl">arrow_back</span>
+            <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
             {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
@@ -162,14 +163,14 @@ const ResultGameView = memo(function ResultGameView({
                 aria-label={audioPlaying ? t("listening") : t("pressPlay")}
               >
                 {audioLoaded ? (
-                  <span
+                  <span aria-hidden
                     className="material-symbols-outlined text-xl"
                     style={{ fontVariationSettings: "'FILL' 1" }}
                   >
                     {audioPlaying ? "stop" : "play_arrow"}
                   </span>
                 ) : (
-                  <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                  <span aria-hidden className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
                 )}
               </button>
               <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
@@ -305,7 +306,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 
       {isGuest && (
         <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2">
-          <span
+          <span aria-hidden
             className="material-symbols-outlined text-base text-brand"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
@@ -361,7 +362,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
               aria-label={audioPlaying ? t("listening") : t("pressPlay")}
             >
               {audioLoaded ? (
-                <span
+                <span aria-hidden
                   className="material-symbols-outlined inline-block font-bold"
                   style={{
                     fontVariationSettings: "'FILL' 1, 'opsz' 48",
@@ -371,7 +372,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
                   {audioPlaying ? "stop" : "play_arrow"}
                 </span>
               ) : (
-                <span
+                <span aria-hidden
                   className="material-symbols-outlined inline-block animate-spin"
                   style={{
                     fontVariationSettings: "'opsz' 48",
@@ -1048,7 +1049,7 @@ export function GameClient({ game, userId }: Props) {
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
             aria-label={tc("back")}
           >
-            <span className="material-symbols-outlined text-xl">arrow_back</span>
+            <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
           </Link>
           <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
             {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
@@ -1150,7 +1151,7 @@ export function GameClient({ game, userId }: Props) {
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
           aria-label={tc("back")}
         >
-          <span className="material-symbols-outlined text-xl">arrow_back</span>
+          <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
         </Link>
         <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
           {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
@@ -1283,7 +1284,7 @@ export function GameClient({ game, userId }: Props) {
           }}
           className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
         >
-          <span className="material-symbols-outlined text-lg">skip_next</span>
+          <span aria-hidden className="material-symbols-outlined text-lg">skip_next</span>
           {t("skip")}
         </button>
       </header>
@@ -1358,7 +1359,7 @@ function PreviousAttempts({
         {/* Icono centrado verticalmente */}
         <div className="flex w-14 shrink-0 items-center justify-center sm:w-auto sm:block">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-            <span
+            <span aria-hidden
               className={cn("material-symbols-outlined text-lg", iconClass)}
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
@@ -1396,7 +1397,7 @@ function PreviousAttempts({
               >
                 <div className="flex w-14 shrink-0 items-center justify-center sm:w-auto sm:block">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-                    <span
+                    <span aria-hidden
                       className="material-symbols-outlined text-lg text-destructive"
                       style={{ fontVariationSettings: "'FILL' 1" }}
                     >
@@ -1494,6 +1495,7 @@ function ResultScreen({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>("");
   const [reportDesc, setReportDesc] = useState("");
+  const reportDescId = useId();
   const [reportSent, setReportSent] = useState(false);
   const reportMutation = useReportGameMutation();
   const [shareCopied, setShareCopied] = useState(false);
@@ -1694,7 +1696,7 @@ function ResultScreen({
           onClick={handleShare}
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3.5 text-sm font-bold text-primary-foreground"
         >
-          <span className="material-symbols-outlined text-lg">share</span>
+          <span aria-hidden className="material-symbols-outlined text-lg">share</span>
           {shareCopied ? t("shareCopied") : t("shareResult")}
         </button>
         {guesses.length > 0 && (
@@ -1713,7 +1715,7 @@ function ResultScreen({
           className="w-full overflow-hidden rounded-2xl bg-gradient-to-br from-brand/20 to-brand/5 p-4"
         >
           <div className="mb-3 flex items-center gap-2">
-            <span
+            <span aria-hidden
               className="material-symbols-outlined text-xl text-brand"
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
@@ -1730,7 +1732,7 @@ function ResultScreen({
             href={`/login?redirect=/play`}
             className="flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-primary-foreground"
           >
-            <span className="material-symbols-outlined text-base"
+            <span aria-hidden className="material-symbols-outlined text-base"
               style={{ fontVariationSettings: "'FILL' 1" }}>
               login
             </span>
@@ -1750,7 +1752,7 @@ function ResultScreen({
           href="/ranking"
           className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
         >
-          <span
+          <span aria-hidden
             className="material-symbols-outlined text-lg text-brand"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
@@ -1763,7 +1765,7 @@ function ResultScreen({
           onClick={navigateBackToHome}
           className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
         >
-          <span
+          <span aria-hidden
             className="material-symbols-outlined text-lg"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
@@ -1775,7 +1777,7 @@ function ResultScreen({
           <Dialog open={reportOpen} onOpenChange={setReportOpen}>
             <DialogTrigger asChild>
               <button className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium">
-                <span className="material-symbols-outlined text-lg text-destructive">report</span>
+                <span aria-hidden className="material-symbols-outlined text-lg text-destructive">report</span>
                 {t("report.reportProblemWithSong")}
               </button>
             </DialogTrigger>
@@ -1791,8 +1793,13 @@ function ResultScreen({
                     </p>
                   ) : (
                     <>
-                      <div>
-                        <p className="mb-2 text-sm font-medium">{t("report.reasonLabel")}</p>
+                      {/* fieldset/legend en vez de un <p> suelto: asi el lector de pantalla
+                          sabe a que pregunta responde cada radio. El etiquetado de cada opcion
+                          ya era correcto, porque el <label> envuelve al input. */}
+                      <fieldset>
+                        <legend className="mb-2 text-sm font-medium">
+                          {t("report.reasonLabel")}
+                        </legend>
                         <div className="space-y-2">
                           {REPORT_REASON_IDS.map((id) => (
                             <label
@@ -1811,13 +1818,19 @@ function ResultScreen({
                             </label>
                           ))}
                         </div>
-                      </div>
+                      </fieldset>
                       {reportReason === "other" && (
                         <div>
-                          <label className="mb-1 block text-sm font-medium">
+                          {/* El label no tenia htmlFor ni el textarea id, asi que no estaban
+                              asociados: el campo se anunciaba sin nombre. */}
+                          <label
+                            htmlFor={reportDescId}
+                            className="mb-1 block text-sm font-medium"
+                          >
                             {t("report.descriptionLabel")}
                           </label>
                           <textarea
+                            id={reportDescId}
                             value={reportDesc}
                             onChange={(e) => setReportDesc(e.target.value)}
                             placeholder={t("report.descriptionPlaceholder")}

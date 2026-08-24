@@ -233,7 +233,7 @@ export function SidebarNav() {
               {user ? "Cuenta" : "Invitado"}
             </div>
           </div>
-          <span className="material-symbols-outlined text-[18px] text-muted-foreground">
+          <span aria-hidden className="material-symbols-outlined text-[18px] text-muted-foreground">
             chevron_right
           </span>
         </Link>

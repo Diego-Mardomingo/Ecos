@@ -97,7 +97,7 @@ export function NotificationsModal() {
       <DialogContent showCloseButton={false} className="max-w-sm">
         <DialogHeader className="items-center text-center sm:text-center">
           <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-brand/15">
-            <span
+            <span aria-hidden
               className="material-symbols-outlined text-3xl text-brand"
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
@@ -111,7 +111,7 @@ export function NotificationsModal() {
         </DialogHeader>
 
         <div className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5">
-          <span
+          <span aria-hidden
             className="material-symbols-outlined text-xl text-brand"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >

@@ -1056,7 +1056,7 @@ export function HomeClient({ initialData }: Props) {
           <Dialog>
             <DialogTrigger asChild>
               <button type="button" className={headerInfoButtonClass} aria-label={t("aboutTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[348px]:text-xl">info</span>
+                <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[348px]:text-xl">info</span>
                 <span className="hidden truncate min-[348px]:inline">{t("headerInfoButton")}</span>
               </button>
             </DialogTrigger>
@@ -1082,7 +1082,7 @@ export function HomeClient({ initialData }: Props) {
                           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand ring-1 ring-brand/25"
                           aria-hidden
                         >
-                          <span
+                          <span aria-hidden
                             className="material-symbols-outlined text-[22px]"
                             style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
                           >
@@ -1103,7 +1103,7 @@ export function HomeClient({ initialData }: Props) {
           <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
             <DialogTrigger asChild>
               <button type="button" className={headerActionButtonClass} aria-label={t("reportTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">bug_report</span>
+                <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">bug_report</span>
                 <span className="hidden truncate min-[415px]:inline">{t("headerReportButton")}</span>
               </button>
             </DialogTrigger>
@@ -1322,9 +1322,10 @@ export function HomeClient({ initialData }: Props) {
                     <button
                       type="button"
                       onClick={handleShareHome}
+                      aria-label={tc("share")}
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
                     >
-                      <span
+                      <span aria-hidden
                         className="material-symbols-outlined text-lg text-[color:var(--brand)]"
                         style={{ fontVariationSettings: "'FILL' 0" }}
                       >
@@ -1343,7 +1344,7 @@ export function HomeClient({ initialData }: Props) {
                           "linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 50%, var(--brand) 100%)",
                       }}
                     >
-                      <span
+                      <span aria-hidden
                         className="material-symbols-outlined text-lg text-primary-foreground"
                         style={{ fontVariationSettings: "'FILL' 1" }}
                       >
@@ -1355,9 +1356,10 @@ export function HomeClient({ initialData }: Props) {
                     <button
                       type="button"
                       onClick={handleShareHome}
+                      aria-label={tc("share")}
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
                     >
-                      <span
+                      <span aria-hidden
                         className="material-symbols-outlined text-lg text-[color:var(--brand)]"
                         style={{ fontVariationSettings: "'FILL' 0" }}
                       >
@@ -1395,7 +1397,7 @@ export function HomeClient({ initialData }: Props) {
             className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 transition-colors active:bg-card/70"
           >
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand/15">
-              <span
+              <span aria-hidden
                 className="material-symbols-outlined text-xl text-brand"
                 style={{ fontVariationSettings: "'FILL' 1" }}
               >
@@ -1408,7 +1410,7 @@ export function HomeClient({ initialData }: Props) {
                 {t("guestBannerDescription")}
               </p>
             </div>
-            <span className="material-symbols-outlined text-brand">chevron_right</span>
+            <span aria-hidden className="material-symbols-outlined text-brand">chevron_right</span>
           </Link>
         </section>
       )}
@@ -1878,7 +1880,7 @@ function HomeStatCard({
             iconBg
           )}
         >
-          <span
+          <span aria-hidden
             className={cn("material-symbols-outlined text-base", iconColor)}
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
@@ -2175,7 +2177,7 @@ function PreviousDaysSection({
                             className="flex h-full w-full items-center justify-center"
                             style={{ backgroundColor: previousDayColor(day.game_number) }}
                           >
-                            <span
+                            <span aria-hidden
                               className="material-symbols-outlined text-2xl text-white/90"
                               style={{ fontVariationSettings: "'FILL' 1" }}
                             >
@@ -2185,7 +2187,7 @@ function PreviousDaysSection({
                         )}
                         {played && completed && (
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <span
+                            <span aria-hidden
                               className={cn(
                                 "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
                                 won
@@ -2222,7 +2224,7 @@ function PreviousDaysSection({
                         className="flex h-full w-full items-center justify-center"
                         style={{ backgroundColor: previousDayColor(day.game_number) }}
                       >
-                        <span
+                        <span aria-hidden
                           className="material-symbols-outlined text-2xl text-white/90"
                           style={{ fontVariationSettings: "'FILL' 1" }}
                         >
@@ -2232,7 +2234,7 @@ function PreviousDaysSection({
                     )}
                     {played && completed && (
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span
+                        <span aria-hidden
                           className={cn(
                             "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
                             won
@@ -2289,7 +2291,7 @@ function PreviousDaysSection({
                     )}
                   </div>
 
-                  <span className="material-symbols-outlined text-muted-foreground">
+                  <span aria-hidden className="material-symbols-outlined text-muted-foreground">
                     {played && completed ? "chevron_right" : "play_circle"}
                   </span>
                     </>
@@ -2316,7 +2318,7 @@ function PreviousDaysSection({
               )}
               aria-label={t("viewList")}
             >
-              <span className="material-symbols-outlined text-lg">format_list_bulleted</span>
+              <span aria-hidden className="material-symbols-outlined text-lg">format_list_bulleted</span>
             </button>
             <button
               onClick={() => setViewMode("grid")}
@@ -2326,7 +2328,7 @@ function PreviousDaysSection({
               )}
               aria-label={t("viewGrid")}
             >
-              <span className="material-symbols-outlined text-lg">grid_view</span>
+              <span aria-hidden className="material-symbols-outlined text-lg">grid_view</span>
             </button>
           </div>
           <Dialog>
@@ -2339,7 +2341,7 @@ function PreviousDaysSection({
                   )}
                   aria-label={t("filterByDate")}
                 >
-                  <span className="material-symbols-outlined text-lg">filter_list</span>
+                  <span aria-hidden className="material-symbols-outlined text-lg">filter_list</span>
                 </button>
               </DialogTrigger>
             </div>
@@ -2414,7 +2416,7 @@ function PreviousDaysSection({
               className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
               aria-label={sortOrder === "desc" ? t("sortDesc") : t("sortAsc")}
             >
-              <span
+              <span aria-hidden
                 className={cn("material-symbols-outlined text-lg", sortOrder === "asc" && "rotate-180")}
               >
                 arrow_downward
@@ -2484,7 +2486,7 @@ function PreviousDaysSection({
                       t={t}
                       monthLabel={monthLabel}
                       rightSlot={
-                        <span className="material-symbols-outlined shrink-0 text-lg text-muted-foreground transition-transform group-data-[state=open]:rotate-180">
+                        <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-muted-foreground transition-transform group-data-[state=open]:rotate-180">
                           expand_more
                         </span>
                       }

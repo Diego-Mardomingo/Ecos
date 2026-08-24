@@ -193,7 +193,7 @@ export function ProfileClient({ initialData }: Props) {
           )}
           <div className="mt-2 flex flex-col items-center gap-1">
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-0.5 text-xs font-semibold text-sky-500">
-              <span className="material-symbols-outlined"
+              <span aria-hidden className="material-symbols-outlined"
                 style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}>
                 volunteer_activism
               </span>
@@ -225,7 +225,7 @@ export function ProfileClient({ initialData }: Props) {
           <div className="overflow-hidden rounded-2xl bg-card">
             {/* Tema */}
             <div className="flex items-center gap-3 px-4 py-3.5">
-              <span className="material-symbols-outlined text-xl text-brand"
+              <span aria-hidden className="material-symbols-outlined text-xl text-brand"
                 style={{ fontVariationSettings: "'FILL' 1" }}>
                 contrast
               </span>
@@ -258,7 +258,7 @@ export function ProfileClient({ initialData }: Props) {
             {/* Notificaciones */}
             {notifications.isSupported && (
               <div className="flex items-center gap-3 px-4 py-3.5">
-                <span className="material-symbols-outlined text-xl text-brand">notifications</span>
+                <span aria-hidden className="material-symbols-outlined text-xl text-brand">notifications</span>
                 <span className="flex-1 text-sm font-medium">{t("settings.notifications")}</span>
                 <div className="flex shrink-0 items-center gap-2">
                   {notifications.isLoading ? (
@@ -290,7 +290,7 @@ export function ProfileClient({ initialData }: Props) {
                   href="/admin"
                   className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
                 >
-                  <span
+                  <span aria-hidden
                     className="material-symbols-outlined text-xl text-brand"
                     style={{ fontVariationSettings: "'FILL' 1" }}
                   >
@@ -299,7 +299,7 @@ export function ProfileClient({ initialData }: Props) {
                   <span className="flex-1 text-left text-sm font-medium">
                     Panel de administración
                   </span>
-                  <span className="material-symbols-outlined text-muted-foreground">
+                  <span aria-hidden className="material-symbols-outlined text-muted-foreground">
                     chevron_right
                   </span>
                 </Link>
@@ -310,16 +310,16 @@ export function ProfileClient({ initialData }: Props) {
               href="/profile/edit"
               className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
             >
-              <span className="material-symbols-outlined text-xl text-muted-foreground">manage_accounts</span>
+              <span aria-hidden className="material-symbols-outlined text-xl text-muted-foreground">manage_accounts</span>
               <span className="flex-1 text-left text-sm font-medium">{t("settings.editProfile")}</span>
-              <span className="material-symbols-outlined text-muted-foreground">chevron_right</span>
+              <span aria-hidden className="material-symbols-outlined text-muted-foreground">chevron_right</span>
             </Link>
             <div className="mx-4 h-px bg-border" />
             <button
               onClick={handleSignOut}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-destructive transition-colors hover:bg-destructive/5"
             >
-              <span className="material-symbols-outlined text-xl">logout</span>
+              <span aria-hidden className="material-symbols-outlined text-xl">logout</span>
               <span className="flex-1 text-left text-sm font-medium">{t("settings.logOut")}</span>
             </button>
           </div>
@@ -353,7 +353,7 @@ function StatBlock({
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl bg-card p-3 text-center">
       <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", iconBg)}>
-        <span
+        <span aria-hidden
           className={cn("material-symbols-outlined text-xl", iconColor)}
           style={{ fontVariationSettings: "'FILL' 1" }}
         >

@@ -192,7 +192,7 @@ export function LeaderboardHistoryListClient({
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-brand transition-opacity hover:opacity-80"
           aria-label={t("historyBack")}
         >
-          <span className="material-symbols-outlined text-2xl">arrow_back</span>
+          <span aria-hidden className="material-symbols-outlined text-2xl">arrow_back</span>
         </Link>
         <h1 className="min-w-0 flex-1 text-center text-base font-bold pr-9">
           {t("historyTitle")}

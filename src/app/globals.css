@@ -135,3 +135,30 @@
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
+
+/**
+ * prefers-reduced-motion para lo que no pasa por framer-motion: las utilidades de animacion y
+ * transicion de Tailwind. Las de framer las cubre <MotionProvider>.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /**
+   * Excepcion deliberada: los spinners de carga. Congelarlos no reduce el movimiento de forma
+   * util, solo hace que la app parezca colgada — el giro es informacion de estado, no adorno.
+   * Se mantiene, algo mas lento.
+   */
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

@@ -12,7 +12,7 @@ export default async function LocaleNotFound() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
-      <span className="material-symbols-outlined text-5xl text-muted-foreground">
+      <span aria-hidden className="material-symbols-outlined text-5xl text-muted-foreground">
         search_off
       </span>
       <div>

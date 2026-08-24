@@ -67,7 +67,7 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
                   unoptimized
                 />
               ) : (
-                <span className="material-symbols-outlined absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-muted-foreground">
+                <span aria-hidden className="material-symbols-outlined absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-muted-foreground">
                   music_note
                 </span>
               )}
@@ -90,7 +90,7 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
                 </span>
               )}
               {s.youtube_verified && (
-                <span
+                <span aria-hidden
                   className="material-symbols-outlined text-lg text-green-500"
                   style={{ fontVariationSettings: "'FILL' 1" }}
                   title="YouTube verificado"

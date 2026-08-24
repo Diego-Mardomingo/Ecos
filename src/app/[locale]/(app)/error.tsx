@@ -19,7 +19,7 @@ export default function AppError({
 
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-6 px-6">
-      <span className="material-symbols-outlined text-5xl text-destructive">
+      <span aria-hidden className="material-symbols-outlined text-5xl text-destructive">
         error
       </span>
       <div className="text-center">

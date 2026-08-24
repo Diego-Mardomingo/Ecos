@@ -152,7 +152,7 @@ export function LeaderboardPodiumAndList({
                         title={t("earlySupporterBadge")}
                         aria-hidden
                       >
-                        <span
+                        <span aria-hidden
                           className="material-symbols-outlined select-none leading-none"
                           style={{
                             fontVariationSettings: "'FILL' 1",
@@ -260,7 +260,7 @@ function PodiumEntry({
             title={earlySupporterLabel}
             aria-hidden
           >
-            <span
+            <span aria-hidden
               className="material-symbols-outlined select-none leading-none"
               style={{
                 fontVariationSettings: "'FILL' 1",

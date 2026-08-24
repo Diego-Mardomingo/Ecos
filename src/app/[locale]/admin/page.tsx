@@ -75,7 +75,7 @@ export default async function AdminDashboardPage() {
               href={s.href}
               className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
             >
-              <span
+              <span aria-hidden
                 className="material-symbols-outlined text-2xl text-brand"
                 style={{ fontVariationSettings: "'FILL' 1" }}
               >

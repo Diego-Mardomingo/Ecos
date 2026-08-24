@@ -157,7 +157,7 @@ export default async function AdminLogsPage() {
                 <span>
                   {formatLogDate(log.ran_at)}
                 </span>
-                <span
+                <span aria-hidden
                   className="material-symbols-outlined text-base"
                   style={{ fontVariationSettings: "'FILL' 0" }}
                 >

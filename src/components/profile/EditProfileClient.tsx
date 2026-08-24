@@ -28,6 +28,7 @@ interface Props {
 
 export function EditProfileClient({ profile }: Props) {
   const t = useTranslations("profile.editProfilePage");
+  const tc = useTranslations("common");
   const locale = useLocale();
   const updateProfile = useUpdateProfileMutation();
 
@@ -108,9 +109,10 @@ export function EditProfileClient({ profile }: Props) {
       <header className="flex items-center gap-3 py-3">
         <Link
           href="/profile"
+          aria-label={tc("back")}
           className="flex h-9 w-9 items-center justify-center rounded-full bg-muted"
         >
-          <span className="material-symbols-outlined text-lg">arrow_back</span>
+          <span aria-hidden className="material-symbols-outlined text-lg">arrow_back</span>
         </Link>
         <h1 className="text-base font-bold">{t("title")}</h1>
       </header>
@@ -138,7 +140,7 @@ export function EditProfileClient({ profile }: Props) {
               onClick={() => fileInputRef.current?.click()}
               className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-brand shadow-md"
             >
-              <span
+              <span aria-hidden
                 className="material-symbols-outlined text-base text-primary-foreground"
                 style={{ fontVariationSettings: "'FILL' 1" }}
               >

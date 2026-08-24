@@ -21,7 +21,7 @@ export function LanguageSelector() {
 
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">
-      <span
+      <span aria-hidden
         className="material-symbols-outlined text-xl text-brand"
         style={{ fontVariationSettings: "'FILL' 1" }}
       >

@@ -6,6 +6,7 @@ import { getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { MotionProvider } from "@/components/providers/MotionProvider";
 import { SerwistProvider } from "../serwist";
 import { Toaster } from "@/components/ui/sonner";
 import "../globals.css";
@@ -109,10 +110,12 @@ export default async function LocaleLayout({ children, params }: Props) {
           disableTransitionOnChange={false}
         >
           <SerwistProvider swUrl="/serwist/sw.js">
-            <NextIntlClientProvider messages={messages}>
-              {children}
-            </NextIntlClientProvider>
-            <Toaster position="top-center" richColors />
+            <MotionProvider>
+              <NextIntlClientProvider messages={messages}>
+                {children}
+              </NextIntlClientProvider>
+              <Toaster position="top-center" richColors />
+            </MotionProvider>
           </SerwistProvider>
         </ThemeProvider>
       </body>
