@@ -215,7 +215,8 @@
       "descriptionPlaceholder": "Describe the problem...",
       "sending": "Sending...",
       "submit": "Submit report"
-    }
+    },
+    "audioFragment": "ECOS – Snippet"
   },
   "ranking": {
     "title": "Leaderboard",
@@ -331,5 +332,9 @@
     "permissionDenied": "Permission denied by the browser. Enable it from your browser settings.",
     "enabledToast": "Notifications enabled successfully",
     "disabledToast": "Notifications disabled successfully"
+  },
+  "meta": {
+    "description": "Guess the song of the day by listening to audio snippets. Compete on the global leaderboard.",
+    "ogDescription": "Guess the song of the day"
   }
 }

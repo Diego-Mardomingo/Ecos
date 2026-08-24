@@ -40,6 +40,8 @@ const AudioPlayerComponent = ({
 }: AudioPlayerProps,
 ref: React.Ref<AudioPlayerHandle>) => {
   const t = useTranslations("game");
+  /** Se resuelve aqui porque dentro de `togglePlay` hay un `t` local que sombrea el del hook. */
+  const fragmentTitle = t("audioFragment");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -413,7 +415,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
       if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
         try {
           navigator.mediaSession.metadata = new MediaMetadata({
-            title: "ECOS – Fragmento",
+            // Sale en la pantalla de bloqueo del movil, asi que va traducido.
+            // Ojo: el handler de "seekto" de mas abajo declara su propio `t`, que sombrea
+            // el de useTranslations; este uso queda fuera de ese ambito a proposito.
+            title: fragmentTitle,
             artist: "",
             album: "",
           });
@@ -470,7 +475,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       };
       playbackRafRef.current = requestAnimationFrame(tickPreview);
     }
-  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, youtubeId, stopAndReset, startMediaSessionSuppress, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible]);
+  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, youtubeId, stopAndReset, startMediaSessionSuppress, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle]);
 
   useImperativeHandle(ref, () => ({
     togglePlay,

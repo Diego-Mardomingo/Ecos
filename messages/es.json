@@ -215,7 +215,8 @@
       "descriptionPlaceholder": "Describe el problema...",
       "sending": "Enviando...",
       "submit": "Enviar reporte"
-    }
+    },
+    "audioFragment": "ECOS – Fragmento"
   },
   "ranking": {
     "title": "Clasificación",
@@ -331,5 +332,9 @@
     "permissionDenied": "Permiso denegado en el navegador. Actívalo desde los ajustes del navegador.",
     "enabledToast": "Notificaciones activadas correctamente",
     "disabledToast": "Notificaciones desactivadas correctamente"
+  },
+  "meta": {
+    "description": "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global.",
+    "ogDescription": "Adivina la canción del día"
   }
 }
