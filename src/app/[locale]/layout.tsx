@@ -55,8 +55,8 @@ export async function generateMetadata({
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Sin maximumScale ni userScalable: bloquear el zoom incumple WCAG 1.4.4 y en movil impide
+  // acercarse a la lista de resultados o al historico. Se quito a proposito, no por descuido.
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f6f8f7" },
     { media: "(prefers-color-scheme: dark)", color: "#0f1112" },

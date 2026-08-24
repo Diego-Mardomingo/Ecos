@@ -216,7 +216,14 @@
       "sending": "Enviando...",
       "submit": "Enviar reporte"
     },
-    "audioFragment": "ECOS – Fragmento"
+    "audioFragment": "ECOS – Fragmento",
+    "searchLabel": "Buscar canción o artista",
+    "searchResultsCount": "{count} resultados disponibles. Usa las flechas para elegir.",
+    "searchNoResults": "Sin resultados",
+    "optionAlreadyGuessed": "ya intentado",
+    "playFragment": "Reproducir el fragmento",
+    "stopFragment": "Detener el fragmento",
+    "loadingAudio": "Cargando el audio"
   },
   "ranking": {
     "title": "Clasificación",

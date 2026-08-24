@@ -216,7 +216,14 @@
       "sending": "Sending...",
       "submit": "Submit report"
     },
-    "audioFragment": "ECOS – Snippet"
+    "audioFragment": "ECOS – Snippet",
+    "searchLabel": "Search song or artist",
+    "searchResultsCount": "{count} results available. Use the arrow keys to choose.",
+    "searchNoResults": "No results",
+    "optionAlreadyGuessed": "already guessed",
+    "playFragment": "Play the snippet",
+    "stopFragment": "Stop the snippet",
+    "loadingAudio": "Loading audio"
   },
   "ranking": {
     "title": "Leaderboard",

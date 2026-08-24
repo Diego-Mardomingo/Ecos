@@ -501,8 +501,17 @@ ref: React.Ref<AudioPlayerHandle>) => {
   return (
     <div className={cn("flex flex-col items-center gap-4", className)}>
       <div className="w-full space-y-1">
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          role="progressbar"
+          aria-label={t("audioFragment")}
+          aria-valuemin={0}
+          aria-valuemax={Math.round(maxDuration)}
+          aria-valuenow={Math.round(currentTime)}
+          aria-valuetext={`${formatTime(currentTime)} / ${formatTime(maxDuration)}`}
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+        >
           <div
+            aria-hidden
             className="h-full rounded-full bg-brand"
             style={{ width: `${progress}%` }}
           />
@@ -519,10 +528,16 @@ ref: React.Ref<AudioPlayerHandle>) => {
         </div>
       </div>
 
+      {/* El contenido es una ligadura de Material Symbols ("stop" / "play_arrow"), que el lector
+          de pantalla leeria literalmente: va oculta y el nombre lo da el aria-label. */}
       <motion.button
+        type="button"
         onClick={togglePlay}
         whileTap={{ scale: 0.92 }}
         disabled={!isLoaded}
+        aria-label={
+          !isLoaded ? t("loadingAudio") : isPlaying ? t("stopFragment") : t("playFragment")
+        }
         className={cn(
           "flex h-16 w-16 items-center justify-center rounded-full transition-all",
           isLoaded
@@ -532,13 +547,14 @@ ref: React.Ref<AudioPlayerHandle>) => {
       >
         {isLoaded ? (
           <span
+            aria-hidden
             className="material-symbols-outlined text-3xl text-primary-foreground"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
             {isPlaying ? "stop" : "play_arrow"}
           </span>
         ) : (
-          <span className="material-symbols-outlined animate-spin text-2xl text-muted-foreground">
+          <span aria-hidden className="material-symbols-outlined animate-spin text-2xl text-muted-foreground">
             progress_activity
           </span>
         )}
