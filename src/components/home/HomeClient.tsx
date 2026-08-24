@@ -647,7 +647,11 @@ export function HomeClient({ initialData }: Props) {
             return merged;
           });
           monthCursor = payload.nextMonth ?? null;
-        } catch {
+        } catch (error) {
+          // Cortar aqui deja el historico incompleto sin que se note en la UI: el usuario ve
+          // menos meses de los que hay y no hay nada que lo delate. Por eso se loguea, al
+          // contrario que los catch de sessionStorage/clipboard, donde el fallo es inocuo.
+          console.error("[home] prefetch del historico interrumpido en", month, error);
           break;
         }
         count += 1;
