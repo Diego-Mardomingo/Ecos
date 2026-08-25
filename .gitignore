@@ -63,9 +63,12 @@ package-lock.json
 # project_overview.md
 project_overview.md
 
-# supabase (solo el directorio de la raiz: sin la barra inicial tambien se comia
-# src/lib/supabase/, y cualquier fichero nuevo ahi quedaba sin versionar en silencio)
-/supabase/
+# supabase: se ignora el directorio de trabajo del CLI, pero NO el esquema ni las migraciones.
+# Ojo con la barra inicial: sin ella el patron tambien se comia src/lib/supabase/ y cualquier
+# fichero nuevo ahi quedaba sin versionar en silencio.
+/supabase/*
+!/supabase/migrations/
+!/supabase/schema/
 
 # pnpm
 .pnpm-store/
