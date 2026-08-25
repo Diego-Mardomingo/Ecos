@@ -86,3 +86,50 @@ export function playingProgress(opts: {
     phase: "playing",
   };
 }
+
+/**
+ * Payload optimista de un intento que **no** gana la partida: fallar o saltar.
+ *
+ * Era el mismo objeto escrito dos veces, en la rama de fallo de `handleGuess` y en el botón de
+ * saltar. La forma depende solo de si ese intento agota los seis, no de cómo se llegó ahí.
+ */
+export type NonWinningOptimistic =
+  | {
+      type: "completion";
+      won: false;
+      score: 0;
+      completedProgress: { gameDate: string; guesses: GuessEntry[] };
+    }
+  | {
+      type: "inProgress";
+      inProgress: {
+        gameId: string;
+        gameDate: string;
+        guesses: GuessEntry[];
+        phase: "playing";
+      };
+    };
+
+export function nonWinningOptimistic(opts: {
+  game: GameWithSong;
+  lostNow: boolean;
+  guesses: GuessEntry[];
+}): NonWinningOptimistic {
+  if (opts.lostNow) {
+    return {
+      type: "completion",
+      won: false,
+      score: 0,
+      completedProgress: { gameDate: opts.game.date, guesses: opts.guesses },
+    };
+  }
+  return {
+    type: "inProgress",
+    inProgress: {
+      gameId: opts.game.id,
+      gameDate: opts.game.date,
+      guesses: opts.guesses,
+      phase: "playing",
+    },
+  };
+}

@@ -28,6 +28,7 @@ import {
   ATTEMPT_DURATIONS,
   useGameStore,
   type GamePhase,
+  type GuessEntry,
 } from "@/lib/store/gameStore";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
@@ -46,6 +47,7 @@ import { PlayingGameAudioSection } from "@/components/game/GameAudioSection";
 import { ResultGameView } from "@/components/game/GameResultScreen";
 import {
   lostProgress,
+  nonWinningOptimistic,
   playingProgress,
   wonProgress,
 } from "@/components/game/gameProgressSnapshots";
@@ -393,6 +395,86 @@ export function GameClient({ game, userId }: Props) {
     startGame,
   ]);
 
+  /**
+   * Registra un intento que no gana, en modo invitado. Todo local: no hay nada que sincronizar.
+   *
+   * Era el mismo bloque en la rama de fallo de `handleGuess` y en el botón de saltar; la única
+   * diferencia entre ambos era la entrada del intento.
+   */
+  const applyGuestAttempt = useCallback(
+    (entry: GuessEntry) => {
+      addGuess(entry);
+      if (effectiveCurrentAttempt >= maxAttempts) {
+        setLost();
+        // Se lee después de setLost, como hacían los dos sitios originales.
+        saveProgress(
+          lostProgress({ game, guesses: useGameStore.getState().guesses })
+        );
+      } else {
+        saveProgress(
+          playingProgress({ game, guesses: useGameStore.getState().guesses })
+        );
+      }
+    },
+    [addGuess, effectiveCurrentAttempt, maxAttempts, setLost, saveProgress, game]
+  );
+
+  /**
+   * Registra un intento que no gana, en modo autenticado, y lo sincroniza.
+   *
+   * El andamiaje era idéntico en la rama de fallo de `handleGuess` y en el botón de saltar:
+   * marcar sync en curso, apuntar el intento, cerrar la partida si agota los seis, capturar los
+   * intentos para el payload optimista, y en caso de error avisar y revertir. Lo único propio de
+   * cada sitio es la mutación, que se pasa como `submit`.
+   *
+   * `submit` corre **antes** del guardado final a propósito: la rama de fallo reconcilia dentro
+   * los flags de artista/álbum que devuelve el servidor, y `lostProgress` lee los intentos del
+   * store ya reconciliados.
+   */
+  const runSyncedAttempt = useCallback(
+    (
+      entry: GuessEntry,
+      submit: (ctx: {
+        lostNow: boolean;
+        optimisticGuesses: GuessEntry[];
+      }) => Promise<void>
+    ) => {
+      syncInFlightRef.current = true;
+      const lostNow = effectiveCurrentAttempt >= maxAttempts;
+      addGuess(entry);
+      if (lostNow) {
+        setLost();
+      }
+      const optimisticGuesses = [...useGameStore.getState().guesses];
+
+      void (async () => {
+        try {
+          await submit({ lostNow, optimisticGuesses });
+          if (lostNow) {
+            saveProgress(
+              lostProgress({ game, guesses: useGameStore.getState().guesses })
+            );
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t("saveResultError"));
+          revertLastGuessAfterFailedSync();
+        } finally {
+          syncInFlightRef.current = false;
+        }
+      })();
+    },
+    [
+      addGuess,
+      effectiveCurrentAttempt,
+      maxAttempts,
+      setLost,
+      saveProgress,
+      game,
+      t,
+      revertLastGuessAfterFailedSync,
+    ]
+  );
+
   const handleGuess = useCallback(
     (song: EcosSong) => {
       if (effectivePhase !== "playing") return;
@@ -498,112 +580,63 @@ export function GameClient({ game, userId }: Props) {
           })();
         }
       } else {
-        if (!isGuest) {
-          syncInFlightRef.current = true;
-
-          const guessEntry = {
-            text: guessText,
-            correct: false,
-            correctArtist,
-            correctAlbum,
-            attemptNumber: effectiveCurrentAttempt,
-          };
-          addGuess(guessEntry);
-          const lostNow = effectiveCurrentAttempt >= maxAttempts;
-          if (lostNow) {
-            setLost();
-          }
-          const optimisticGuesses = [...useGameStore.getState().guesses];
-
-          void (async () => {
-            try {
-              const data = await validateGuessMutation.mutateAsync({
-                userId,
-                gameId: game.id,
-                event: lostNow ? "gameCompleted" : "attemptSaved",
-                song: {
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url,
-                },
-                request: {
-                  gameId: game.id,
-                  userId: userId!,
-                  attemptNumber: effectiveCurrentAttempt,
-                  guessText,
-                  songId: song.id,
-                  guessArtistName: song.artist_name,
-                  guessAlbumTitle: song.album_title ?? undefined,
-                  finalize: effectiveCurrentAttempt >= maxAttempts,
-                },
-                optimistic: lostNow
-                  ? {
-                      type: "completion",
-                      won: false,
-                      score: 0,
-                      completedProgress: {
-                        gameDate: game.date,
-                        guesses: optimisticGuesses,
-                      },
-                    }
-                  : {
-                      type: "inProgress",
-                      inProgress: {
-                        gameId: game.id,
-                        gameDate: game.date,
-                        guesses: optimisticGuesses,
-                        phase: "playing",
-                      },
-                    },
-              });
-              const srvA = data.correctArtist ?? correctArtist;
-              const srvB = data.correctAlbum ?? correctAlbum;
-              if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
-                const gs = useGameStore.getState().guesses;
-                const last = gs[gs.length - 1];
-                if (last && last.text === guessText && !last.correct) {
-                  useGameStore.setState({
-                    guesses: [
-                      ...gs.slice(0, -1),
-                      { ...last, correctArtist: srvA, correctAlbum: srvB },
-                    ],
-                  });
-                }
-              }
-              if (lostNow) {
-                saveProgress(
-                  lostProgress({ game, guesses: useGameStore.getState().guesses })
-                );
-              }
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : t("saveResultError"));
-              revertLastGuessAfterFailedSync();
-            } finally {
-              syncInFlightRef.current = false;
-            }
-          })();
-          return;
-        }
-
-        const guessEntry = {
+        const guessEntry: GuessEntry = {
           text: guessText,
           correct: false,
           correctArtist,
           correctAlbum,
           attemptNumber: effectiveCurrentAttempt,
         };
-        addGuess(guessEntry);
 
-        if (effectiveCurrentAttempt >= maxAttempts) {
-          setLost();
-          saveProgress(
-            lostProgress({ game, guesses: useGameStore.getState().guesses })
-          );
-        } else {
-          saveProgress(
-            playingProgress({ game, guesses: useGameStore.getState().guesses })
-          );
+        if (isGuest) {
+          applyGuestAttempt(guessEntry);
+          return;
         }
+
+        runSyncedAttempt(guessEntry, async ({ lostNow, optimisticGuesses }) => {
+          const data = await validateGuessMutation.mutateAsync({
+            userId,
+            gameId: game.id,
+            event: lostNow ? "gameCompleted" : "attemptSaved",
+            song: {
+              title: game.ecos_songs.title,
+              artist_name: game.ecos_songs.artist_name,
+              cover_url: game.ecos_songs.cover_url,
+            },
+            request: {
+              gameId: game.id,
+              userId: userId!,
+              attemptNumber: effectiveCurrentAttempt,
+              guessText,
+              songId: song.id,
+              guessArtistName: song.artist_name,
+              guessAlbumTitle: song.album_title ?? undefined,
+              finalize: lostNow,
+            },
+            optimistic: nonWinningOptimistic({
+              game,
+              lostNow,
+              guesses: optimisticGuesses,
+            }),
+          });
+
+          // El servidor manda sobre los flags de artista/álbum: si difieren, se corrige el
+          // último intento en el store antes de que `lostProgress` lo lea.
+          const srvA = data.correctArtist ?? correctArtist;
+          const srvB = data.correctAlbum ?? correctAlbum;
+          if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
+            const gs = useGameStore.getState().guesses;
+            const last = gs[gs.length - 1];
+            if (last && last.text === guessText && !last.correct) {
+              useGameStore.setState({
+                guesses: [
+                  ...gs.slice(0, -1),
+                  { ...last, correctArtist: srvA, correctAlbum: srvB },
+                ],
+              });
+            }
+          }
+        });
       }
     },
     [
@@ -612,16 +645,15 @@ export function GameClient({ game, userId }: Props) {
       userId,
       isGuest,
       effectiveCurrentAttempt,
-      maxAttempts,
       addGuess,
       setWon,
-      setLost,
       saveProgress,
       resolvedTheme,
       revertWinAfterFailedSync,
-      revertLastGuessAfterFailedSync,
       validateGuessMutation,
       t,
+      applyGuestAttempt,
+      runSyncedAttempt,
     ]
   );
 
@@ -767,89 +799,43 @@ export function GameClient({ game, userId }: Props) {
             if (effectivePhase !== "playing") return;
             if (!isGuest && syncInFlightRef.current) return;
 
-            if (!isGuest && userId) {
-              const now = Date.now();
-              if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
-              lastSkipTapAtRef.current = now;
-
-              syncInFlightRef.current = true;
-              const lostNow = effectiveCurrentAttempt >= maxAttempts;
-              addGuess({
-                text: "skipped",
-                correct: false,
-                attemptNumber: effectiveCurrentAttempt,
-              });
-              if (lostNow) {
-                setLost();
-              }
-              const optimisticGuesses = [...useGameStore.getState().guesses];
-              void (async () => {
-                try {
-                  await skipAttemptMutation.mutateAsync({
-                    userId,
-                    gameId: game.id,
-                    event: lostNow ? "gameCompleted" : "attemptSaved",
-                    song: {
-                      title: game.ecos_songs.title,
-                      artist_name: game.ecos_songs.artist_name,
-                      cover_url: game.ecos_songs.cover_url,
-                    },
-                    request: {
-                      gameId: game.id,
-                      attemptNumber: effectiveCurrentAttempt,
-                    },
-                    optimistic: lostNow
-                      ? {
-                          type: "completion",
-                          won: false,
-                          score: 0,
-                          completedProgress: {
-                            gameDate: game.date,
-                            guesses: optimisticGuesses,
-                          },
-                        }
-                      : {
-                          type: "inProgress",
-                          inProgress: {
-                            gameId: game.id,
-                            gameDate: game.date,
-                            guesses: optimisticGuesses,
-                            phase: "playing",
-                          },
-                        },
-                  });
-                  if (lostNow) {
-                    saveProgress(
-                      lostProgress({ game, guesses: useGameStore.getState().guesses })
-                    );
-                  }
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : t("saveResultError"));
-                  revertLastGuessAfterFailedSync();
-                } finally {
-                  syncInFlightRef.current = false;
-                }
-              })();
-              return;
-            }
-
+            // El guard de doble tap va antes de bifurcar: aplica igual a invitado y autenticado.
             const now = Date.now();
             if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
             lastSkipTapAtRef.current = now;
 
-            addGuess({
+            const skipEntry: GuessEntry = {
               text: "skipped",
               correct: false,
               attemptNumber: effectiveCurrentAttempt,
-            });
-            if (effectiveCurrentAttempt >= maxAttempts) {
-              setLost();
-              const finalGuesses = useGameStore.getState().guesses;
-              saveProgress(lostProgress({ game, guesses: finalGuesses }));
-            } else {
-              const updatedGuesses = useGameStore.getState().guesses;
-              saveProgress(playingProgress({ game, guesses: updatedGuesses }));
+            };
+
+            if (isGuest || !userId) {
+              applyGuestAttempt(skipEntry);
+              return;
             }
+
+            runSyncedAttempt(skipEntry, async ({ lostNow, optimisticGuesses }) => {
+              await skipAttemptMutation.mutateAsync({
+                userId,
+                gameId: game.id,
+                event: lostNow ? "gameCompleted" : "attemptSaved",
+                song: {
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url,
+                },
+                request: {
+                  gameId: game.id,
+                  attemptNumber: effectiveCurrentAttempt,
+                },
+                optimistic: nonWinningOptimistic({
+                  game,
+                  lostNow,
+                  guesses: optimisticGuesses,
+                }),
+              });
+            });
           }}
           className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
         >
