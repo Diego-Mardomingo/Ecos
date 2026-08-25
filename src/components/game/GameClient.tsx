@@ -44,6 +44,11 @@ import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import { PreviousAttempts } from "@/components/game/GameAttemptsList";
 import { PlayingGameAudioSection } from "@/components/game/GameAudioSection";
 import { ResultGameView } from "@/components/game/GameResultScreen";
+import {
+  lostProgress,
+  playingProgress,
+  wonProgress,
+} from "@/components/game/gameProgressSnapshots";
 
 /** Ventana corta para ignorar dobles taps accidentales en “Saltar intento”. */
 const SKIP_BUTTON_DOUBLE_TAP_GUARD_MS = 500;
@@ -427,19 +432,14 @@ export function GameClient({ game, userId }: Props) {
         if (isGuest) {
           const { totalPoints } = calculateScore(effectiveCurrentAttempt, 0);
           setWon(effectiveCurrentAttempt, totalPoints);
-          saveProgress({
-            gameId: game.id,
-            gameDate: game.date,
-            played: true,
-            won: true,
-            score: totalPoints,
-            title: game.ecos_songs.title,
-            artist_name: game.ecos_songs.artist_name,
-            cover_url: game.ecos_songs.cover_url ?? undefined,
-            guesses: useGameStore.getState().guesses,
-            phase: "won",
-            correctAttempt: effectiveCurrentAttempt,
-          });
+          saveProgress(
+            wonProgress({
+              game,
+              score: totalPoints,
+              guesses: useGameStore.getState().guesses,
+              correctAttempt: effectiveCurrentAttempt,
+            })
+          );
         } else {
           syncInFlightRef.current = true;
           const optimisticScore = calculateScore(effectiveCurrentAttempt, 0).totalPoints;
@@ -481,19 +481,14 @@ export function GameClient({ game, userId }: Props) {
               if (serverPoints !== optimisticScore) {
                 setWon(effectiveCurrentAttempt, serverPoints);
               }
-              saveProgress({
-                gameId: game.id,
-                gameDate: game.date,
-                played: true,
-                won: true,
-                score: serverPoints,
-                title: game.ecos_songs.title,
-                artist_name: game.ecos_songs.artist_name,
-                cover_url: game.ecos_songs.cover_url ?? undefined,
-                guesses: useGameStore.getState().guesses,
-                phase: "won",
-                correctAttempt: effectiveCurrentAttempt,
-              });
+              saveProgress(
+                wonProgress({
+                  game,
+                  score: serverPoints,
+                  guesses: useGameStore.getState().guesses,
+                  correctAttempt: effectiveCurrentAttempt,
+                })
+              );
             } catch (error) {
               toast.error(error instanceof Error ? error.message : t("saveResultError"));
               revertWinAfterFailedSync();
@@ -576,18 +571,9 @@ export function GameClient({ game, userId }: Props) {
                 }
               }
               if (lostNow) {
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: true,
-                  won: false,
-                  score: 0,
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url ?? undefined,
-                  guesses: useGameStore.getState().guesses,
-                  phase: "lost",
-                });
+                saveProgress(
+                  lostProgress({ game, guesses: useGameStore.getState().guesses })
+                );
               }
             } catch (error) {
               toast.error(error instanceof Error ? error.message : t("saveResultError"));
@@ -610,30 +596,13 @@ export function GameClient({ game, userId }: Props) {
 
         if (effectiveCurrentAttempt >= maxAttempts) {
           setLost();
-          saveProgress({
-            gameId: game.id,
-            gameDate: game.date,
-            played: true,
-            won: false,
-            // 0 (no null): una derrota es una partida jugada. Con null, homeDayDerived
-            // la trata como "no jugada" (completed = played && score !== null).
-            score: 0,
-            title: game.ecos_songs.title,
-            artist_name: game.ecos_songs.artist_name,
-            cover_url: game.ecos_songs.cover_url ?? undefined,
-            guesses: useGameStore.getState().guesses,
-            phase: "lost",
-          });
+          saveProgress(
+            lostProgress({ game, guesses: useGameStore.getState().guesses })
+          );
         } else {
-          saveProgress({
-            gameId: game.id,
-            gameDate: game.date,
-            played: false,
-            won: false,
-            score: null,
-            guesses: useGameStore.getState().guesses,
-            phase: "playing",
-          });
+          saveProgress(
+            playingProgress({ game, guesses: useGameStore.getState().guesses })
+          );
         }
       }
     },
@@ -850,18 +819,9 @@ export function GameClient({ game, userId }: Props) {
                         },
                   });
                   if (lostNow) {
-                    saveProgress({
-                      gameId: game.id,
-                      gameDate: game.date,
-                      played: true,
-                      won: false,
-                      score: 0,
-                      title: game.ecos_songs.title,
-                      artist_name: game.ecos_songs.artist_name,
-                      cover_url: game.ecos_songs.cover_url ?? undefined,
-                      guesses: useGameStore.getState().guesses,
-                      phase: "lost",
-                    });
+                    saveProgress(
+                      lostProgress({ game, guesses: useGameStore.getState().guesses })
+                    );
                   }
                 } catch (error) {
                   toast.error(error instanceof Error ? error.message : t("saveResultError"));
@@ -885,29 +845,10 @@ export function GameClient({ game, userId }: Props) {
             if (effectiveCurrentAttempt >= maxAttempts) {
               setLost();
               const finalGuesses = useGameStore.getState().guesses;
-              saveProgress({
-                gameId: game.id,
-                gameDate: game.date,
-                played: true,
-                won: false,
-                score: null,
-                title: game.ecos_songs.title,
-                artist_name: game.ecos_songs.artist_name,
-                cover_url: game.ecos_songs.cover_url ?? undefined,
-                guesses: finalGuesses,
-                phase: "lost",
-              });
+              saveProgress(lostProgress({ game, guesses: finalGuesses }));
             } else {
               const updatedGuesses = useGameStore.getState().guesses;
-              saveProgress({
-                gameId: game.id,
-                gameDate: game.date,
-                played: false,
-                won: false,
-                score: null,
-                guesses: updatedGuesses,
-                phase: "playing",
-              });
+              saveProgress(playingProgress({ game, guesses: updatedGuesses }));
             }
           }}
           className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
