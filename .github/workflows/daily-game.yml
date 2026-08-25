@@ -1,12 +1,18 @@
 # Selección diaria: 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
-# Ejecuta cada día a las 22:00 hora española (crea el juego del día siguiente).
-# Nota: GitHub Actions solo usa UTC. 20:00 UTC = 22:00 CEST (abr-sep) / 21:00 CET (oct-mar).
-# Se adelanta 1 h respecto al mínimo para absorber retrasos del runner sin pasar medianoche Madrid.
+#
+# GitHub Actions solo entiende UTC. Medianoche de Madrid son las 22:00 UTC en verano (CEST) y las
+# 23:00 UTC en invierno (CET), así que el verano es el caso estrecho: es el que fija la hora.
+#
+# A las 18:00 UTC quedan 4 h de margen en verano y 5 h en invierno. Antes estaba a las 20:00 UTC
+# con la idea de dejar 2 h, pero las ejecuciones reales caían entre las 20:53 y las 21:14 (los
+# workflows programados de Actions entran en cola y se retrasan de forma habitual), así que el
+# margen efectivo se quedaba en ~50 min. Un día de cola mala y el juego de mañana no existe a
+# medianoche.
 name: Daily Game
 
 on:
   schedule:
-    - cron: "0 20 * * *"
+    - cron: "0 18 * * *"
   workflow_dispatch:
 
 jobs:
