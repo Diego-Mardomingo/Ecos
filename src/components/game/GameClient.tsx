@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
-import confetti from "canvas-confetti";
 import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
 import { type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
@@ -494,15 +493,28 @@ export function GameClient({ game, userId }: Props) {
         normalize(song.album_title) === normalize(game.ecos_songs.album_title);
 
       if (isCorrect) {
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-          colors:
-            resolvedTheme === "dark"
-              ? [...CONFETTI_COLORS_DARK]
-              : [...CONFETTI_COLORS_LIGHT],
-        });
+        /**
+         * `canvas-confetti` se carga aquí y no arriba: solo se usa al acertar, así que como
+         * import estático viajaba en el chunk inicial de /play para algo que la mayoría de las
+         * cargas no llega a ejecutar. Va sin await para no retrasar nada de lo que viene después
+         * —la animación es adorno, el resto es el estado de la partida— y con catch vacío porque
+         * quedarse sin confeti no es un error que merezca molestar al usuario.
+         */
+        void import("canvas-confetti")
+          .then(({ default: confetti }) => {
+            confetti({
+              particleCount: 120,
+              spread: 80,
+              origin: { y: 0.6 },
+              colors:
+                resolvedTheme === "dark"
+                  ? [...CONFETTI_COLORS_DARK]
+                  : [...CONFETTI_COLORS_LIGHT],
+            });
+          })
+          .catch(() => {
+            /* sin confeti; la partida sigue */
+          });
 
         const guessEntry = {
           text: guessText,

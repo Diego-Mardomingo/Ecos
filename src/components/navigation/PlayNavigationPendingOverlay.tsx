@@ -66,7 +66,7 @@ export function PlayNavigationPendingOverlay() {
     }
   }
 
-  /** Si nunca monta PlayGameWrapper (p. ej. notFound), evitar overlay colgado. */
+  /** Si nunca monta la pantalla de juego (p. ej. notFound), evitar overlay colgado. */
   useEffect(() => {
     if (!visible) return;
     const id = window.setTimeout(() => setVisible(false), 12_000);
