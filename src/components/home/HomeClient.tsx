@@ -224,7 +224,6 @@ export function HomeClient({ initialData }: Props) {
     );
   });
   const prefetchStartedRef = useRef(false);
-  const prefetchedGameIdsRef = useRef<Set<string>>(new Set());
   const prefetchedProgressIdsRef = useRef<Set<string>>(new Set());
 
   const todaysCompletedResultEffective = useMemo(() => {
@@ -551,14 +550,16 @@ export function HomeClient({ initialData }: Props) {
 
     let cancelled = false;
     const run = async () => {
+      /**
+       * Aquí NO se hace `router.prefetch("/play/<id>")`. De eso se encarga
+       * `PrefetchPlayOnVisible` cuando la tarjeta entra en el viewport, más su hover y focus.
+       * Tenerlo en los dos sitios hacía que cada ruta se pidiera dos veces: 62 peticiones RSC
+       * para 31 rutas en una carga de la home, medido con Playwright.
+       *
+       * Y para el reto de hoy era inútil de todas formas: se juega en `/play`, sin id.
+       */
       for (const gameId of eagerPrefetchGameIds) {
         if (cancelled) break;
-        if (!prefetchedGameIdsRef.current.has(gameId)) {
-          prefetchedGameIdsRef.current.add(gameId);
-          // Basta con el prefetch de ruta de Next: /play/[gameId] es un Server Component que
-          // trae el juego consigo, así que no hay nada que precargar por separado.
-          router.prefetch(`/play/${gameId}`);
-        }
         if (cacheUserId) {
           if (!prefetchedProgressIdsRef.current.has(gameId)) {
             prefetchedProgressIdsRef.current.add(gameId);
