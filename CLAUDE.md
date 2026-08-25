@@ -42,7 +42,11 @@ La base de datos **se comparte con otra aplicación**. Las tablas de este proyec
 
 Buena parte de la lógica de negocio vive en Postgres, no en TypeScript: `ecos_guess_and_finalize_score`, `ecos_finalize_game_score`, `ecos_search_songs` (búsqueda sin acentos vía `unaccent`), `get_leaderboard_by_period`, `get_leaderboard_period_summaries`, `get_user_ranking_stats`, `get_user_avg_guesses`. Antes de replicar una regla en el cliente, mira si ya existe como RPC.
 
-**El esquema no está versionado.** `supabase/` está en `.gitignore` y solo hay tres migraciones sueltas de leaderboard. No hay DDL de tablas ni **ninguna** definición de RLS en el repo. Cualquier afirmación del código sobre políticas RLS hay que verificarla contra el proyecto real.
+**El esquema está versionado en `supabase/schema/`** (tablas, funciones, RLS y privilegios), más las migraciones de leaderboard en `supabase/migrations/`. Es una instantánea a mano, no generada por un script: **el proyecto real sigue siendo la fuente de verdad** y el volcado puede quedarse atrás. Si cambias algo en la base de datos, actualiza el fichero que toque en el mismo commit. El README de ese directorio explica qué queda fuera y por qué.
+
+`supabase/schema/03_security.sql` es el fichero que más cuidado merece: dos escaladas de privilegios (cualquier usuario podía ponerse `role = 'admin'`; cualquiera con la anon key podía leer y vaciar `ecos_feedback`) vivieron meses sin que nadie las viera, precisamente porque las políticas no estaban en el repo. Todo cambio de RLS o de privilegios debería pasar por diff.
+
+**Trampa con `is_admin()`.** Existe una RPC con ese nombre y **no sirve para Ecos**: consulta `hubgames_usuarios.administrador`, de la otra aplicación, y no tiene ningún usuario marcado. El rol de admin de Ecos vive en `ecos_profiles.role` (ver `src/lib/auth/requireAdmin.ts`). Lo mismo con `handle_new_user` y `run_judi_*`: nombres genéricos, dueño ajeno.
 
 Para operar sobre la base de datos, usa **primero el MCP de Supabase** (`execute_sql` para DML, `apply_migration` para DDL) antes de escribir migraciones o scripts a mano. Project id: `hrpwtsnsxnogjpsxslwi`.
 
