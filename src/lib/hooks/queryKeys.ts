@@ -39,7 +39,6 @@ export const queryKeys = {
   },
   game: {
     all: ["game"] as const,
-    byId: (id: string) => ["game", id] as const,
     progress: (id: string) => ["game-progress", id] as const,
   },
   ranking: {

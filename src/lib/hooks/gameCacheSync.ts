@@ -333,19 +333,16 @@ export function primePlayQueriesFromHomeInitialData(
   queryClient: QueryClient,
   input: {
     userId: string | null;
-    prefetchedGamesById: Record<string, GameWithSong>;
+    /** Solo los ids: las canciones completas ya no las necesita nadie en cliente. */
+    prefetchGameIds: string[];
     inProgressByGameId?: Record<string, InProgressProgress>;
     todaysGame: GameWithSong | null;
     todaysCompletedResult: TodaysCompletedResult | null;
     previousDays: PreviousDayGame[];
   }
 ): void {
-  const { userId, prefetchedGamesById, inProgressByGameId } = input;
+  const { userId, prefetchGameIds, inProgressByGameId } = input;
   if (!userId) return;
-
-  for (const [gameId, game] of Object.entries(prefetchedGamesById)) {
-    queryClient.setQueryData(queryKeys.game.byId(gameId), game);
-  }
 
   for (const [gameId, inProg] of Object.entries(inProgressByGameId ?? {})) {
     const existing = queryClient.getQueryData<GameProgressData>(
@@ -447,7 +444,7 @@ export function primePlayQueriesFromHomeInitialData(
     }
   }
 
-  for (const gameId of Object.keys(prefetchedGamesById)) {
+  for (const gameId of prefetchGameIds) {
     if (playedOrInProgressIds.has(gameId)) continue;
     const existing = queryClient.getQueryData<GameProgressData>(
       queryKeys.game.progress(gameId)

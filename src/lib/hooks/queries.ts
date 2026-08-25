@@ -8,7 +8,6 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import type {
-  GameWithSong,
   InProgressProgress,
   TodaysCompletedResult,
 } from "@/lib/queries/games";
@@ -25,7 +24,6 @@ import {
   queryKeys,
 } from "./queryKeys";
 import {
-  fetchGameById,
   fetchGameProgressById,
   fetchHomeDayStatusById,
   fetchHomePreviousDaysData,
@@ -79,7 +77,6 @@ export {
   queryKeys,
 };
 export {
-  fetchGameById,
   fetchGameProgressById,
   fetchHomeDayStatusById,
   fetchHomePreviousDaysData,
@@ -201,20 +198,6 @@ export function useHomeDayStatus(
   });
 }
 
-export function useGameById(
-  gameId: string,
-  initialData?: GameWithSong | null,
-  options?: { enabled?: boolean }
-) {
-  return useQuery({
-    queryKey: queryKeys.game.byId(gameId),
-    queryFn: () => fetchGameById(gameId),
-    initialData,
-    enabled: (options?.enabled ?? true) && !!gameId,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
 export function useGameProgressById(
   gameId: string,
   options?: { enabled?: boolean; initialData?: GameProgressData }
@@ -227,15 +210,6 @@ export function useGameProgressById(
     /** Siempre pedir datos al montar la partida: el GET incluye intentos y debe ganar a caché incompleta. */
     staleTime: 0,
     gcTime: 5 * 60 * 1000,
-  });
-}
-
-export function prefetchGameById(queryClient: QueryClient, gameId: string) {
-  if (!gameId) return Promise.resolve();
-  return queryClient.prefetchQuery({
-    queryKey: queryKeys.game.byId(gameId),
-    queryFn: () => fetchGameById(gameId),
-    staleTime: 5 * 60 * 1000,
   });
 }
 

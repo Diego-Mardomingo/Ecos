@@ -116,27 +116,6 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
   return toGameWithSong(data);
 }
 
-/**
- * Carga varios juegos con el mismo shape que {@link getGameById} (p. ej. hidratar caché desde la home).
- */
-export async function getGamesWithSongByIds(
-  gameIds: string[]
-): Promise<GameWithSong[]> {
-  const unique = [...new Set(gameIds.filter(Boolean))];
-  if (unique.length === 0) return [];
-
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ecos_games")
-    .select(GAME_WITH_SONG_SELECT)
-    .in("id", unique);
-
-  if (error || !data?.length) return [];
-  return data
-    .map((row) => toGameWithSong(row))
-    .filter((game): game is GameWithSong => game !== null);
-}
-
 async function getPreviousDaysWithClient(
   supabase: SupabaseClient,
   userId: string | null,

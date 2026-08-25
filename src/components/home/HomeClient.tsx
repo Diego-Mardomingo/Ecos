@@ -25,7 +25,6 @@ import {
   useHomeUserStats,
   fetchHomeDayStatusById,
   fetchHomeUserStatsData,
-  prefetchGameById,
   prefetchGameProgressById,
   prefetchHomeDayStatusById,
   primeHomeDayStatusCache,
@@ -100,8 +99,8 @@ interface Props {
     todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
     rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
     rankingStats?: HomeData["rankingStats"];
-    /** Juegos completos para hidratar `useGameById` / navegación a `/play/[id]`. */
-    prefetchedGamesById?: Record<string, GameWithSong>;
+    /** Ids que la home prefetchea, para sembrar su estado de progreso en caché. */
+    prefetchGameIds?: string[];
   };
 }
 
@@ -285,7 +284,7 @@ export function HomeClient({ initialData }: Props) {
     if (!initialDataAligned || !cacheUserId || !initialData) return;
     primePlayQueriesFromHomeInitialData(queryClient, {
       userId: cacheUserId,
-      prefetchedGamesById: initialData.prefetchedGamesById ?? {},
+      prefetchGameIds: initialData.prefetchGameIds ?? [],
       inProgressByGameId: initialData.inProgressByGameId,
       todaysGame: initialData.todaysGame ?? null,
       todaysCompletedResult: initialData.todaysCompletedResult ?? null,
@@ -556,12 +555,9 @@ export function HomeClient({ initialData }: Props) {
         if (cancelled) break;
         if (!prefetchedGameIdsRef.current.has(gameId)) {
           prefetchedGameIdsRef.current.add(gameId);
+          // Basta con el prefetch de ruta de Next: /play/[gameId] es un Server Component que
+          // trae el juego consigo, así que no hay nada que precargar por separado.
           router.prefetch(`/play/${gameId}`);
-          // Solo autenticados: `/api/game/[gameId]` responde 401 a invitados y dejaría la
-          // entrada de caché en error, tapando el `initialData` del servidor en /play.
-          if (cacheUserId) {
-            await prefetchGameById(queryClient, gameId).catch(() => undefined);
-          }
         }
         if (cacheUserId) {
           if (!prefetchedProgressIdsRef.current.has(gameId)) {
@@ -792,7 +788,6 @@ export function HomeClient({ initialData }: Props) {
     if (!tg?.id) return;
     router.prefetch("/play");
     if (cacheUserId) {
-      void prefetchGameById(queryClient, tg.id).catch(() => undefined);
       void prefetchGameProgressById(queryClient, tg.id).catch(() => undefined);
     }
     void prefetchHomeDayStatusById(queryClient, tg.id).catch(() => undefined);

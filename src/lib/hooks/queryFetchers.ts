@@ -1,4 +1,3 @@
-import type { GameWithSong } from "@/lib/queries/games";
 import type {
   GameProgressData,
   HomeDayStatusData,
@@ -36,19 +35,6 @@ export async function fetchHomePreviousDaysData(
     { cache: "no-store" }
   );
   if (!res.ok) throw new Error("Failed to fetch previous days");
-  return res.json();
-}
-
-/**
- * `/api/game/[gameId]` exige sesión (el payload lleva title/artist_name).
- * Los invitados no deben llamarlo: usan el juego que ya trae el Server Component.
- */
-export async function fetchGameById(gameId: string): Promise<GameWithSong | null> {
-  const res = await fetch(`/api/game/${gameId}`);
-  if (!res.ok) {
-    if (res.status === 404) return null;
-    throw new Error("Failed to fetch game");
-  }
   return res.json();
 }
 

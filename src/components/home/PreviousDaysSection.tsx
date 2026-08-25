@@ -10,7 +10,6 @@ import { getMadridDate } from "@/lib/date-utils";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
 import {
   HOME_DAY_STATUS_STALE_MS,
-  prefetchGameById,
   prefetchGameProgressById,
   prefetchHomeDayStatusById,
   queryKeys,
@@ -115,7 +114,6 @@ function PreviousDaysSection({
     (gameId: string) => {
       router.prefetch(`/play/${gameId}`);
       if (userId) {
-        void prefetchGameById(queryClient, gameId).catch(() => undefined);
         void prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
       }
       void prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
