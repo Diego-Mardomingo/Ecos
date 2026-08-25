@@ -120,7 +120,25 @@ export function mergePreviousDays(
     }
     map.set(day.id, day);
   }
-  return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
+  const merged = [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
+
+  /**
+   * Si el resultado es el mismo, devolver la MISMA referencia y no una copia.
+   *
+   * No es una micro-optimización: es lo que corta un bucle infinito de renders. La home escribe
+   * `previousDaysAll` en la caché desde un efecto, una suscripción a la caché reacciona con
+   * `setPreviousDaysMerged(mergePreviousDays(...))`, y ese estado es dependencia del efecto. Si
+   * aquí se devolviera siempre un array nuevo, el estado cambiaría siempre, el efecto volvería a
+   * escribir, y así hasta que React aborta con «Maximum update depth exceeded».
+   */
+  if (
+    merged.length === current.length &&
+    merged.every((day, i) => day === current[i])
+  ) {
+    return current;
+  }
+
+  return merged;
 }
 
 export function mergeInProgressByGameId(
@@ -128,6 +146,17 @@ export function mergeInProgressByGameId(
   incoming?: Record<string, InProgressProgress>
 ): Record<string, InProgressProgress> {
   if (!incoming) return current;
+
+  // Misma referencia si no aporta nada nuevo, por el mismo motivo que en mergePreviousDays.
+  const incomingIds = Object.keys(incoming);
+  if (
+    incomingIds.length > 0 &&
+    incomingIds.every((id) => current[id] === incoming[id])
+  ) {
+    return current;
+  }
+  if (incomingIds.length === 0) return current;
+
   return { ...current, ...incoming };
 }
 
