@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 El proyecto está escrito en español: comentarios, mensajes de commit, textos de UI en `messages/es.json` y logs de los scripts. Mantén ese idioma al añadir código. El panel de administración está hardcodeado en español a propósito (es interno, no pasa por i18n).
 
+## Commits
+
+El único autor y coautor del historial es el dueño del repo. **No añadas trailers de
+coautoría ni firmas de herramientas** a los mensajes de commit ni a los cuerpos de PR:
+nada de `Co-Authored-By: Claude ...`, `Generated with Claude Code` ni equivalentes.
+El historial se reescribió una vez para quitarlos; no los reintroduzcas.
+
 ## Comandos
 
 ```bash
