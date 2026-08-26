@@ -342,7 +342,7 @@ function PreviousDaysSection({
                 >
                   {viewMode === "grid" ? (
                     /* Grid: fecha encima de la portada (centrada), portada, id debajo */
-                    <div className="flex h-full flex-col rounded-2xl px-3 py-1.5">
+                    <div className="flex h-full flex-col rounded-2xl px-2 py-1.5">
                       <p className="mb-1.5 text-center text-[10px] text-muted-foreground">
                         {titleCaseWords(
                           format(parseISO(day.date), "EEE", { locale: dateFnsLocale })
