@@ -80,3 +80,8 @@ ECOS_CURSOR.md
 
 # skills
 skills-lock.json
+
+# playwright (MCP): snapshots, logs de consola y capturas de cada sesion de pruebas
+.playwright-mcp/
+test-results/
+playwright-report/
