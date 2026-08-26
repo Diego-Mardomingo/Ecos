@@ -60,6 +60,12 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       persistOptions={{
         persister,
         maxAge: 24 * 60 * 60 * 1000,
+        // Invalida la caché persistida cuando cambia el build: evita restaurar
+        // datos con un esquema antiguo tras un deploy.
+        buster:
+          process.env.NEXT_PUBLIC_BUILD_ID ??
+          process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ??
+          "dev",
         dehydrateOptions: {
           shouldDehydrateQuery: shouldPersistQuery,
         },

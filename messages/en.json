@@ -12,7 +12,12 @@
     "days": "days",
     "day": "day",
     "enter": "Sign in",
-    "offline": "You're offline. Some features may be unavailable."
+    "offline": "You're offline. Some features may be unavailable.",
+    "unexpectedError": "Something unexpected went wrong. Please try again in a moment.",
+    "errorReference": "Error reference",
+    "goHome": "Go to home",
+    "notFoundTitle": "Page not found",
+    "notFoundDescription": "This link doesn't exist, or the challenge you're looking for is no longer available."
   },
   "nav": {
     "home": "Home",
@@ -210,7 +215,15 @@
       "descriptionPlaceholder": "Describe the problem...",
       "sending": "Sending...",
       "submit": "Submit report"
-    }
+    },
+    "audioFragment": "ECOS – Snippet",
+    "searchLabel": "Search song or artist",
+    "searchResultsCount": "{count} results available. Use the arrow keys to choose.",
+    "searchNoResults": "No results",
+    "optionAlreadyGuessed": "already guessed",
+    "playFragment": "Play the snippet",
+    "stopFragment": "Stop the snippet",
+    "loadingAudio": "Loading audio"
   },
   "ranking": {
     "title": "Leaderboard",
@@ -248,7 +261,8 @@
     "historyBackToList": "Back to history",
     "historyDetailTitle": "Period leaderboard",
     "historyLoadError": "Could not load the ranking. Please try again.",
-    "historyWeekCount": "{count, plural, one {# week} other {# weeks}}"
+    "historyWeekCount": "{count, plural, one {# week} other {# weeks}}",
+    "periodTabsLabel": "Leaderboard period"
   },
   "profile": {
     "title": "Profile",
@@ -326,5 +340,9 @@
     "permissionDenied": "Permission denied by the browser. Enable it from your browser settings.",
     "enabledToast": "Notifications enabled successfully",
     "disabledToast": "Notifications disabled successfully"
+  },
+  "meta": {
+    "description": "Guess the song of the day by listening to audio snippets. Compete on the global leaderboard.",
+    "ogDescription": "Guess the song of the day"
   }
 }

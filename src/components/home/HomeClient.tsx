@@ -7,28 +7,24 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
-import { format, parseISO } from "date-fns";
-import { es, enUS } from "date-fns/locale";
+import { motion } from "framer-motion";
+import { format } from "date-fns";
 import { useLocale } from "next-intl";
 import {
   getMadridDate,
-  getMsUntilNextMidnightMadrid,
   getTomorrowMadridDate,
 } from "@/lib/date-utils";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useHomeToday,
   useHomePreviousDays,
   useHomeUserStats,
   fetchHomeDayStatusById,
   fetchHomeUserStatsData,
-  prefetchGameById,
   prefetchGameProgressById,
   prefetchHomeDayStatusById,
   primeHomeDayStatusCache,
@@ -37,25 +33,17 @@ import {
   queryKeys,
   fetchHomePreviousDaysData,
   useSubmitFeedbackMutation,
-  HOME_DAY_STATUS_STALE_MS,
   HOME_PREVIOUS_DAYS_GC_MS,
   HOME_PREVIOUS_DAYS_STALE_MS,
   type HomeData,
   type HomeTodayData,
   type InProgressProgress,
-  type HomeDayStatusData,
   type HomePreviousDaysData,
 } from "@/lib/hooks/queries";
 import type { PreviousDayGame, GameWithSong } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import { HomeSkeleton } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MarqueeText } from "@/components/ui/marquee-text";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -73,19 +61,25 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  type CarouselApi,
-} from "@/components/ui/carousel";
 import { Link, useRouter } from "@/i18n/navigation";
-import { PrefetchPlayOnVisible } from "@/components/home/PrefetchPlayOnVisible";
 import {
-  aggregateMonthGroupStats,
-  deriveHomeDayState,
-  type MonthGroupStats,
-} from "@/components/home/homeDayDerived";
+  ABOUT_HOW_TO_PLAY_ICONS,
+  HOME_EAGER_PREFETCH_MAX,
+  HOME_PREFETCH_STRATEGY,
+  MAX_PREFETCH_HISTORY_MONTHS_SAFETY,
+  mergeInProgressByGameId,
+  mergeInProgressPreferringMoreGuesses,
+  mergePreviousDays,
+  runBatched,
+  titleCaseWords,
+} from "@/components/home/homeHelpers";
+import { Countdown } from "@/components/home/HomeCountdown";
+import { HomeStatsCarousel } from "@/components/home/HomeStats";
+import { PreviousDaysSection } from "@/components/home/PreviousDaysSection";
+import {
+  HeaderBrandWaveform,
+  WaveformBars,
+} from "@/components/home/HomeWaveform";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
   PLAY_SKELETON_VARIANT_KEY,
@@ -93,138 +87,7 @@ import {
 } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
-
-/** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
-const ABOUT_HOW_TO_PLAY_ICONS = [
-  "calendar_today",
-  "graphic_eq",
-  "search",
-  "emoji_events",
-  "skip_next",
-] as const;
-
-const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
-const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
-const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
-const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
-const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
-/**
- * Solo red de seguridad si la API devolviera nextMonth de forma errónea.
- * El histórico real termina cuando nextMonth es null.
- */
-const MAX_PREFETCH_HISTORY_MONTHS_SAFETY = 600;
-const PREFETCH_BATCH_SIZE = 8;
-const HOME_PREFETCH_STRATEGY: "sequential" | "full-parallel" =
-  process.env.NEXT_PUBLIC_HOME_PREFETCH_STRATEGY === "sequential"
-    ? "sequential"
-    : "full-parallel";
-/** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
-const PREVIOUS_DAY_COLORS = [
-  "hsl(0, 55%, 40%)",   /* rojo */
-  "hsl(200, 50%, 40%)", /* azul */
-  "hsl(140, 45%, 35%)", /* verde */
-] as const;
-
-/** Prioridad en next/image solo para las primeras carátulas del histórico (equilibrio con LCP). */
-const HOME_COVER_IMAGE_PRIORITY_COUNT = 16;
-
-function titleCaseWords(input: string): string {
-  return input
-    .split(" ")
-    .map((token) => (/^\p{L}/u.test(token) ? token[0]!.toUpperCase() + token.slice(1) : token))
-    .join(" ");
-}
-
-function MonthGroupSummaryContent({
-  stats,
-  t,
-  monthLabel,
-  rightSlot,
-}: {
-  stats: MonthGroupStats;
-  t: (key: string, values?: Record<string, string | number>) => string;
-  monthLabel: string;
-  rightSlot?: ReactNode;
-}) {
-  return (
-    <div className="flex w-full min-w-0 items-center gap-3">
-      <span className="min-w-0 shrink font-medium leading-tight">{monthLabel}</span>
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-          {t("monthSummaryGamesProgress", { completed: stats.completed, total: stats.totalGames })}
-        </span>
-        {rightSlot}
-      </div>
-    </div>
-  );
-}
-
-function mergePreviousDays(
-  current: PreviousDayGame[],
-  incoming: PreviousDayGame[]
-): PreviousDayGame[] {
-  if (incoming.length === 0) return current;
-  const map = new Map<string, PreviousDayGame>();
-  for (const day of current) map.set(day.id, day);
-  for (const day of incoming) {
-    const existing = map.get(day.id);
-    if (!existing) {
-      map.set(day.id, day);
-      continue;
-    }
-    /**
-     * Evita downgrade visual por snapshots stale:
-     * si ya estaba completado y llega un bloque "sin empezar", conservamos completado.
-     */
-    if (existing.played && !day.played) {
-      map.set(day.id, existing);
-      continue;
-    }
-    map.set(day.id, day);
-  }
-  return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
-}
-
-function mergeInProgressByGameId(
-  current: Record<string, InProgressProgress>,
-  incoming?: Record<string, InProgressProgress>
-): Record<string, InProgressProgress> {
-  if (!incoming) return current;
-  return { ...current, ...incoming };
-}
-
-/** Por juego, conserva el mapa con más intentos (caché RQ tras /play vs snapshot RSC). */
-function mergeInProgressPreferringMoreGuesses(
-  a: Record<string, InProgressProgress>,
-  b: Record<string, InProgressProgress>
-): Record<string, InProgressProgress> {
-  const out: Record<string, InProgressProgress> = { ...a };
-  for (const [id, bProg] of Object.entries(b)) {
-    const aProg = out[id];
-    if (
-      !aProg ||
-      (bProg.guesses?.length ?? 0) > (aProg.guesses?.length ?? 0)
-    ) {
-      out[id] = bProg;
-    }
-  }
-  return out;
-}
-
-function previousDayColor(gameNumber: number): string {
-  return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
-}
-
-async function runBatched<T>(
-  items: T[],
-  worker: (item: T) => Promise<unknown>,
-  batchSize: number = PREFETCH_BATCH_SIZE
-) {
-  for (let i = 0; i < items.length; i += batchSize) {
-    const chunk = items.slice(i, i + batchSize);
-    await Promise.allSettled(chunk.map((item) => worker(item)));
-  }
-}
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 interface Props {
   initialData?: {
@@ -236,8 +99,8 @@ interface Props {
     todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
     rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
     rankingStats?: HomeData["rankingStats"];
-    /** Juegos completos para hidratar `useGameById` / navegación a `/play/[id]`. */
-    prefetchedGamesById?: Record<string, GameWithSong>;
+    /** Ids que la home prefetchea, para sembrar su estado de progreso en caché. */
+    prefetchGameIds?: string[];
   };
 }
 
@@ -361,7 +224,6 @@ export function HomeClient({ initialData }: Props) {
     );
   });
   const prefetchStartedRef = useRef(false);
-  const prefetchedGameIdsRef = useRef<Set<string>>(new Set());
   const prefetchedProgressIdsRef = useRef<Set<string>>(new Set());
 
   const todaysCompletedResultEffective = useMemo(() => {
@@ -384,11 +246,12 @@ export function HomeClient({ initialData }: Props) {
       return todayData.todaysInProgress ?? null;
     }
     return fromRsc;
+    // `initialData` entero: el compilador infiere esa dependencia, y desglosarla en
+    // propiedades sueltas le impide preservar la memoización del componente.
   }, [
     todayData,
     initialDataAligned,
-    initialData?.todaysGame,
-    initialData?.inProgressByGameId,
+    initialData,
     todaysCompletedResultEffective,
   ]);
 
@@ -420,7 +283,7 @@ export function HomeClient({ initialData }: Props) {
     if (!initialDataAligned || !cacheUserId || !initialData) return;
     primePlayQueriesFromHomeInitialData(queryClient, {
       userId: cacheUserId,
-      prefetchedGamesById: initialData.prefetchedGamesById ?? {},
+      prefetchGameIds: initialData.prefetchGameIds ?? [],
       inProgressByGameId: initialData.inProgressByGameId,
       todaysGame: initialData.todaysGame ?? null,
       todaysCompletedResult: initialData.todaysCompletedResult ?? null,
@@ -433,15 +296,34 @@ export function HomeClient({ initialData }: Props) {
     initialData,
   ]);
 
-  const orderedGameIdsForPrefetch = useMemo(() => {
+  /**
+   * Partidas que se prefetchean al cargar: el reto de hoy y los días del mes en curso.
+   *
+   * Antes eran **todas** las del histórico. Como el bucle hace hasta cuatro peticiones por día
+   * (ruta, juego, progreso y estado) y el progreso va con `staleTime: 0`, con un año de juego eso
+   * son ~1.500 peticiones en cada carga de la home, creciendo cada día que pasa.
+   *
+   * El resto de días ya los cubre `PrefetchPlayOnVisible` cuando la tarjeta entra en el viewport,
+   * más su `onMouseEnter`/`onFocus`: el mismo trabajo, pero solo para los días que el usuario
+   * llega a ver. Hacerlo también aquí era duplicarlo por adelantado.
+   */
+  const eagerPrefetchGameIds = useMemo(() => {
     const ids: string[] = [];
     const tg = todayData?.todaysGame ?? initialData?.todaysGame;
     if (tg?.id) ids.push(tg.id);
     for (const d of previousDaysMerged) {
-      if (d.id !== tg?.id) ids.push(d.id);
+      if (d.id === tg?.id) continue;
+      if (!d.date.startsWith(currentMonthKey)) continue;
+      if (ids.length >= HOME_EAGER_PREFETCH_MAX) break;
+      ids.push(d.id);
     }
     return ids;
-  }, [todayData?.todaysGame, initialData?.todaysGame, previousDaysMerged]);
+  }, [
+    todayData?.todaysGame,
+    initialData?.todaysGame,
+    previousDaysMerged,
+    currentMonthKey,
+  ]);
 
   useEffect(() => {
     const cache = queryClient.getQueryCache();
@@ -469,34 +351,43 @@ export function HomeClient({ initialData }: Props) {
     });
   }, [queryClient, cacheUserId]);
 
+  // Acumulación de los meses que van llegando. Se hace ajustando el estado durante
+  // el render en lugar de en un efecto: así los updaters quedan puros. Antes las
+  // escrituras en la caché de queries vivían dentro del updater, que React puede
+  // ejecutar más de una vez.
+  const [lastMergedSource, setLastMergedSource] = useState<
+    HomePreviousDaysData | undefined
+  >(undefined);
+  if (previousDaysData?.previousDays && previousDaysData !== lastMergedSource) {
+    setLastMergedSource(previousDaysData);
+    setInProgressByGameId((prev) =>
+      mergeInProgressByGameId(prev, previousDaysData.inProgressByGameId)
+    );
+    setPreviousDaysMerged((prev) =>
+      mergePreviousDays(prev, previousDaysData.previousDays)
+    );
+  }
+
+  // Reflejar el resultado ya acumulado en la caché de queries (sistema externo).
   useEffect(() => {
     if (!previousDaysData?.previousDays) return;
-    setInProgressByGameId((prevInProgress) => {
-      const mergedInProgress = mergeInProgressByGameId(
-        prevInProgress,
-        previousDaysData.inProgressByGameId
-      );
-      primeHomeDayStatusCache(
-        queryClient,
-        previousDaysData.previousDays,
-        mergedInProgress
-      );
-      setPreviousDaysMerged((prev) => {
-        const merged = mergePreviousDays(prev, previousDaysData.previousDays);
-        queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-          previousDays: merged,
-          userId: previousDaysData.userId ?? resolvedUserId ?? null,
-          month: previousDaysData.month,
-          nextMonth: previousDaysData.nextMonth ?? null,
-          hasMoreOlder: previousDaysData.hasMoreOlder,
-          inProgressByGameId: mergedInProgress,
-        } satisfies HomePreviousDaysData);
-        return merged;
-      });
-      return mergedInProgress;
-    });
+    primeHomeDayStatusCache(
+      queryClient,
+      previousDaysData.previousDays,
+      inProgressByGameId
+    );
+    queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+      previousDays: previousDaysMerged,
+      userId: previousDaysData.userId ?? resolvedUserId ?? null,
+      month: previousDaysData.month,
+      nextMonth: previousDaysData.nextMonth ?? null,
+      hasMoreOlder: previousDaysData.hasMoreOlder,
+      inProgressByGameId,
+    } satisfies HomePreviousDaysData);
   }, [
     previousDaysData,
+    previousDaysMerged,
+    inProgressByGameId,
     queryClient,
     resolvedUserId,
     cacheUserId,
@@ -510,59 +401,76 @@ export function HomeClient({ initialData }: Props) {
     prefetchStartedRef.current = true;
 
     let cancelled = false;
+
+    /**
+     * Recorre el histórico mes a mes siguiendo `nextMonth`. Lo usan tanto la estrategia
+     * secuencial como el fallback de `full-parallel` cuando `/api/home/months` no responde.
+     */
+    const walkMonthsSequentially = async (from: string | null) => {
+      let monthCursor: string | null = from;
+      let count = 0;
+      while (
+        !cancelled &&
+        monthCursor &&
+        count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
+      ) {
+        // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
+        // bucle, y capturarlo directamente en el closure de queryFn confunde al
+        // análisis del compilador (además de ser frágil).
+        const month: string = monthCursor;
+        try {
+          const payload: HomePreviousDaysData = await queryClient.fetchQuery({
+            queryKey: queryKeys.home.previousDays(month, cacheUserId),
+            queryFn: () => fetchHomePreviousDaysData(month),
+            staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
+            gcTime: HOME_PREVIOUS_DAYS_GC_MS,
+          });
+          setInProgressByGameId((prevInProgress) => {
+            const mergedInProgress = mergeInProgressByGameId(
+              prevInProgress,
+              payload.inProgressByGameId
+            );
+            primeHomeDayStatusCache(
+              queryClient,
+              payload.previousDays ?? [],
+              mergedInProgress
+            );
+            return mergedInProgress;
+          });
+          setPreviousDaysMerged((prev) => {
+            const merged = mergePreviousDays(prev, payload.previousDays ?? []);
+            const previousAll =
+              queryClient.getQueryData<HomePreviousDaysData>(
+                queryKeys.home.previousDaysAll(cacheUserId)
+              );
+            queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
+              previousDays: merged,
+              userId: previousAll?.userId ?? resolvedUserId ?? null,
+              nextMonth: payload.nextMonth ?? null,
+              hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
+              month: previousAll?.month,
+              inProgressByGameId: mergeInProgressByGameId(
+                previousAll?.inProgressByGameId ?? {},
+                payload.inProgressByGameId
+              ),
+            } satisfies HomePreviousDaysData);
+            return merged;
+          });
+          monthCursor = payload.nextMonth ?? null;
+        } catch (error) {
+          // Cortar aqui deja el historico incompleto sin que se note en la UI: el usuario ve
+          // menos meses de los que hay y no hay nada que lo delate. Por eso se loguea, al
+          // contrario que los catch de sessionStorage/clipboard, donde el fallo es inocuo.
+          console.error("[home] prefetch del historico interrumpido en", month, error);
+          break;
+        }
+        count += 1;
+      }
+    };
+
     const run = async () => {
       if (HOME_PREFETCH_STRATEGY === "sequential") {
-        let monthCursor: string | null = startMonth;
-        let count = 0;
-        while (
-          !cancelled &&
-          monthCursor &&
-          count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
-        ) {
-          try {
-            const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-              queryKey: queryKeys.home.previousDays(monthCursor, cacheUserId),
-              queryFn: () => fetchHomePreviousDaysData(monthCursor!),
-              staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-              gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-            });
-            setInProgressByGameId((prevInProgress) => {
-              const mergedInProgress = mergeInProgressByGameId(
-                prevInProgress,
-                payload.inProgressByGameId
-              );
-              primeHomeDayStatusCache(
-                queryClient,
-                payload.previousDays ?? [],
-                mergedInProgress
-              );
-              return mergedInProgress;
-            });
-            setPreviousDaysMerged((prev) => {
-              const merged = mergePreviousDays(prev, payload.previousDays ?? []);
-              const previousAll =
-                queryClient.getQueryData<HomePreviousDaysData>(
-                  queryKeys.home.previousDaysAll(cacheUserId)
-                );
-              queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-                previousDays: merged,
-                userId: previousAll?.userId ?? resolvedUserId ?? null,
-                nextMonth: payload.nextMonth ?? null,
-                hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
-                month: previousAll?.month,
-                inProgressByGameId: mergeInProgressByGameId(
-                  previousAll?.inProgressByGameId ?? {},
-                  payload.inProgressByGameId
-                ),
-              } satisfies HomePreviousDaysData);
-              return merged;
-            });
-            monthCursor = payload.nextMonth ?? null;
-          } catch {
-            break;
-          }
-          count += 1;
-        }
+        await walkMonthsSequentially(startMonth);
         return;
       }
 
@@ -570,57 +478,7 @@ export function HomeClient({ initialData }: Props) {
         () => null
       );
       if (!monthsRes?.ok || cancelled) {
-        let monthCursor: string | null = startMonth;
-        let count = 0;
-        while (
-          !cancelled &&
-          monthCursor &&
-          count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
-        ) {
-          try {
-            const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-              queryKey: queryKeys.home.previousDays(monthCursor, cacheUserId),
-              queryFn: () => fetchHomePreviousDaysData(monthCursor!),
-              staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-              gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-            });
-            setInProgressByGameId((prevInProgress) => {
-              const mergedInProgress = mergeInProgressByGameId(
-                prevInProgress,
-                payload.inProgressByGameId
-              );
-              primeHomeDayStatusCache(
-                queryClient,
-                payload.previousDays ?? [],
-                mergedInProgress
-              );
-              return mergedInProgress;
-            });
-            setPreviousDaysMerged((prev) => {
-              const merged = mergePreviousDays(prev, payload.previousDays ?? []);
-              const previousAll =
-                queryClient.getQueryData<HomePreviousDaysData>(
-                  queryKeys.home.previousDaysAll(cacheUserId)
-                );
-              queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-                previousDays: merged,
-                userId: previousAll?.userId ?? resolvedUserId ?? null,
-                nextMonth: payload.nextMonth ?? null,
-                hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
-                month: previousAll?.month,
-                inProgressByGameId: mergeInProgressByGameId(
-                  previousAll?.inProgressByGameId ?? {},
-                  payload.inProgressByGameId
-                ),
-              } satisfies HomePreviousDaysData);
-              return merged;
-            });
-            monthCursor = payload.nextMonth ?? null;
-          } catch {
-            break;
-          }
-          count += 1;
-        }
+        await walkMonthsSequentially(startMonth);
         return;
       }
       const monthsPayload = (await monthsRes.json()) as { monthKeys?: string[] };
@@ -686,19 +544,22 @@ export function HomeClient({ initialData }: Props) {
     router.prefetch("/play");
   }, [router]);
 
-  /** Prefetch secuencial: día actual primero, luego histórico del más reciente al más antiguo. */
+  /** Prefetch secuencial del mes en curso: día actual primero, luego del más reciente al más antiguo. */
   useEffect(() => {
-    if (!todayData || !previousDaysData || orderedGameIdsForPrefetch.length === 0) return;
+    if (!todayData || !previousDaysData || eagerPrefetchGameIds.length === 0) return;
 
     let cancelled = false;
     const run = async () => {
-      for (const gameId of orderedGameIdsForPrefetch) {
+      /**
+       * Aquí NO se hace `router.prefetch("/play/<id>")`. De eso se encarga
+       * `PrefetchPlayOnVisible` cuando la tarjeta entra en el viewport, más su hover y focus.
+       * Tenerlo en los dos sitios hacía que cada ruta se pidiera dos veces: 62 peticiones RSC
+       * para 31 rutas en una carga de la home, medido con Playwright.
+       *
+       * Y para el reto de hoy era inútil de todas formas: se juega en `/play`, sin id.
+       */
+      for (const gameId of eagerPrefetchGameIds) {
         if (cancelled) break;
-        if (!prefetchedGameIdsRef.current.has(gameId)) {
-          prefetchedGameIdsRef.current.add(gameId);
-          router.prefetch(`/play/${gameId}`);
-          await prefetchGameById(queryClient, gameId).catch(() => undefined);
-        }
         if (cacheUserId) {
           if (!prefetchedProgressIdsRef.current.has(gameId)) {
             prefetchedProgressIdsRef.current.add(gameId);
@@ -718,7 +579,7 @@ export function HomeClient({ initialData }: Props) {
   }, [
     todayData,
     previousDaysData,
-    orderedGameIdsForPrefetch,
+    eagerPrefetchGameIds,
     queryClient,
     router,
     cacheUserId,
@@ -798,7 +659,7 @@ export function HomeClient({ initialData }: Props) {
   const tc = useTranslations("common");
   const howToPlaySteps = t.raw("howToPlayStepsList") as { title: string; desc: string }[];
   const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale, formatNumber } = useAppFormatters();
   const { byGameId, saveProgress } = useGameProgressStore();
 
   const [reportOpen, setReportOpen] = useState(false);
@@ -833,7 +694,9 @@ export function HomeClient({ initialData }: Props) {
         }
       );
     },
-    [reportType, reportMessage, reportEmail, submitFeedback]
+    // Los setters de useState son estables; van declarados porque el compilador
+    // los infiere como dependencias y si no coinciden descarta la optimización.
+    [reportType, reportMessage, reportEmail, submitFeedback, setReportMessage, setReportEmail]
   );
 
   const handleReportOpenChange = useCallback((open: boolean) => {
@@ -925,7 +788,6 @@ export function HomeClient({ initialData }: Props) {
     const tg = todayData?.todaysGame ?? initialData?.todaysGame;
     if (!tg?.id) return;
     router.prefetch("/play");
-    void prefetchGameById(queryClient, tg.id).catch(() => undefined);
     if (cacheUserId) {
       void prefetchGameProgressById(queryClient, tg.id).catch(() => undefined);
     }
@@ -1002,7 +864,7 @@ export function HomeClient({ initialData }: Props) {
           <Dialog>
             <DialogTrigger asChild>
               <button type="button" className={headerInfoButtonClass} aria-label={t("aboutTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[348px]:text-xl">info</span>
+                <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[348px]:text-xl">info</span>
                 <span className="hidden truncate min-[348px]:inline">{t("headerInfoButton")}</span>
               </button>
             </DialogTrigger>
@@ -1028,7 +890,7 @@ export function HomeClient({ initialData }: Props) {
                           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand ring-1 ring-brand/25"
                           aria-hidden
                         >
-                          <span
+                          <span aria-hidden
                             className="material-symbols-outlined text-[22px]"
                             style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
                           >
@@ -1049,7 +911,7 @@ export function HomeClient({ initialData }: Props) {
           <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
             <DialogTrigger asChild>
               <button type="button" className={headerActionButtonClass} aria-label={t("reportTitle")}>
-                <span className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">bug_report</span>
+                <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">bug_report</span>
                 <span className="hidden truncate min-[415px]:inline">{t("headerReportButton")}</span>
               </button>
             </DialogTrigger>
@@ -1217,7 +1079,7 @@ export function HomeClient({ initialData }: Props) {
                         todaysDisplayScore === 0 ? "text-destructive dark:text-[color:var(--ecos-bright-destructive)]" : "text-brand dark:text-[color:var(--ecos-bright-brand)]"
                       )}
                     >
-                      {(todaysDisplayScore ?? 0).toLocaleString(locale === "es" ? "es" : "en-US")}{" "}
+                      {formatNumber(todaysDisplayScore ?? 0)}{" "}
                       {tc("points")}
                     </span>
                   </div>
@@ -1268,9 +1130,10 @@ export function HomeClient({ initialData }: Props) {
                     <button
                       type="button"
                       onClick={handleShareHome}
+                      aria-label={tc("share")}
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
                     >
-                      <span
+                      <span aria-hidden
                         className="material-symbols-outlined text-lg text-[color:var(--brand)]"
                         style={{ fontVariationSettings: "'FILL' 0" }}
                       >
@@ -1289,7 +1152,7 @@ export function HomeClient({ initialData }: Props) {
                           "linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 50%, var(--brand) 100%)",
                       }}
                     >
-                      <span
+                      <span aria-hidden
                         className="material-symbols-outlined text-lg text-primary-foreground"
                         style={{ fontVariationSettings: "'FILL' 1" }}
                       >
@@ -1301,9 +1164,10 @@ export function HomeClient({ initialData }: Props) {
                     <button
                       type="button"
                       onClick={handleShareHome}
+                      aria-label={tc("share")}
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
                     >
-                      <span
+                      <span aria-hidden
                         className="material-symbols-outlined text-lg text-[color:var(--brand)]"
                         style={{ fontVariationSettings: "'FILL' 0" }}
                       >
@@ -1322,12 +1186,7 @@ export function HomeClient({ initialData }: Props) {
 
       {/* Stats por período: carrusel Global / Semanal / Mensual (bucle infinito) */}
       {userId && rankingStats ? (
-        <HomeStatsCarousel
-          rankingStats={rankingStats}
-          t={t}
-          tc={tc}
-          locale={locale}
-        />
+        <HomeStatsCarousel rankingStats={rankingStats} t={t} tc={tc} />
       ) : userId ? (
         <section className="grid grid-cols-2 gap-3">
           <Skeleton className="h-28 rounded-2xl" />
@@ -1341,7 +1200,7 @@ export function HomeClient({ initialData }: Props) {
             className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 transition-colors active:bg-card/70"
           >
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand/15">
-              <span
+              <span aria-hidden
                 className="material-symbols-outlined text-xl text-brand"
                 style={{ fontVariationSettings: "'FILL' 1" }}
               >
@@ -1354,7 +1213,7 @@ export function HomeClient({ initialData }: Props) {
                 {t("guestBannerDescription")}
               </p>
             </div>
-            <span className="material-symbols-outlined text-brand">chevron_right</span>
+            <span aria-hidden className="material-symbols-outlined text-brand">chevron_right</span>
           </Link>
         </section>
       )}
@@ -1430,1029 +1289,5 @@ function TodaysCardBadge({
       />
       {t("badgeNotPlayed")}
     </div>
-  );
-}
-
-function getCountdownParts(ms: number): { value: number; suffix: "h" | "m" | "s" }[] {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const parts: { value: number; suffix: "h" | "m" | "s" }[] = [];
-  if (h > 0) parts.push({ value: h, suffix: "h" });
-  if (m > 0 || h > 0) parts.push({ value: m, suffix: "m" });
-  parts.push({ value: s, suffix: "s" });
-  return parts;
-}
-
-/** Carrusel vertical: al bajar el valor, el nuevo número entra desde abajo; al subir (p. ej. 0→59), desde arriba. */
-function RollingCountdownSegment({
-  value,
-  suffix,
-}: {
-  value: number;
-  suffix: "h" | "m" | "s";
-}) {
-  const prevRef = useRef<number | undefined>(undefined);
-  const prev = prevRef.current;
-  const downward = prev === undefined || value < prev;
-
-  useLayoutEffect(() => {
-    prevRef.current = value;
-  }, [value]);
-
-  return (
-    <span className="inline-flex shrink-0 items-baseline tabular-nums">
-      <span className="relative inline-block w-[2ch] shrink-0 overflow-hidden text-end">
-        <span className="invisible block select-none tabular-nums" aria-hidden>
-          {value}
-        </span>
-        <AnimatePresence initial={false}>
-          <motion.span
-            key={value}
-            initial={{ y: downward ? "100%" : "-100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: downward ? "-100%" : "100%" }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 flex items-end justify-end tabular-nums"
-          >
-            {value}
-          </motion.span>
-        </AnimatePresence>
-      </span>
-      <span>{suffix}</span>
-    </span>
-  );
-}
-
-const MS_PER_HOUR = 3600 * 1000;
-const PREFETCH_UNDER_MS = 10_000;
-
-function Countdown({
-  t,
-  onCountdownUnder10s,
-  onCountdownZero,
-}: {
-  t: (key: string) => string;
-  onCountdownUnder10s?: () => void;
-  onCountdownZero?: () => void;
-}) {
-  const [mounted, setMounted] = useState(false);
-  const [ms, setMs] = useState(0);
-  const prevMsRef = useRef<number | null>(null);
-  const hasTriggeredRef = useRef(false);
-  const hasTriggeredUnder10Ref = useRef(false);
-
-  useEffect(() => {
-    setMounted(true);
-    setMs(getMsUntilNextMidnightMadrid());
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const tick = () => setMs(getMsUntilNextMidnightMadrid());
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [mounted]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    if (
-      onCountdownUnder10s &&
-      ms < PREFETCH_UNDER_MS &&
-      !hasTriggeredUnder10Ref.current
-    ) {
-      hasTriggeredUnder10Ref.current = true;
-      onCountdownUnder10s();
-    }
-  }, [mounted, ms, onCountdownUnder10s]);
-
-  useEffect(() => {
-    if (!mounted || !onCountdownZero || hasTriggeredRef.current) return;
-    const prev = prevMsRef.current;
-    prevMsRef.current = ms;
-    if (prev !== null && prev < 60000 && ms > MS_PER_HOUR) {
-      hasTriggeredRef.current = true;
-      onCountdownZero();
-    }
-  }, [mounted, ms, onCountdownZero]);
-
-  const parts = mounted ? getCountdownParts(ms) : null;
-
-  return (
-    <span className="inline-flex flex-wrap items-baseline gap-x-1 text-xs font-medium tabular-nums">
-      <span className="shrink-0 text-muted-foreground">{t("nextSongIn")}</span>
-      {parts ? (
-        <span className="inline-flex shrink-0 items-baseline gap-1 text-primary">
-          {parts.map((p) => (
-            <RollingCountdownSegment
-              key={p.suffix}
-              value={p.value}
-              suffix={p.suffix}
-            />
-          ))}
-        </span>
-      ) : (
-        <span className="text-primary">—</span>
-      )}
-    </span>
-  );
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    const m = window.matchMedia(query);
-    setMatches(m.matches);
-    const handler = () => setMatches(m.matches);
-    m.addEventListener("change", handler);
-    return () => m.removeEventListener("change", handler);
-  }, [query]);
-  return matches;
-}
-
-/** Waveform compacta junto al nombre: misma lógica que WaveformBars (ola centrada verticalmente). */
-function HeaderBrandWaveform() {
-  const barCount = 12;
-  const barWidth = 2;
-  const gap = 2;
-  const heightBase = 4;
-  const heightRange = 14;
-
-  const bars = useMemo(
-    () =>
-      Array.from({ length: barCount }, (_, i) => ({
-        key: i,
-        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
-        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
-        duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.04,
-      })),
-    []
-  );
-
-  return (
-    <div
-      className="ml-1.5 mr-1 flex min-h-0 min-w-0 max-w-[3.25rem] shrink-0 self-center opacity-75 sm:ml-2 sm:mr-2 sm:max-w-[3.75rem]"
-      aria-hidden
-    >
-      <div className="flex h-9 w-full items-center justify-center">
-        <div
-          className="flex items-center justify-center"
-          style={{ gap: `${gap}px` }}
-        >
-          {bars.map(({ key, heightA, heightB, duration, delay }) => (
-            <motion.div
-              key={key}
-              className="shrink-0 rounded-full bg-brand"
-              style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
-              animate={{ height: [`${heightA}px`, `${heightB}px`] }}
-              transition={{
-                duration,
-                repeat: Infinity,
-                repeatType: "reverse",
-                ease: "easeInOut",
-                delay,
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WaveformBars({ className }: { className?: string }) {
-  const isSm = useMediaQuery("(min-width: 640px)");
-  const isMd = useMediaQuery("(min-width: 768px)");
-
-  const { barCount, barWidth, heightBase, heightRange, gap } = useMemo(() => {
-    if (isMd) return { barCount: 52, barWidth: 4, heightBase: 12, heightRange: 32, gap: 3 };
-    if (isSm) return { barCount: 44, barWidth: 3, heightBase: 10, heightRange: 28, gap: 2.5 };
-    return { barCount: 36, barWidth: 2.5, heightBase: 8, heightRange: 24, gap: 2 };
-  }, [isSm, isMd]);
-
-  const bars = useMemo(
-    () =>
-      Array.from({ length: barCount }, (_, i) => ({
-        key: i,
-        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
-        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
-        duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.02,
-      })),
-    [barCount, heightBase, heightRange]
-  );
-
-  return (
-    <div
-      className={cn(
-        "absolute inset-x-0 top-[52%] flex -translate-y-1/2 items-center justify-center px-4 opacity-60",
-        className
-      )}
-      style={{ gap: `${gap}px` }}
-    >
-      <div
-        className="flex items-center justify-center"
-        style={{ gap: `${gap}px` }}
-      >
-      {bars.map(({ key, heightA, heightB, duration, delay }) => (
-        <motion.div
-          key={key}
-          className="rounded-full bg-brand shrink-0"
-          style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
-          animate={{ height: [`${heightA}px`, `${heightB}px`] }}
-          transition={{
-            duration,
-            repeat: Infinity,
-            repeatType: "reverse",
-            ease: "easeInOut",
-            delay,
-          }}
-        />
-      ))}
-      </div>
-    </div>
-  );
-}
-
-function HomeStatsCarousel({
-  rankingStats,
-  t,
-  tc,
-  locale,
-}: {
-  rankingStats: { global: { points: number; rank: number | null }; weekly: { points: number; rank: number | null }; monthly: { points: number; rank: number | null } };
-  t: (key: string) => string;
-  tc: (key: string) => string;
-  locale: string;
-}) {
-  const [api, setApi] = useState<CarouselApi>(undefined);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const periods = ["global", "weekly", "monthly"] as const;
-
-  // Restaurar último período guardado y persistir al cambiar
-  useEffect(() => {
-    if (!api) return;
-    const saved = typeof window !== "undefined" ? localStorage.getItem(HOME_STATS_PERIOD_STORAGE_KEY) : null;
-    const idx = saved != null ? periods.indexOf(saved as (typeof periods)[number]) : -1;
-    const initialIndex = idx >= 0 ? idx : 0;
-    if (initialIndex !== 0) api.scrollTo(initialIndex);
-    setSelectedIndex(initialIndex);
-    if (typeof window !== "undefined") localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[initialIndex]);
-    api.on("select", () => {
-      const i = api.selectedScrollSnap();
-      setSelectedIndex(i);
-      if (typeof window !== "undefined") localStorage.setItem(HOME_STATS_PERIOD_STORAGE_KEY, periods[i]);
-    });
-  }, [api]);
-
-  const scrollTo = useCallback(
-    (index: number) => {
-      api?.scrollTo(index);
-    },
-    [api]
-  );
-
-  const positionIconStyle = (rank: number | null) => {
-    if (rank === 1) return { iconColor: "text-amber-500", iconBg: "bg-amber-500/20" };
-    if (rank === 2) return { iconColor: "text-gray-400", iconBg: "bg-gray-500/20" };
-    if (rank === 3) return { iconColor: "text-[#cd7f32]", iconBg: "bg-[#cd7f32]/20" };
-    return { iconColor: "text-sky-400", iconBg: "bg-sky-500/15" };
-  };
-
-  return (
-    <section className="w-full px-1">
-      {/* Botones de período encima de las tarjetas; último seleccionado persistido en localStorage */}
-      <div className="mb-2 flex justify-center gap-1.5">
-        {periods.map((period, index) => (
-          <button
-            key={period}
-            type="button"
-            onClick={() => scrollTo(index)}
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-              selectedIndex === index
-                ? "bg-brand text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            )}
-          >
-            {t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}
-          </button>
-        ))}
-      </div>
-      <div className="relative flex items-center">
-        <Carousel
-          opts={{ align: "start", loop: true }}
-          setApi={setApi}
-          className="relative w-full flex-1"
-        >
-          <CarouselContent className="-ml-3">
-            {periods.map((period) => (
-              <CarouselItem key={period} className="pl-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <HomeStatCard
-                    label={`${t("score")} ${t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}`}
-                    value={rankingStats[period].points.toLocaleString(locale === "es" ? "es-ES" : "en-US")}
-                    subLabel={tc("points")}
-                    icon="emoji_events"
-                    iconColor="text-brand"
-                    iconBg="bg-brand/15"
-                  />
-                  <HomeStatCard
-                    label={`${t("position")} ${t(period === "global" ? "globalRank" : period === "weekly" ? "weeklyRank" : "monthlyRank")}`}
-                    value={rankingStats[period].rank != null ? `#${rankingStats[period].rank}` : "—"}
-                    icon="military_tech"
-                    {...positionIconStyle(rankingStats[period].rank ?? null)}
-                  />
-                </div>
-              </CarouselItem>
-            ))}
-          </CarouselContent>
-        </Carousel>
-      </div>
-    </section>
-  );
-}
-
-function HomeStatCard({
-  label,
-  value,
-  subLabel,
-  icon,
-  iconColor,
-  iconBg,
-}: {
-  label: string;
-  value: string;
-  subLabel?: string;
-  icon: string;
-  iconColor: string;
-  iconBg: string;
-}) {
-  return (
-    <div className="flex flex-col rounded-2xl bg-card p-4">
-      <div className="mb-2 flex items-center gap-2">
-        <div
-          className={cn(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-            iconBg
-          )}
-        >
-          <span
-            className={cn("material-symbols-outlined text-base", iconColor)}
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            {icon}
-          </span>
-        </div>
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      </div>
-      <div className="flex items-end gap-1">
-        <span className="text-2xl font-bold tabular-nums">{value}</span>
-        {subLabel && (
-          <span className="mb-0.5 text-sm text-muted-foreground">{subLabel}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PreviousDaysSection({
-  previousDays,
-  userId,
-  inProgressByGameId = {},
-  onNavigateToGame,
-}: {
-  previousDays: PreviousDayGame[];
-  userId: string | null;
-  inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
-  onNavigateToGame?: (variant: PlaySkeletonVariant) => void;
-}) {
-  const queryClient = useQueryClient();
-  const router = useRouter();
-  const t = useTranslations("home");
-  const tc = useTranslations("common");
-  const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
-  const byGameId = useGameProgressStore((s) => s.byGameId);
-
-  const prefetchPlayRoute = useCallback(
-    (gameId: string) => {
-      router.prefetch(`/play/${gameId}`);
-      void prefetchGameById(queryClient, gameId).catch(() => undefined);
-      if (userId) {
-        void prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
-      }
-      void prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
-    },
-    [queryClient, router, userId]
-  );
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-
-  const [filterYear, setFilterYear] = useState<number | null>(null);
-  const [filterMonth, setFilterMonth] = useState<number | null>(null);
-
-  const [nowY, nowM] = getMadridDate().split("-").map(Number);
-  const currentMonthKey = `${nowY}-${String(nowM).padStart(2, "0")}`;
-
-  // Estado inicial igual en servidor y cliente para evitar hydration mismatch; sessionStorage se aplica en useEffect
-  const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([currentMonthKey]));
-  const hasRestoredRef = useRef(false);
-
-  const dayStatusQueries = useQueries({
-    queries: previousDays.map((day) => {
-      const [y, m] = day.date.split("-").map(Number);
-      const monthKey = `${y}-${String(m).padStart(2, "0")}`;
-      const visibleByFilter =
-        filterYear === null && filterMonth === null
-          ? openMonths.has(monthKey)
-          : (filterYear === null || y === filterYear) &&
-            (filterMonth === null || filterMonth === m - 1);
-
-      return {
-        queryKey: queryKeys.home.dayStatus(day.id),
-        queryFn: async (): Promise<HomeDayStatusData> => {
-          const res = await fetch(`/api/home/day/${day.id}/status`, {
-            cache: "no-store",
-          });
-          if (!res.ok) throw new Error("Failed to fetch day status");
-          return res.json();
-        },
-        staleTime: HOME_DAY_STATUS_STALE_MS,
-        enabled: !!userId && visibleByFilter,
-        initialData: {
-          gameId: day.id,
-          played: day.played,
-          won: day.won,
-          score: day.score,
-          title: day.title,
-          artist_name: day.artist_name,
-          cover_url: day.cover_url,
-          inProgress: inProgressByGameId?.[day.id] ?? null,
-        } satisfies HomeDayStatusData,
-      };
-    }),
-  });
-
-  const dayStatusByGameId = useMemo(() => {
-    const map = new Map<string, HomeDayStatusData>();
-    previousDays.forEach((day, index) => {
-      const status = dayStatusQueries[index]?.data;
-      if (status) map.set(day.id, status);
-    });
-    return map;
-  }, [previousDays, dayStatusQueries]);
-
-  // Restaurar todo desde sessionStorage al montar (solo cliente); marcar restaurado para no pisar en los efectos de persist
-  useEffect(() => {
-    try {
-      const sOpen = sessionStorage.getItem(HOME_MONTHS_OPEN_STORAGE_KEY);
-      if (sOpen) {
-        const arr = JSON.parse(sOpen) as string[];
-        if (Array.isArray(arr) && arr.length > 0) setOpenMonths(new Set(arr));
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const sFilter = sessionStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
-      if (sFilter) {
-        const p = JSON.parse(sFilter) as { filterYear?: number | null; filterMonth?: number | null };
-        if (typeof p.filterYear === "number") setFilterYear(p.filterYear);
-        if (typeof p.filterMonth === "number") setFilterMonth(p.filterMonth);
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const sView = sessionStorage.getItem(HOME_VIEW_MODE_STORAGE_KEY);
-      if (sView === "list" || sView === "grid") setViewMode(sView);
-    } catch {
-      /* ignore */
-    }
-    try {
-      const sSort = sessionStorage.getItem(HOME_SORT_ORDER_STORAGE_KEY);
-      if (sSort === "asc" || sSort === "desc") setSortOrder(sSort);
-    } catch {
-      /* ignore */
-    }
-    // Marcar como restaurado en el siguiente tick para que los efectos de persist no escriban con estado inicial
-    const id = setTimeout(() => {
-      hasRestoredRef.current = true;
-    }, 0);
-    return () => clearTimeout(id);
-  }, []);
-
-  // openMonths: persistir solo cuando el usuario abre/cierra un mes (no al montar, así no pisamos lo restaurado)
-  const handleOpenMonthsChange = useCallback((key: string, open: boolean) => {
-    setOpenMonths((prev) => {
-      const next = new Set(prev);
-      if (open) next.add(key);
-      else next.delete(key);
-      try {
-        sessionStorage.setItem(HOME_MONTHS_OPEN_STORAGE_KEY, JSON.stringify([...next]));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
-
-  // Filtro año/mes, viewMode y sortOrder: solo persistir después de haber restaurado para no pisar storage al montar
-  useEffect(() => {
-    if (!hasRestoredRef.current) return;
-    try {
-      sessionStorage.setItem(
-        PREVIOUS_DAYS_FILTER_STORAGE_KEY,
-        JSON.stringify({ filterYear, filterMonth })
-      );
-    } catch {
-      /* ignore */
-    }
-  }, [filterYear, filterMonth]);
-
-  // viewMode y sortOrder
-  useEffect(() => {
-    if (!hasRestoredRef.current) return;
-    try {
-      sessionStorage.setItem(HOME_VIEW_MODE_STORAGE_KEY, viewMode);
-    } catch {
-      /* ignore */
-    }
-  }, [viewMode]);
-
-  useEffect(() => {
-    if (!hasRestoredRef.current) return;
-    try {
-      sessionStorage.setItem(HOME_SORT_ORDER_STORAGE_KEY, sortOrder);
-    } catch {
-      /* ignore */
-    }
-  }, [sortOrder]);
-
-  const monthNamesFull =
-    locale === "es"
-      ? ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-      : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-  const groupsByMonth = useMemo(() => {
-    const map = new Map<string, PreviousDayGame[]>();
-    for (const day of previousDays) {
-      const [y, m] = day.date.split("-").map(Number);
-      const key = `${y}-${String(m).padStart(2, "0")}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(day);
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => (sortOrder === "asc" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
-    }
-    return [...map.entries()].sort(([ka], [kb]) =>
-      sortOrder === "asc" ? ka.localeCompare(kb) : kb.localeCompare(ka)
-    );
-  }, [previousDays, sortOrder]);
-
-  const availableMonthYearPairs = useMemo(() => {
-    return groupsByMonth.map(([key]) => {
-      const [y, m] = key.split("-").map(Number);
-      return { year: y, month: m - 1 };
-    });
-  }, [groupsByMonth]);
-
-  const filteredGroupsByMonth = useMemo(() => {
-    if (filterYear === null && filterMonth === null) return groupsByMonth;
-    return groupsByMonth.filter(([key]) => {
-      const [y, m] = key.split("-").map(Number);
-      if (filterYear !== null && y !== filterYear) return false;
-      if (filterMonth !== null && m !== filterMonth + 1) return false;
-      return true;
-    });
-  }, [groupsByMonth, filterYear, filterMonth]);
-
-  const monthStatsByKey = useMemo(() => {
-    const map = new Map<string, MonthGroupStats>();
-    for (const [key, days] of filteredGroupsByMonth) {
-      map.set(key, aggregateMonthGroupStats(days, userId, dayStatusByGameId, byGameId));
-    }
-    return map;
-  }, [filteredGroupsByMonth, dayStatusByGameId, userId, byGameId]);
-
-  const availableYears = useMemo(
-    () => [...new Set(availableMonthYearPairs.map((p) => p.year))].sort((a, b) => b - a),
-    [availableMonthYearPairs]
-  );
-
-  const availableMonthsForYear = useMemo(() => {
-    if (filterYear !== null) {
-      return availableMonthYearPairs
-        .filter((p) => p.year === filterYear)
-        .map((p) => p.month)
-        .sort((a, b) => a - b);
-    }
-    return [...new Set(availableMonthYearPairs.map((p) => p.month))].sort((a, b) => a - b);
-  }, [availableMonthYearPairs, filterYear]);
-
-  const renderDayCard = (day: PreviousDayGame, coverIndex: number) => {
-            const status = userId ? dayStatusByGameId.get(day.id) : null;
-            const d = deriveHomeDayState(day, userId, status ?? null, byGameId);
-            const {
-              played,
-              won,
-              completed,
-              inProgress,
-              displayScore,
-              displayTitle,
-              displayCover,
-              guesses,
-              maxAttempts,
-            } = d;
-
-            return (
-              <PrefetchPlayOnVisible
-                key={day.id}
-                gameId={day.id}
-                onPrefetch={prefetchPlayRoute}
-              >
-              <Link
-                href={`/play/${day.id}`}
-                onClick={() =>
-                  onNavigateToGame?.(completed ? "completed" : "in_progress")
-                }
-                onMouseEnter={() => prefetchPlayRoute(day.id)}
-                onFocus={() => prefetchPlayRoute(day.id)}
-                className="block w-full min-w-0"
-              >
-                <motion.div
-                  whileTap={{ scale: 0.99 }}
-                  className={cn(
-                    "w-full min-w-0 border-0 transition-colors active:opacity-90",
-                    viewMode === "list"
-                      ? "flex items-center gap-3 rounded-2xl bg-card p-3 active:bg-card/70"
-                      : "flex flex-col rounded-2xl bg-card active:bg-card/70"
-                  )}
-                >
-                  {viewMode === "grid" ? (
-                    /* Grid: fecha encima de la portada (centrada), portada, id debajo */
-                    <div className="flex h-full flex-col rounded-2xl px-3 py-1.5">
-                      <p className="mb-1.5 text-center text-[10px] text-muted-foreground">
-                        {titleCaseWords(
-                          format(parseISO(day.date), "EEE", { locale: dateFnsLocale })
-                        )}
-                        <span className="text-muted-foreground/60"> | </span>
-                        {titleCaseWords(
-                          format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })
-                        )}
-                      </p>
-                      <div className="relative mb-1.5 aspect-square w-full shrink-0 overflow-hidden rounded-xl">
-                        {played && displayCover ? (
-                          <Image
-                            src={displayCover}
-                            alt={displayTitle || "Album"}
-                            fill
-                            className="object-cover"
-                            sizes="160px"
-                            loading="eager"
-                            priority={coverIndex < HOME_COVER_IMAGE_PRIORITY_COUNT}
-                          />
-                        ) : (
-                          <div
-                            className="flex h-full w-full items-center justify-center"
-                            style={{ backgroundColor: previousDayColor(day.game_number) }}
-                          >
-                            <span
-                              className="material-symbols-outlined text-2xl text-white/90"
-                              style={{ fontVariationSettings: "'FILL' 1" }}
-                            >
-                              play_arrow
-                            </span>
-                          </div>
-                        )}
-                        {played && completed && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span
-                              className={cn(
-                                "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
-                                won
-                                  ? "text-[color:var(--ecos-bright-brand)]"
-                                  : "text-[color:var(--ecos-bright-destructive)]"
-                              )}
-                              style={{ fontVariationSettings: "'FILL' 1" }}
-                            >
-                              {won ? "check_circle" : "cancel"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-center text-[10px] tabular-nums text-muted-foreground/70">
-                        #{day.game_number}
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                  {/* Miniatura: carátula real si jugado, placeholder con color estable si no */}
-                  <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
-                    {played && displayCover ? (
-                      <Image
-                        src={displayCover}
-                        alt={displayTitle || "Album"}
-                        fill
-                        className="object-cover"
-                        sizes="56px"
-                        loading="eager"
-                        priority={coverIndex < HOME_COVER_IMAGE_PRIORITY_COUNT}
-                      />
-                    ) : (
-                      <div
-                        className="flex h-full w-full items-center justify-center"
-                        style={{ backgroundColor: previousDayColor(day.game_number) }}
-                      >
-                        <span
-                          className="material-symbols-outlined text-2xl text-white/90"
-                          style={{ fontVariationSettings: "'FILL' 1" }}
-                        >
-                          play_arrow
-                        </span>
-                      </div>
-                    )}
-                    {played && completed && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span
-                          className={cn(
-                            "material-symbols-outlined text-xl drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] leading-none",
-                            won
-                              ? "text-[color:var(--ecos-bright-brand)]"
-                              : "text-[color:var(--ecos-bright-destructive)]"
-                          )}
-                          style={{ fontVariationSettings: "'FILL' 1" }}
-                        >
-                          {won ? "check_circle" : "cancel"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="min-w-0 flex-1">
-                    <p className="mb-0.5 text-xs text-muted-foreground">
-                      {titleCaseWords(
-                        format(parseISO(day.date), "EEE", { locale: dateFnsLocale })
-                      )}
-                      <span className="text-muted-foreground/60"> | </span>
-                      {titleCaseWords(
-                        format(parseISO(day.date), "d MMM", { locale: dateFnsLocale })
-                      )}
-                      <span className="text-muted-foreground/60"> | </span>
-                      <span className="tabular-nums text-muted-foreground/70">#{day.game_number}</span>
-                    </p>
-                    <MarqueeText
-                      text={completed ? displayTitle || "—" : t("guessTheSong")}
-                      className="font-semibold"
-                    />
-                    {completed && displayScore !== null ? (
-                      <p className={cn("text-xs font-medium", displayScore === 0 ? "text-destructive" : "text-brand")}>
-                        {t("score")}: {displayScore.toLocaleString(locale === "es" ? "es" : "en-US")} {tc("points")}
-                      </p>
-                    ) : inProgress ? (
-                      <div className="mt-1 flex items-center gap-1.5">
-                        {Array.from({ length: maxAttempts }).map((_, i) => (
-                            <div
-                              key={i}
-                              className={cn(
-                                "h-1.5 w-1.5 shrink-0 rounded-full",
-                                i < guesses.length
-                                  ? "bg-destructive"
-                                  : i === guesses.length
-                                  ? "bg-muted-foreground/70"
-                                  : "bg-muted-foreground/45"
-                              )}
-                            />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">{t("notPlayedYet")}</p>
-                    )}
-                  </div>
-
-                  <span className="material-symbols-outlined text-muted-foreground">
-                    {played && completed ? "chevron_right" : "play_circle"}
-                  </span>
-                    </>
-                  )}
-                </motion.div>
-              </Link>
-              </PrefetchPlayOnVisible>
-            );
-  };
-
-  return (
-    <section className="min-w-0">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">{t("previousDays")}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 items-center rounded-lg border border-border bg-muted/30 p-0.5">
-            <button
-              onClick={() => setViewMode("list")}
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors",
-                viewMode === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-              aria-label={t("viewList")}
-            >
-              <span className="material-symbols-outlined text-lg">format_list_bulleted</span>
-            </button>
-            <button
-              onClick={() => setViewMode("grid")}
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors",
-                viewMode === "grid" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-              aria-label={t("viewGrid")}
-            >
-              <span className="material-symbols-outlined text-lg">grid_view</span>
-            </button>
-          </div>
-          <Dialog>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
-              <DialogTrigger asChild>
-                <button
-                  className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50",
-                    filterMonth !== null || filterYear !== null ? "text-brand" : ""
-                  )}
-                  aria-label={t("filterByDate")}
-                >
-                  <span className="material-symbols-outlined text-lg">filter_list</span>
-                </button>
-              </DialogTrigger>
-            </div>
-            <DialogContent className="max-w-xs">
-              <DialogHeader>
-                <DialogTitle>{t("filterByDate")}</DialogTitle>
-                <DialogDescription className="sr-only">{t("filterByDate")}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">{t("filterYear")}</label>
-                  <Select
-                    value={filterYear != null ? String(filterYear) : "all"}
-                    onValueChange={(v) => {
-                      const newYear = v === "all" ? null : Number(v);
-                      setFilterYear(newYear);
-                      if (newYear !== null && filterMonth !== null) {
-                        const valid = availableMonthYearPairs.some(
-                          (p) => p.year === newYear && p.month === filterMonth
-                        );
-                        if (!valid) setFilterMonth(null);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t("filterAll")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t("filterAll")}</SelectItem>
-                      {availableYears.map((y) => (
-                        <SelectItem key={y} value={String(y)}>
-                          {y}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">{t("filterMonth")}</label>
-                  <Select
-                    value={filterMonth != null ? String(filterMonth) : "all"}
-                    onValueChange={(v) => setFilterMonth(v === "all" ? null : Number(v))}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t("filterAll")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t("filterAll")}</SelectItem>
-                      {availableMonthsForYear.map((i) => (
-                        <SelectItem key={i} value={String(i)}>
-                          {monthNamesFull[i]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <button
-                  onClick={() => {
-                    setFilterMonth(null);
-                    setFilterYear(null);
-                  }}
-                  className="w-full rounded-lg border border-border bg-muted/50 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
-                >
-                  {t("resetFilter")}
-                </button>
-              </div>
-            </DialogContent>
-          </Dialog>
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/30">
-            <button
-              onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-              aria-label={sortOrder === "desc" ? t("sortDesc") : t("sortAsc")}
-            >
-              <span
-                className={cn("material-symbols-outlined text-lg", sortOrder === "asc" && "rotate-180")}
-              >
-                arrow_downward
-              </span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {previousDays.length === 0 ? (
-        <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-          {t("noPreviousDays")}
-        </p>
-      ) : filteredGroupsByMonth.length === 0 ? (
-        <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-          {t("noGamesInPeriod")}
-        </p>
-      ) : filteredGroupsByMonth.length === 1 ? (
-        <>
-          <div className="mb-2 rounded-xl border border-border bg-card px-4 py-3">
-            <MonthGroupSummaryContent
-              stats={monthStatsByKey.get(filteredGroupsByMonth[0][0])!}
-              t={t}
-              monthLabel={(() => {
-                const [oy, om] = filteredGroupsByMonth[0][0].split("-").map(Number);
-                return `${monthNamesFull[om - 1]} ${oy}`;
-              })()}
-            />
-          </div>
-          <div
-            className={cn(
-              "min-w-0 gap-2",
-              viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
-            )}
-          >
-            {filteredGroupsByMonth[0][1].map((day, coverIndex) => (
-              <div key={day.id} className="min-w-0">{renderDayCard(day, coverIndex)}</div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="flex min-w-0 flex-col gap-2">
-          {filteredGroupsByMonth.map(([key, days]) => {
-            const [y, m] = key.split("-").map(Number);
-            const monthLabel = `${monthNamesFull[m - 1]} ${y}`;
-            const isOpen = openMonths.has(key);
-            const stats = monthStatsByKey.get(key)!;
-            return (
-              <Collapsible
-                key={key}
-                open={isOpen}
-                onOpenChange={(open) => handleOpenMonthsChange(key, open)}
-                className="group min-w-0"
-              >
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("monthSummaryAria", {
-                      month: monthLabel,
-                      completed: stats.completed,
-                      total: stats.totalGames,
-                    })}
-                    className="flex w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50"
-                  >
-                    <MonthGroupSummaryContent
-                      stats={stats}
-                      t={t}
-                      monthLabel={monthLabel}
-                      rightSlot={
-                        <span className="material-symbols-outlined shrink-0 text-lg text-muted-foreground transition-transform group-data-[state=open]:rotate-180">
-                          expand_more
-                        </span>
-                      }
-                    />
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div
-                    className={cn(
-                      "mt-2 min-w-0 gap-2",
-                      viewMode === "list" ? "flex flex-col" : "grid grid-cols-4 gap-2"
-                    )}
-                  >
-                    {days.map((day, coverIndex) => (
-                      <div key={day.id} className="min-w-0">{renderDayCard(day, coverIndex)}</div>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 }

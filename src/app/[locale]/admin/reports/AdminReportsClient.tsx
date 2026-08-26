@@ -133,7 +133,7 @@ export function AdminReportsClient({ reports, feedbackList }: Props) {
                       className="mt-0.5 shrink-0 text-lg text-green-600 dark:text-green-400"
                       aria-hidden
                     >
-                      <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      <span aria-hidden className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
                         check_circle
                       </span>
                     </span>
@@ -197,7 +197,7 @@ export function AdminReportsClient({ reports, feedbackList }: Props) {
                       className="mt-0.5 shrink-0 text-lg text-green-600 dark:text-green-400"
                       aria-hidden
                     >
-                      <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      <span aria-hidden className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
                         check_circle
                       </span>
                     </span>

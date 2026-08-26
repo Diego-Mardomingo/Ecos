@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Link } from "@/i18n/navigation";
 import { useTheme } from "next-themes";
 import { format } from "date-fns";
-import { es, enUS } from "date-fns/locale";
-import { useLocale } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfile } from "@/lib/hooks/queries";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import type { UserStats } from "@/lib/queries/users";
 import { LanguageSelector } from "@/components/profile/LanguageSelector";
@@ -18,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { ProfileSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { BellOff, Loader2 } from "lucide-react";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 interface Profile {
   id: string;
@@ -61,8 +60,7 @@ export function ProfileClient({ initialData }: Props) {
   const tc = useTranslations("common");
   const tn = useTranslations("notifications");
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  const locale = useLocale();
+  const mounted = useIsMounted();
   const notifications = useNotifications({
     enabled: true,
     initialStatus: initialData?.notifications,
@@ -91,9 +89,7 @@ export function ProfileClient({ initialData }: Props) {
     }
   };
 
-  // Evitar hydration mismatch: el tema se lee de localStorage solo en el cliente
-  useEffect(() => setMounted(true), []);
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale } = useAppFormatters();
 
   if (isLoading && !data) {
     return <ProfileSkeleton />;
@@ -195,7 +191,7 @@ export function ProfileClient({ initialData }: Props) {
           )}
           <div className="mt-2 flex flex-col items-center gap-1">
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-0.5 text-xs font-semibold text-sky-500">
-              <span className="material-symbols-outlined"
+              <span aria-hidden className="material-symbols-outlined"
                 style={{ fontVariationSettings: "'FILL' 1", fontSize: '14px' }}>
                 volunteer_activism
               </span>
@@ -227,7 +223,7 @@ export function ProfileClient({ initialData }: Props) {
           <div className="overflow-hidden rounded-2xl bg-card">
             {/* Tema */}
             <div className="flex items-center gap-3 px-4 py-3.5">
-              <span className="material-symbols-outlined text-xl text-brand"
+              <span aria-hidden className="material-symbols-outlined text-xl text-brand"
                 style={{ fontVariationSettings: "'FILL' 1" }}>
                 contrast
               </span>
@@ -260,7 +256,7 @@ export function ProfileClient({ initialData }: Props) {
             {/* Notificaciones */}
             {notifications.isSupported && (
               <div className="flex items-center gap-3 px-4 py-3.5">
-                <span className="material-symbols-outlined text-xl text-brand">notifications</span>
+                <span aria-hidden className="material-symbols-outlined text-xl text-brand">notifications</span>
                 <span className="flex-1 text-sm font-medium">{t("settings.notifications")}</span>
                 <div className="flex shrink-0 items-center gap-2">
                   {notifications.isLoading ? (
@@ -292,7 +288,7 @@ export function ProfileClient({ initialData }: Props) {
                   href="/admin"
                   className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
                 >
-                  <span
+                  <span aria-hidden
                     className="material-symbols-outlined text-xl text-brand"
                     style={{ fontVariationSettings: "'FILL' 1" }}
                   >
@@ -301,7 +297,7 @@ export function ProfileClient({ initialData }: Props) {
                   <span className="flex-1 text-left text-sm font-medium">
                     Panel de administración
                   </span>
-                  <span className="material-symbols-outlined text-muted-foreground">
+                  <span aria-hidden className="material-symbols-outlined text-muted-foreground">
                     chevron_right
                   </span>
                 </Link>
@@ -312,16 +308,16 @@ export function ProfileClient({ initialData }: Props) {
               href="/profile/edit"
               className="flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
             >
-              <span className="material-symbols-outlined text-xl text-muted-foreground">manage_accounts</span>
+              <span aria-hidden className="material-symbols-outlined text-xl text-muted-foreground">manage_accounts</span>
               <span className="flex-1 text-left text-sm font-medium">{t("settings.editProfile")}</span>
-              <span className="material-symbols-outlined text-muted-foreground">chevron_right</span>
+              <span aria-hidden className="material-symbols-outlined text-muted-foreground">chevron_right</span>
             </Link>
             <div className="mx-4 h-px bg-border" />
             <button
               onClick={handleSignOut}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-destructive transition-colors hover:bg-destructive/5"
             >
-              <span className="material-symbols-outlined text-xl">logout</span>
+              <span aria-hidden className="material-symbols-outlined text-xl">logout</span>
               <span className="flex-1 text-left text-sm font-medium">{t("settings.logOut")}</span>
             </button>
           </div>
@@ -355,7 +351,7 @@ function StatBlock({
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl bg-card p-3 text-center">
       <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", iconBg)}>
-        <span
+        <span aria-hidden
           className={cn("material-symbols-outlined text-xl", iconColor)}
           style={{ fontVariationSettings: "'FILL' 1" }}
         >

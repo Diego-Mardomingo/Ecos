@@ -101,7 +101,7 @@ export function LoginClient() {
         className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         aria-label={tCommon("back")}
       >
-        <span className="material-symbols-outlined text-xl">arrow_back</span>
+        <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
         {tCommon("back")}
       </button>
       {/* Blobs decorativos */}
@@ -159,7 +159,7 @@ export function LoginClient() {
             className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white py-4 text-sm font-semibold text-gray-900 shadow-lg transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-70"
           >
             {loading ? (
-              <span className="material-symbols-outlined animate-spin text-xl text-gray-500">
+              <span aria-hidden className="material-symbols-outlined animate-spin text-xl text-gray-500">
                 progress_activity
               </span>
             ) : (

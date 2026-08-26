@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
 """
-Ingesta semanal: SpotifyScraper + YouTube + Supabase.
+Ingesta semanal: SpotifyScraper + Supabase.
 Ejecutar 1x/semana (GitHub Action).
 Scrape por playlist: bloques de 5; solo salta al siguiente bloque si las 5 están duplicadas.
 Sin límite de canciones. Playlist personal: todas.
 La selección diaria de juegos corre en workflow separado (daily-game.yml).
 
-Guarda preview_duration_seconds midiendo el MP3 de preview_url cuando existe.
-Solo preview (sin YouTube): no inserta si la duración es < MIN_PREVIEW_SECONDS o la medición falla.
+El preview de Spotify es la única fuente de audio del juego: guarda preview_duration_seconds
+midiendo el MP3 de preview_url, y no inserta si falta preview_url, si la medición falla o si
+la duración es < MIN_PREVIEW_SECONDS.
 
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Cargar .env.local
@@ -46,22 +43,12 @@ except ImportError as e:
 
 # --- Config ---
 CHUNK_SIZE = 5  # Bloque de 5; saltar al siguiente solo si las 5 duplicadas
-# Pool juego diario: preview medido >= este umbral (segundos); solo-preview sin YouTube no se inserta si falla.
+# Pool juego diario: preview medido >= este umbral (segundos); si falla la medición, no se inserta.
 # ~29.7 s es habitual en previews Spotify medidos en MP3 (30 s nominales).
 MIN_PREVIEW_SECONDS = 29.0
 ALBUM_PATTERNS = [
     r"open\.spotify\.com/album/([a-zA-Z0-9]{20,25})",
     r"spotify:album:([a-zA-Z0-9]{20,25})",
-]
-YOUTUBE_BLACKLIST = [
-    "live", "version", "acústico", "acoustic", "cover", "karaoke",
-    "instrumental", "en vivo", "concierto", "remix",
-]
-YOUTUBE_QUERIES = [
-    lambda t, a: f"{t} {a} official audio",
-    lambda t, a: f"{t} {a} letra",
-    lambda t, a: f"{t} {a} official video",
-    lambda t, a: f"{t} {a}",
 ]
 
 
@@ -188,49 +175,14 @@ def _build_raw_spotify_data(full: dict, pl_id: str, pl_name: str) -> dict:
     }
 
 
-def search_youtube(title: str, artist: str, api_key: str) -> str | None:
-    def blacklisted(s: str) -> bool:
-        return any(w in s.lower() for w in YOUTUBE_BLACKLIST)
-
-    for qfn in YOUTUBE_QUERIES:
-        q = qfn(title, artist)
-        url = (
-            f"https://www.googleapis.com/youtube/v3/search?part=snippet&type=video"
-            f"&videoEmbeddable=true&maxResults=10&q={urllib.parse.quote(q)}&key={api_key}"
-        )
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url), timeout=15) as r:
-                data = json.loads(r.read().decode())
-        except Exception:
-            continue
-        for item in data.get("items", []):
-            vid = item.get("id", {}).get("videoId")
-            snip = item.get("snippet", {}).get("title", "")
-            if not vid or blacklisted(snip):
-                continue
-            status_url = f"https://www.googleapis.com/youtube/v3/videos?part=status&id={vid}&key={api_key}"
-            try:
-                with urllib.request.urlopen(urllib.request.Request(status_url), timeout=10) as sr:
-                    sd = json.loads(sr.read().decode())
-                if (sd.get("items") or [{}])[0].get("status", {}).get("embeddable") is True:
-                    return vid
-            except Exception:
-                continue
-    return None
-
-
 def main() -> None:
     log = setup_logging()
-    start_ms = int(datetime.utcnow().timestamp() * 1000)
+    start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
     key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    yt_key = os.environ.get("YOUTUBE_API_KEY")
     if not url_env or not key_env:
         log.error("NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridos")
-        sys.exit(1)
-    if not yt_key:
-        log.error("YOUTUBE_API_KEY requerido")
         sys.exit(1)
 
     supabase: Client = create_client(url_env, key_env)
@@ -247,7 +199,7 @@ def main() -> None:
     playlist_stats: list[dict] = []
     total_found = 0
     total_duplicates = 0
-    total_no_yt = 0
+    total_no_preview = 0
     total_inserted = 0
 
     log.info("=== Ingesta semanal Ecos ===")
@@ -262,7 +214,7 @@ def main() -> None:
         for pl_idx, (pl_id, pl_name, mode) in enumerate(PLAYLISTS):
             pl_found = 0
             pl_duplicates = 0
-            pl_no_yt = 0
+            pl_no_preview = 0
             pl_inserted = 0
             url = f"https://open.spotify.com/playlist/{pl_id}"
             try:
@@ -277,7 +229,7 @@ def main() -> None:
                     "error": str(e),
                     "tracks_processed": 0,
                     "duplicates": 0,
-                    "no_youtube": 0,
+                    "no_preview": 0,
                     "inserted": 0,
                 })
                 errors.append(f"Playlist {pl_name} ({pl_id}): {e}")
@@ -355,28 +307,22 @@ def main() -> None:
                         total_duplicates += 1
                         continue
 
-                    yt_id = search_youtube(title, artist, yt_key)
-                    if not yt_id and not preview_url:
-                        pl_no_yt += 1
-                        total_no_yt += 1
+                    # El preview de Spotify es la única fuente de audio del juego: sin una
+                    # medición válida y suficientemente larga, la canción no es jugable.
+                    if not preview_url:
+                        pl_no_preview += 1
+                        total_no_preview += 1
                         continue
 
-                    preview_duration_seconds: float | None = None
-                    if preview_url:
-                        preview_duration_seconds = get_mp3_duration_seconds(preview_url)
+                    preview_duration_seconds = get_mp3_duration_seconds(preview_url)
+                    if (
+                        preview_duration_seconds is None
+                        or preview_duration_seconds < MIN_PREVIEW_SECONDS
+                    ):
+                        pl_no_preview += 1
+                        total_no_preview += 1
+                        continue
 
-                    # Sin YouTube: solo preview; exigir medición válida y >= MIN_PREVIEW_SECONDS
-                    if not yt_id and preview_url:
-                        if (
-                            preview_duration_seconds is None
-                            or preview_duration_seconds < MIN_PREVIEW_SECONDS
-                        ):
-                            pl_no_yt += 1
-                            total_no_yt += 1
-                            continue
-
-                    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                    uses_preview = not yt_id and preview_url
                     row = {
                         "spotify_id": sid,
                         "title": title,
@@ -390,9 +336,6 @@ def main() -> None:
                         "preview_duration_seconds": preview_duration_seconds,
                         "spotify_playlist_id": pl_id,
                         "spotify_playlist_name": pl_name,
-                        "youtube_id": yt_id,
-                        "youtube_verified": bool(yt_id),
-                        "youtube_verified_at": now_iso if yt_id else None,
                         "is_active": True,
                         "raw_spotify_data": _build_raw_spotify_data(full, pl_id, pl_name),
                     }
@@ -404,7 +347,7 @@ def main() -> None:
                         pl_inserted += 1
                         total_inserted += 1
                         inserted_in_block += 1
-                        log.debug("  + %s - %s%s", title[:40], artist[:30], " (preview)" if uses_preview else "")
+                        log.debug("  + %s - %s", title[:40], artist[:30])
                     except Exception as ins_err:
                         err_msg = str(ins_err)
                         if "23505" in err_msg or "duplicate" in err_msg.lower():
@@ -434,20 +377,20 @@ def main() -> None:
                 "tracks_in_playlist": pl_total_in_playlist,
                 "tracks_processed": pl_found,
                 "duplicates": pl_duplicates,
-                "no_youtube": pl_no_yt,
+                "no_preview": pl_no_preview,
                 "inserted": pl_inserted,
             })
-            log.info("  -> insertadas: %d, duplicadas: %d, sin YouTube: %d", pl_inserted, pl_duplicates, pl_no_yt)
+            log.info("  -> insertadas: %d, duplicadas: %d, sin preview: %d", pl_inserted, pl_duplicates, pl_no_preview)
 
     finally:
         client.close()
 
-    duration_ms = int(datetime.utcnow().timestamp() * 1000) - start_ms
+    duration_ms = int(datetime.now(timezone.utc).timestamp() * 1000) - start_ms
     status = "failure" if errors and total_inserted == 0 else ("partial" if errors else "success")
     summary = f"{total_inserted} canciones insertadas" if total_inserted > 0 else (errors[0][:100] if errors else "Sin canciones nuevas")
 
     log.info("=== Resumen ===")
-    log.info("Tracks encontrados: %d | Duplicados: %d | Sin YouTube: %d | Insertadas: %d", total_found, total_duplicates, total_no_yt, total_inserted)
+    log.info("Tracks encontrados: %d | Duplicados: %d | Sin preview: %d | Insertadas: %d", total_found, total_duplicates, total_no_preview, total_inserted)
     log.info("Duracion: %d ms | Estado: %s", duration_ms, status)
 
     try:
@@ -461,7 +404,7 @@ def main() -> None:
                 "playlists_checked": len(PLAYLISTS),
                 "tracks_found": total_found,
                 "duplicates": total_duplicates,
-                "no_youtube": total_no_yt,
+                "no_preview": total_no_preview,
                 "songs_added": total_inserted,
                 "playlist_stats": playlist_stats,
             },

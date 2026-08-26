@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getGameById } from "@/lib/queries/games";
-import { PlayGameWrapper } from "@/components/game/PlayGameWrapper";
+import { getEffectiveGameDate } from "@/lib/date-utils";
+import { GameClient } from "@/components/game/GameClient";
 
 export default async function PlayGamePage({
   params,
@@ -16,15 +17,13 @@ export default async function PlayGamePage({
 
   const game = await getGameById(gameId);
 
-  if (!game) {
+  // El juego del día siguiente ya existe en la BD (scripts/select-daily-game.py) y esta página
+  // manda la canción completa al cliente: no se puede servir antes de su fecha.
+  if (!game || game.date > getEffectiveGameDate()) {
     notFound();
   }
 
-  return (
-    <PlayGameWrapper
-      gameId={gameId}
-      initialGame={game}
-      userId={user?.id ?? null}
-    />
-  );
+  // Sin capa cliente intermedia: el juego de un día no cambia nunca, así que el render de
+  // servidor es siempre la versión más fresca que puede haber.
+  return <GameClient game={game} userId={user?.id ?? null} />;
 }

@@ -12,7 +12,12 @@
     "days": "días",
     "day": "día",
     "enter": "Entrar",
-    "offline": "Sin conexión. Algunas funciones pueden no estar disponibles."
+    "offline": "Sin conexión. Algunas funciones pueden no estar disponibles.",
+    "unexpectedError": "Ha ocurrido un error inesperado. Vuelve a intentarlo en un momento.",
+    "errorReference": "Referencia del error",
+    "goHome": "Ir al inicio",
+    "notFoundTitle": "Página no encontrada",
+    "notFoundDescription": "Este enlace no existe o el reto que buscas ya no está disponible."
   },
   "nav": {
     "home": "Inicio",
@@ -210,7 +215,15 @@
       "descriptionPlaceholder": "Describe el problema...",
       "sending": "Enviando...",
       "submit": "Enviar reporte"
-    }
+    },
+    "audioFragment": "ECOS – Fragmento",
+    "searchLabel": "Buscar canción o artista",
+    "searchResultsCount": "{count} resultados disponibles. Usa las flechas para elegir.",
+    "searchNoResults": "Sin resultados",
+    "optionAlreadyGuessed": "ya intentado",
+    "playFragment": "Reproducir el fragmento",
+    "stopFragment": "Detener el fragmento",
+    "loadingAudio": "Cargando el audio"
   },
   "ranking": {
     "title": "Clasificación",
@@ -248,7 +261,8 @@
     "historyBackToList": "Volver al historial",
     "historyDetailTitle": "Clasificación del periodo",
     "historyLoadError": "No se pudo cargar el ranking. Inténtalo de nuevo.",
-    "historyWeekCount": "{count, plural, one {# semana} other {# semanas}}"
+    "historyWeekCount": "{count, plural, one {# semana} other {# semanas}}",
+    "periodTabsLabel": "Periodo del ranking"
   },
   "profile": {
     "title": "Perfil",
@@ -326,5 +340,9 @@
     "permissionDenied": "Permiso denegado en el navegador. Actívalo desde los ajustes del navegador.",
     "enabledToast": "Notificaciones activadas correctamente",
     "disabledToast": "Notificaciones desactivadas correctamente"
+  },
+  "meta": {
+    "description": "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global.",
+    "ogDescription": "Adivina la canción del día"
   }
 }

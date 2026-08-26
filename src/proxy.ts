@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import createIntlMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
+import { matchesLocalizedRoute } from "./i18n/locale-path";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
@@ -46,11 +47,15 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAdminPath = pathname.includes("/admin");
+  const isAdminPath = matchesLocalizedRoute(pathname, "/admin");
   if (isAdminPath) {
     if (!user) {
       return new NextResponse(null, { status: 404 });
     }
+    // Mismo criterio que requireAdmin(): el rol de Ecos vive en ecos_profiles.role. No usar la
+    // RPC is_admin(), que consulta la tabla de la otra aplicación (ver requireAdmin.ts).
+    // Esto es solo conveniencia de routing; la autorización real la hace cada página y cada
+    // server action por su cuenta.
     const { data: profile } = await supabase
       .from("ecos_profiles")
       .select("role")
@@ -62,7 +67,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const isProtected = protectedRoutes.some((route) =>
-    pathname.includes(route)
+    matchesLocalizedRoute(pathname, route)
   );
   if (isProtected && !user) {
     const loginUrl = new URL(enPrefixedPath(pathname, "/login"), request.url);
@@ -70,7 +75,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const isCompleteProfilePath = pathname.includes("/profile/complete");
+  const isCompleteProfilePath = matchesLocalizedRoute(pathname, "/profile/complete");
   if (user && isProtected && !isCompleteProfilePath) {
     const { data: profile } = await supabase
       .from("ecos_profiles")

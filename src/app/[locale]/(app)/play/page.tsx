@@ -15,7 +15,7 @@ export default async function PlayPage() {
     const t = await getTranslations("game");
     return (
       <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 text-center">
-        <span className="material-symbols-outlined text-5xl text-muted-foreground">
+        <span aria-hidden className="material-symbols-outlined text-5xl text-muted-foreground">
           music_off
         </span>
         <p className="text-lg font-semibold">{t("noChallengeToday")}</p>

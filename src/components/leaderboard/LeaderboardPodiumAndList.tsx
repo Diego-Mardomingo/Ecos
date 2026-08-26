@@ -27,7 +27,7 @@ export {
 
 type RankingT = {
   (key: string): string;
-  (key: string, values?: Record<string, string | number | boolean | Date>): string;
+  (key: string, values?: Record<string, string | number | Date>): string;
 };
 
 export function LeaderboardPodiumAndList({
@@ -152,7 +152,7 @@ export function LeaderboardPodiumAndList({
                         title={t("earlySupporterBadge")}
                         aria-hidden
                       >
-                        <span
+                        <span aria-hidden
                           className="material-symbols-outlined select-none leading-none"
                           style={{
                             fontVariationSettings: "'FILL' 1",
@@ -260,7 +260,7 @@ function PodiumEntry({
             title={earlySupporterLabel}
             aria-hidden
           >
-            <span
+            <span aria-hidden
               className="material-symbols-outlined select-none leading-none"
               style={{
                 fontVariationSettings: "'FILL' 1",

@@ -42,6 +42,16 @@ function AvatarImage({
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
+      /**
+       * Radix renderiza un <img> plano, así que estos atributos hay que ponerlos a mano.
+       * `lazy` importa sobre todo en el ranking, que pinta hasta 50 filas de golpe, y las
+       * dimensiones evitan el reflow mientras carga. El tamaño real lo sigue fijando el
+       * `className` de cada sitio vía `size-full`; 40 es solo la relación de aspecto.
+       */
+      loading="lazy"
+      decoding="async"
+      width={40}
+      height={40}
       className={cn("aspect-square size-full", className)}
       src={safe}
       {...props}

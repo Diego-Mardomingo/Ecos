@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { unwrapToOne } from "@/lib/supabase/relations";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 
 export interface GameWithSong {
@@ -13,7 +14,6 @@ export interface GameWithSong {
     artist_name: string;
     album_title: string | null;
     cover_url: string;
-    youtube_id: string | null;
     preview_url: string | null;
     genre: string | null;
     /** ISO date YYYY-MM-DD desde Spotify */
@@ -38,6 +38,32 @@ interface PreviousDaysRange {
   toDate?: string;
 }
 
+type SongRelation = GameWithSong["ecos_songs"];
+
+/** Fila de `ecos_games` con la canción embebida, tal y como puede llegar de PostgREST. */
+interface GameRowWithSong {
+  id: string;
+  date: string;
+  game_number: number;
+  ecos_songs: SongRelation | SongRelation[] | null;
+}
+
+/**
+ * Normaliza la fila a {@link GameWithSong}. Devuelve `null` si el juego no tiene canción,
+ * en vez de dejar pasar un objeto incompleto con un cast.
+ */
+function toGameWithSong(row: GameRowWithSong): GameWithSong | null {
+  const song = unwrapToOne(row.ecos_songs);
+  if (!song) return null;
+
+  return {
+    id: row.id,
+    date: row.date,
+    game_number: row.game_number,
+    ecos_songs: song,
+  };
+}
+
 async function getTodaysGameWithClient(
   supabase: SupabaseClient,
   effectiveDateOverride?: string
@@ -51,7 +77,7 @@ async function getTodaysGameWithClient(
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre, release_date
+        cover_url, preview_url, genre, release_date
       )
     `
     )
@@ -59,14 +85,14 @@ async function getTodaysGameWithClient(
     .single();
 
   if (error || !data) return null;
-  return data as unknown as GameWithSong;
+  return toGameWithSong(data);
 }
 
 const GAME_WITH_SONG_SELECT = `
   id, date, game_number,
   ecos_songs (
     id, title, artist_name, album_title,
-    cover_url, youtube_id, preview_url, genre, release_date
+    cover_url, preview_url, genre, release_date
   )
 `;
 
@@ -86,26 +112,7 @@ export async function getGameById(gameId: string): Promise<GameWithSong | null> 
     .single();
 
   if (error || !data) return null;
-  return data as unknown as GameWithSong;
-}
-
-/**
- * Carga varios juegos con el mismo shape que {@link getGameById} (p. ej. hidratar caché desde la home).
- */
-export async function getGamesWithSongByIds(
-  gameIds: string[]
-): Promise<GameWithSong[]> {
-  const unique = [...new Set(gameIds.filter(Boolean))];
-  if (unique.length === 0) return [];
-
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ecos_games")
-    .select(GAME_WITH_SONG_SELECT)
-    .in("id", unique);
-
-  if (error || !data?.length) return [];
-  return data as unknown as GameWithSong[];
+  return toGameWithSong(data);
 }
 
 async function getPreviousDaysWithClient(
@@ -172,7 +179,7 @@ async function getPreviousDaysWithClient(
 
   return games.map((g) => {
     const score = scoreMap.get(g.id);
-    const song = (g.ecos_songs as unknown) as SongRef | null;
+    const song = unwrapToOne<SongRef>(g.ecos_songs);
     const played = !!score;
     return {
       id: g.id,
@@ -224,7 +231,11 @@ export async function getTodaysCompletedResult(
     .select("ecos_songs(cover_url, title, artist_name)")
     .eq("id", todaysGameId)
     .single();
-  const song = game?.ecos_songs as { cover_url: string; title: string; artist_name: string } | null;
+  const song = unwrapToOne<{
+    cover_url: string;
+    title: string;
+    artist_name: string;
+  }>(game?.ecos_songs);
   if (!song) return null;
   return {
     title: song.title ?? "",
@@ -276,7 +287,7 @@ export async function getInProgressGames(
   const gameDateMap = new Map((games ?? []).map((g) => [g.id, g.date ?? ""]));
 
   const byGameId: Record<string, InProgressProgress> = {};
-  const byGame = new Map<string, typeof guesses>();
+  const byGame = new Map<string, NonNullable<typeof guesses>>();
   for (const g of guesses ?? []) {
     if (!byGame.has(g.game_id)) byGame.set(g.game_id, []);
     byGame.get(g.game_id)!.push(g);

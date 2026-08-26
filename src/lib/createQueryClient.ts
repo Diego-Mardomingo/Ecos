@@ -18,11 +18,17 @@ function querySkipsGlobalLog(query: { meta?: Record<string, unknown> | undefined
 
 export function createQueryClient() {
   const queryCache = new QueryCache({
+    /**
+     * Se loguea también en producción. Antes solo en desarrollo, así que un fetch que fallara en
+     * producción dejaba la pantalla vacía sin rastro en ninguna parte.
+     *
+     * No se muestra toast: aquí caen también los prefetch de la home y los refetch en segundo
+     * plano, que el usuario no ha pedido, y con mala cobertura saldría una ráfaga de avisos por
+     * algo que no ha hecho. Los errores de acciones suyas ya avisan por `mutationCache`.
+     */
     onError: (error, query) => {
       if (querySkipsGlobalLog(query)) return;
-      if (process.env.NODE_ENV === "development") {
-        console.error("[Query]", query.queryKey, error);
-      }
+      console.error("[Query]", query.queryKey, error);
     },
   });
 

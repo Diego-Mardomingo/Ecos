@@ -4,7 +4,6 @@ export type JobType =
   | "ingestion"
   | "weekly_games"
   | "daily_game"
-  | "verify_youtube"
   | "report_auto_deactivate";
 
 export type LogStatus = "success" | "partial" | "failure";
@@ -20,7 +19,7 @@ export interface LogSystemJobParams {
 
 /**
  * Registra un job automático en ecos_system_logs.
- * Usar desde API routes (report) o scripts (ingest, verify-youtube).
+ * Usar desde API routes (report) o scripts (ingest).
  * El caller debe pasar el cliente Supabase (createServiceClient en server, createClient con service key en scripts).
  */
 export async function logSystemJob(

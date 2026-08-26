@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parse, startOfMonth } from "date-fns";
 import { es as esLocale, enUS } from "date-fns/locale";
@@ -20,6 +20,7 @@ import {
   type LeaderboardHistorySummary,
 } from "@/lib/hooks/queries";
 import { RankingHistoryListContentSkeleton } from "@/components/skeletons";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 type Granularity = "weekly" | "monthly";
 
@@ -83,20 +84,20 @@ export function LeaderboardHistoryListClient({
 
   const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
+  // Reset al cambiar de granularidad, ajustando el estado durante el render
+  // (patrón recomendado por React) en lugar de sincronizarlo con un efecto.
+  const [lastGranularity, setLastGranularity] = useState(granularity);
+  if (granularity !== lastGranularity) {
+    setLastGranularity(granularity);
     setOpenMonths({});
-  }, [granularity]);
+  }
 
   const isMonthOpen = (monthKey: string) => {
     if (openMonths[monthKey] !== undefined) return openMonths[monthKey];
     return monthKey === defaultOpenMonthKey;
   };
 
-  const formatPoints = useMemo(
-    () => (n: number) =>
-      n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
-    [locale]
-  );
+  const { formatNumber: formatPoints } = useAppFormatters();
 
   const formatRange = (start: string, end: string) => {
     const a = parse(start, "yyyy-MM-dd", new Date());
@@ -188,7 +189,7 @@ export function LeaderboardHistoryListClient({
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-brand transition-opacity hover:opacity-80"
           aria-label={t("historyBack")}
         >
-          <span className="material-symbols-outlined text-2xl">arrow_back</span>
+          <span aria-hidden className="material-symbols-outlined text-2xl">arrow_back</span>
         </Link>
         <h1 className="min-w-0 flex-1 text-center text-base font-bold pr-9">
           {t("historyTitle")}

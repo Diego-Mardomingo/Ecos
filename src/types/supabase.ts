@@ -337,9 +337,6 @@ export type Database = {
           spotify_playlist_name: string | null
           tempo: number | null
           title: string
-          youtube_id: string | null
-          youtube_verified: boolean | null
-          youtube_verified_at: string | null
         }
         Insert: {
           album_title: string
@@ -363,9 +360,6 @@ export type Database = {
           spotify_playlist_name?: string | null
           tempo?: number | null
           title: string
-          youtube_id?: string | null
-          youtube_verified?: boolean | null
-          youtube_verified_at?: string | null
         }
         Update: {
           album_title?: string
@@ -389,9 +383,6 @@ export type Database = {
           spotify_playlist_name?: string | null
           tempo?: number | null
           title?: string
-          youtube_id?: string | null
-          youtube_verified?: boolean | null
-          youtube_verified_at?: string | null
         }
         Relationships: []
       }
@@ -1097,9 +1088,6 @@ export type Database = {
           spotify_playlist_name: string | null
           tempo: number | null
           title: string
-          youtube_id: string | null
-          youtube_verified: boolean | null
-          youtube_verified_at: string | null
         }[]
         SetofOptions: {
           from: "*"

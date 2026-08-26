@@ -39,19 +39,11 @@ export function NotificationsModal() {
   } = useNotifications({ enabled: isAuthenticated });
 
   const [open, setOpen] = useState(false);
-  const [statusLoaded, setStatusLoaded] = useState(false);
   /** Si true, el próximo cierre del diálogo no incrementa el contador (p. ej. activación correcta). */
   const skipNextDismissIncrement = useRef(false);
 
-  useEffect(() => {
-    if (!isSupported) {
-      setStatusLoaded(true);
-      return;
-    }
-    if (modalPromptExhausted || isEnabled) {
-      setStatusLoaded(true);
-    }
-  }, [isSupported, modalPromptExhausted, isEnabled]);
+  /** Ya sabemos que el modal no toca mostrarse: derivado, no sincronizado por efecto. */
+  const statusLoaded = !isSupported || modalPromptExhausted || isEnabled;
 
   useEffect(() => {
     if (isAuthLoading || !isAuthenticated || !isSupported) return;
@@ -60,10 +52,8 @@ export function NotificationsModal() {
       void recordModalDismiss({ exhaust: true });
       return;
     }
-    const timer = window.setTimeout(() => {
-      setOpen(true);
-      setStatusLoaded(true);
-    }, 600);
+    // setOpen basta: el guard de abajo ya deja pasar el render cuando open es true.
+    const timer = window.setTimeout(() => setOpen(true), 600);
     return () => window.clearTimeout(timer);
   }, [
     isAuthLoading,
@@ -107,7 +97,7 @@ export function NotificationsModal() {
       <DialogContent showCloseButton={false} className="max-w-sm">
         <DialogHeader className="items-center text-center sm:text-center">
           <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-brand/15">
-            <span
+            <span aria-hidden
               className="material-symbols-outlined text-3xl text-brand"
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
@@ -121,7 +111,7 @@ export function NotificationsModal() {
         </DialogHeader>
 
         <div className="mt-2 flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5">
-          <span
+          <span aria-hidden
             className="material-symbols-outlined text-xl text-brand"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >

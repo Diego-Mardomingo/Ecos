@@ -24,6 +24,7 @@ import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { getMadridDate } from "@/lib/date-utils";
 import { hasRecentGameCompleted } from "@/lib/consistencySync";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 
 interface NavItem {
   href: string;
@@ -47,7 +48,7 @@ export function BottomNav() {
   const hasRecentCompletion = hasRecentGameCompleted(user?.id ?? null, 2 * 60 * 1000);
 
   // Normalizar pathname quitando el prefijo de locale (/en/... → /...)
-  const normalizedPath = pathname.replace(/^\/(es|en)/, "") || "/";
+  const normalizedPath = stripLocalePrefix(pathname);
 
   const isActive = (href: string) => {
     if (href === "/") return normalizedPath === "/";

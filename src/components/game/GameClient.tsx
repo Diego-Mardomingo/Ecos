@@ -7,50 +7,31 @@ import {
   useState,
   useRef,
   useMemo,
-  memo,
-  type ReactNode,
-  type RefObject,
 } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
-import { es, enUS } from "date-fns/locale";
-import { motion } from "framer-motion";
-import Image from "next/image";
-import confetti from "canvas-confetti";
 import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
-import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
+import { type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSkipAttemptMutation,
   useValidateGuessMutation,
-  useReportGameMutation,
   useGameProgressById,
   queryKeys,
   type GameProgressData,
-  type ReportGameInput,
 } from "@/lib/hooks/queries";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { artistsMatch } from "@/lib/artist-match";
 import {
   ATTEMPT_DURATIONS,
   useGameStore,
-  type GuessEntry,
   type GamePhase,
+  type GuessEntry,
 } from "@/lib/store/gameStore";
 import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
-import { releaseYearFromReleaseDate } from "@/lib/song-display";
-import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Link, useRouter } from "@/i18n/navigation";
 import {
@@ -59,12 +40,19 @@ import {
 } from "@/lib/navigation/useNavigateBackToHome";
 import { PLAY_SKELETON_VARIANT_KEY } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_END_EVENT } from "@/lib/navigation/playNavigationEvents";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
+import { PreviousAttempts } from "@/components/game/GameAttemptsList";
+import { PlayingGameAudioSection } from "@/components/game/GameAudioSection";
+import { ResultGameView } from "@/components/game/GameResultScreen";
+import {
+  lostProgress,
+  nonWinningOptimistic,
+  playingProgress,
+  wonProgress,
+} from "@/components/game/gameProgressSnapshots";
 
-/** Duración máxima del preview en pantalla de resultado (segundos completos) */
-const FULL_PREVIEW_SECONDS = 30;
 /** Ventana corta para ignorar dobles taps accidentales en “Saltar intento”. */
 const SKIP_BUTTON_DOUBLE_TAP_GUARD_MS = 500;
-
 const CONFETTI_COLORS_DARK = ["#2bee79", "#ffffff", "#0a2015"] as const;
 const CONFETTI_COLORS_LIGHT = ["#059669", "#ffffff", "#f8fafc"] as const;
 
@@ -79,315 +67,13 @@ interface Props {
   userId: string | null; // null = invitado
 }
 
-const ResultGameView = memo(function ResultGameView({
-  game,
-  resultPhase,
-  resultCorrectAttempt,
-  resultFinalScore,
-  resultGuesses,
-  isGuest,
-  maxAttempts,
-}: {
-  game: GameWithSong;
-  resultPhase: GamePhase;
-  resultCorrectAttempt: number | null;
-  resultFinalScore: number | null;
-  resultGuesses: GuessEntry[];
-  isGuest: boolean;
-  maxAttempts: number;
-}) {
-  const t = useTranslations("game");
-  const tc = useTranslations("common");
-  const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
-  const navigateBackToHome = useNavigateBackToHome();
-  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioLoaded, setAudioLoaded] = useState(false);
-  const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
-  const song = game.ecos_songs;
-
-  const progress = Math.min((audioCurrentTime / FULL_PREVIEW_SECONDS) * 100, 100);
-
-  return (
-    <div className="relative flex min-h-dvh flex-col bg-background">
-      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
-        <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
-        <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
-      </div>
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
-          <Link
-            href="/"
-            onClick={navigateBackToHome}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
-            aria-label={tc("back")}
-          >
-            <span className="material-symbols-outlined text-xl">arrow_back</span>
-          </Link>
-          <h1 className="min-w-0 flex-1 truncate text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
-            {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
-            {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
-            {game.game_number != null && (
-              <>
-                <span className="text-foreground/50"> · </span>
-                <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
-              </>
-            )}
-          </h1>
-          <div className="flex w-28 shrink-0 flex-col items-end gap-0">
-            <div className="flex w-full items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => resultAudioPlayerRef.current?.togglePlay()}
-                disabled={!audioLoaded}
-                className={cn(
-                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors",
-                  audioLoaded
-                    ? "bg-brand text-primary-foreground"
-                    : "cursor-not-allowed bg-muted text-muted-foreground opacity-50"
-                )}
-                aria-label={audioPlaying ? t("listening") : t("pressPlay")}
-              >
-                {audioLoaded ? (
-                  <span
-                    className="material-symbols-outlined text-xl"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
-                  >
-                    {audioPlaying ? "stop" : "play_arrow"}
-                  </span>
-                ) : (
-                  <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-                )}
-              </button>
-              <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-1 rounded-full bg-brand"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-            <span className="-mt-0.5 leading-none text-[9px] tabular-nums text-muted-foreground">
-              {String(Math.floor(audioCurrentTime / 60)).padStart(2, "0")}:
-              {String(Math.floor(audioCurrentTime % 60)).padStart(2, "0")} / 00:
-              {String(FULL_PREVIEW_SECONDS).padStart(2, "0")}
-            </span>
-          </div>
-        </header>
-        <div className="h-14 shrink-0" aria-hidden />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ResultScreen
-            phase={resultPhase as "won" | "lost"}
-            song={song}
-            gameId={game.id}
-            gameDate={game.date}
-            correctAttempt={resultCorrectAttempt}
-            finalScore={resultFinalScore}
-            maxAttempts={maxAttempts}
-            gameNumber={game.game_number}
-            isGuest={isGuest}
-            guesses={resultGuesses}
-          />
-        </div>
-      </div>
-      <AudioPlayer
-        ref={resultAudioPlayerRef}
-        youtubeId={song.youtube_id ?? ""}
-        previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
-        maxDuration={FULL_PREVIEW_SECONDS}
-        onTimeUpdate={setAudioCurrentTime}
-        onPlayingChange={setAudioPlaying}
-        onLoadedChange={setAudioLoaded}
-        onEnded={() => {
-          setAudioCurrentTime(0);
-          setTimeout(() => setAudioCurrentTime(0), 150);
-        }}
-        hideControls
-      />
-    </div>
-  );
-});
-
-const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
-  game,
-  audioDuration,
-  guesses,
-  maxAttempts,
-  isGuest,
-  playerRef,
-  children,
-}: {
-  game: GameWithSong;
-  audioDuration: number;
-  guesses: GuessEntry[];
-  maxAttempts: number;
-  isGuest: boolean;
-  playerRef: RefObject<AudioPlayerHandle | null>;
-  children: ReactNode;
-}) {
-  const t = useTranslations("game");
-  const tc = useTranslations("common");
-  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioLoaded, setAudioLoaded] = useState(false);
-  const song = game.ecos_songs;
-
-  const formatTimeRemaining = (s: number) => {
-    if (s <= 0) return "00:00";
-    const secs = Math.ceil(s);
-    return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
-  };
-
-  return (
-    <>
-      <div className="flex w-full flex-col items-center px-4 pb-4 pt-1">
-        <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
-          {formatTimeRemaining(Math.max(0, audioDuration - audioCurrentTime))}
-        </span>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-brand"
-            style={{
-              width: `${Math.min((audioCurrentTime / audioDuration) * 100, 100)}%`,
-            }}
-          />
-        </div>
-      </div>
-
-      {isGuest && (
-        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2">
-          <span
-            className="material-symbols-outlined text-base text-brand"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            info
-          </span>
-          <p className="flex-1 text-xs text-brand/90">{t("guestNotice")}</p>
-          <Link href="/login" className="text-xs font-bold text-brand underline underline-offset-2">
-            {tc("enter")}
-          </Link>
-        </div>
-      )}
-
-      <div className="relative flex shrink-0 flex-col items-center justify-start gap-3 overflow-hidden px-4 pb-2 pt-4">
-        <div className="relative flex flex-col items-center gap-2">
-          <div className="relative flex items-center justify-center">
-            <svg className="h-48 w-48 -rotate-90" viewBox="0 0 192 192" aria-hidden>
-              <circle
-                cx="96"
-                cy="96"
-                r="80"
-                fill="transparent"
-                stroke="currentColor"
-                strokeWidth="6"
-                className="text-muted dark:text-white/5"
-              />
-              <circle
-                cx="96"
-                cy="96"
-                r="80"
-                fill="transparent"
-                stroke="currentColor"
-                strokeWidth="6"
-                strokeLinecap="round"
-                className="text-brand"
-                strokeDasharray={502.65}
-                strokeDashoffset={502.65 * (1 - Math.min(audioCurrentTime / audioDuration, 1))}
-              />
-            </svg>
-            <motion.button
-              type="button"
-              onClick={() => playerRef.current?.togglePlay()}
-              whileTap={{ scale: 0.95 }}
-              whileHover={{ scale: audioLoaded ? 1.05 : 1 }}
-              disabled={!audioLoaded}
-              className={cn(
-                "absolute flex size-32 items-center justify-center rounded-full shadow-lg transition-transform",
-                audioLoaded
-                  ? "bg-brand text-primary-foreground shadow-brand/20 hover:scale-105 active:scale-95"
-                  : "cursor-not-allowed bg-muted text-muted-foreground opacity-50"
-              )}
-              aria-label={audioPlaying ? t("listening") : t("pressPlay")}
-            >
-              {audioLoaded ? (
-                <span
-                  className="material-symbols-outlined inline-block font-bold"
-                  style={{
-                    fontVariationSettings: "'FILL' 1, 'opsz' 48",
-                    fontSize: "3.25rem",
-                  }}
-                >
-                  {audioPlaying ? "stop" : "play_arrow"}
-                </span>
-              ) : (
-                <span
-                  className="material-symbols-outlined inline-block animate-spin"
-                  style={{
-                    fontVariationSettings: "'opsz' 48",
-                    fontSize: "2.75rem",
-                  }}
-                >
-                  progress_activity
-                </span>
-              )}
-            </motion.button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1">
-          {Array.from({ length: maxAttempts }).map((_, i) => {
-            const guess = guesses[i];
-            const isCurrent = i === guesses.length;
-            return (
-              <div
-                key={i}
-                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-                aria-hidden
-              >
-                <div
-                  className={cn(
-                    "h-2.5 w-2.5 rounded-full transition-all",
-                    i < guesses.length
-                      ? guess?.correct
-                        ? "bg-brand"
-                        : "bg-destructive"
-                      : isCurrent
-                        ? "bg-brand/50 ring-2 ring-brand/30"
-                        : "bg-muted"
-                  )}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="px-4 pb-8 pt-5">
-        <AudioPlayer
-          ref={playerRef}
-          youtubeId={song.youtube_id ?? ""}
-          previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
-          maxDuration={audioDuration}
-          onTimeUpdate={setAudioCurrentTime}
-          onPlayingChange={setAudioPlaying}
-          onLoadedChange={setAudioLoaded}
-          hideControls
-          className="mb-3"
-        />
-        {children}
-      </div>
-    </>
-  );
-});
-
 export function GameClient({ game, userId }: Props) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
   const tc = useTranslations("common");
-  const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
+  const { dateFnsLocale } = useAppFormatters();
   const isGuest = !userId;
   const validateGuessMutation = useValidateGuessMutation();
   const skipAttemptMutation = useSkipAttemptMutation();
@@ -708,6 +394,86 @@ export function GameClient({ game, userId }: Props) {
     startGame,
   ]);
 
+  /**
+   * Registra un intento que no gana, en modo invitado. Todo local: no hay nada que sincronizar.
+   *
+   * Era el mismo bloque en la rama de fallo de `handleGuess` y en el botón de saltar; la única
+   * diferencia entre ambos era la entrada del intento.
+   */
+  const applyGuestAttempt = useCallback(
+    (entry: GuessEntry) => {
+      addGuess(entry);
+      if (effectiveCurrentAttempt >= maxAttempts) {
+        setLost();
+        // Se lee después de setLost, como hacían los dos sitios originales.
+        saveProgress(
+          lostProgress({ game, guesses: useGameStore.getState().guesses })
+        );
+      } else {
+        saveProgress(
+          playingProgress({ game, guesses: useGameStore.getState().guesses })
+        );
+      }
+    },
+    [addGuess, effectiveCurrentAttempt, maxAttempts, setLost, saveProgress, game]
+  );
+
+  /**
+   * Registra un intento que no gana, en modo autenticado, y lo sincroniza.
+   *
+   * El andamiaje era idéntico en la rama de fallo de `handleGuess` y en el botón de saltar:
+   * marcar sync en curso, apuntar el intento, cerrar la partida si agota los seis, capturar los
+   * intentos para el payload optimista, y en caso de error avisar y revertir. Lo único propio de
+   * cada sitio es la mutación, que se pasa como `submit`.
+   *
+   * `submit` corre **antes** del guardado final a propósito: la rama de fallo reconcilia dentro
+   * los flags de artista/álbum que devuelve el servidor, y `lostProgress` lee los intentos del
+   * store ya reconciliados.
+   */
+  const runSyncedAttempt = useCallback(
+    (
+      entry: GuessEntry,
+      submit: (ctx: {
+        lostNow: boolean;
+        optimisticGuesses: GuessEntry[];
+      }) => Promise<void>
+    ) => {
+      syncInFlightRef.current = true;
+      const lostNow = effectiveCurrentAttempt >= maxAttempts;
+      addGuess(entry);
+      if (lostNow) {
+        setLost();
+      }
+      const optimisticGuesses = [...useGameStore.getState().guesses];
+
+      void (async () => {
+        try {
+          await submit({ lostNow, optimisticGuesses });
+          if (lostNow) {
+            saveProgress(
+              lostProgress({ game, guesses: useGameStore.getState().guesses })
+            );
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t("saveResultError"));
+          revertLastGuessAfterFailedSync();
+        } finally {
+          syncInFlightRef.current = false;
+        }
+      })();
+    },
+    [
+      addGuess,
+      effectiveCurrentAttempt,
+      maxAttempts,
+      setLost,
+      saveProgress,
+      game,
+      t,
+      revertLastGuessAfterFailedSync,
+    ]
+  );
+
   const handleGuess = useCallback(
     (song: EcosSong) => {
       if (effectivePhase !== "playing") return;
@@ -727,15 +493,28 @@ export function GameClient({ game, userId }: Props) {
         normalize(song.album_title) === normalize(game.ecos_songs.album_title);
 
       if (isCorrect) {
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-          colors:
-            resolvedTheme === "dark"
-              ? [...CONFETTI_COLORS_DARK]
-              : [...CONFETTI_COLORS_LIGHT],
-        });
+        /**
+         * `canvas-confetti` se carga aquí y no arriba: solo se usa al acertar, así que como
+         * import estático viajaba en el chunk inicial de /play para algo que la mayoría de las
+         * cargas no llega a ejecutar. Va sin await para no retrasar nada de lo que viene después
+         * —la animación es adorno, el resto es el estado de la partida— y con catch vacío porque
+         * quedarse sin confeti no es un error que merezca molestar al usuario.
+         */
+        void import("canvas-confetti")
+          .then(({ default: confetti }) => {
+            confetti({
+              particleCount: 120,
+              spread: 80,
+              origin: { y: 0.6 },
+              colors:
+                resolvedTheme === "dark"
+                  ? [...CONFETTI_COLORS_DARK]
+                  : [...CONFETTI_COLORS_LIGHT],
+            });
+          })
+          .catch(() => {
+            /* sin confeti; la partida sigue */
+          });
 
         const guessEntry = {
           text: guessText,
@@ -747,19 +526,14 @@ export function GameClient({ game, userId }: Props) {
         if (isGuest) {
           const { totalPoints } = calculateScore(effectiveCurrentAttempt, 0);
           setWon(effectiveCurrentAttempt, totalPoints);
-          saveProgress({
-            gameId: game.id,
-            gameDate: game.date,
-            played: true,
-            won: true,
-            score: totalPoints,
-            title: game.ecos_songs.title,
-            artist_name: game.ecos_songs.artist_name,
-            cover_url: game.ecos_songs.cover_url ?? undefined,
-            guesses: useGameStore.getState().guesses,
-            phase: "won",
-            correctAttempt: effectiveCurrentAttempt,
-          });
+          saveProgress(
+            wonProgress({
+              game,
+              score: totalPoints,
+              guesses: useGameStore.getState().guesses,
+              correctAttempt: effectiveCurrentAttempt,
+            })
+          );
         } else {
           syncInFlightRef.current = true;
           const optimisticScore = calculateScore(effectiveCurrentAttempt, 0).totalPoints;
@@ -801,19 +575,14 @@ export function GameClient({ game, userId }: Props) {
               if (serverPoints !== optimisticScore) {
                 setWon(effectiveCurrentAttempt, serverPoints);
               }
-              saveProgress({
-                gameId: game.id,
-                gameDate: game.date,
-                played: true,
-                won: true,
-                score: serverPoints,
-                title: game.ecos_songs.title,
-                artist_name: game.ecos_songs.artist_name,
-                cover_url: game.ecos_songs.cover_url ?? undefined,
-                guesses: useGameStore.getState().guesses,
-                phase: "won",
-                correctAttempt: effectiveCurrentAttempt,
-              });
+              saveProgress(
+                wonProgress({
+                  game,
+                  score: serverPoints,
+                  guesses: useGameStore.getState().guesses,
+                  correctAttempt: effectiveCurrentAttempt,
+                })
+              );
             } catch (error) {
               toast.error(error instanceof Error ? error.message : t("saveResultError"));
               revertWinAfterFailedSync();
@@ -823,136 +592,63 @@ export function GameClient({ game, userId }: Props) {
           })();
         }
       } else {
-        if (!isGuest) {
-          syncInFlightRef.current = true;
-
-          const guessEntry = {
-            text: guessText,
-            correct: false,
-            correctArtist,
-            correctAlbum,
-            attemptNumber: effectiveCurrentAttempt,
-          };
-          addGuess(guessEntry);
-          const lostNow = effectiveCurrentAttempt >= maxAttempts;
-          if (lostNow) {
-            setLost();
-          }
-          const optimisticGuesses = [...useGameStore.getState().guesses];
-
-          void (async () => {
-            try {
-              const data = await validateGuessMutation.mutateAsync({
-                userId,
-                gameId: game.id,
-                event: lostNow ? "gameCompleted" : "attemptSaved",
-                song: {
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url,
-                },
-                request: {
-                  gameId: game.id,
-                  userId: userId!,
-                  attemptNumber: effectiveCurrentAttempt,
-                  guessText,
-                  songId: song.id,
-                  guessArtistName: song.artist_name,
-                  guessAlbumTitle: song.album_title ?? undefined,
-                  finalize: effectiveCurrentAttempt >= maxAttempts,
-                },
-                optimistic: lostNow
-                  ? {
-                      type: "completion",
-                      won: false,
-                      score: 0,
-                      completedProgress: {
-                        gameDate: game.date,
-                        guesses: optimisticGuesses,
-                      },
-                    }
-                  : {
-                      type: "inProgress",
-                      inProgress: {
-                        gameId: game.id,
-                        gameDate: game.date,
-                        guesses: optimisticGuesses,
-                        phase: "playing",
-                      },
-                    },
-              });
-              const srvA = data.correctArtist ?? correctArtist;
-              const srvB = data.correctAlbum ?? correctAlbum;
-              if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
-                const gs = useGameStore.getState().guesses;
-                const last = gs[gs.length - 1];
-                if (last && last.text === guessText && !last.correct) {
-                  useGameStore.setState({
-                    guesses: [
-                      ...gs.slice(0, -1),
-                      { ...last, correctArtist: srvA, correctAlbum: srvB },
-                    ],
-                  });
-                }
-              }
-              if (lostNow) {
-                saveProgress({
-                  gameId: game.id,
-                  gameDate: game.date,
-                  played: true,
-                  won: false,
-                  score: 0,
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url ?? undefined,
-                  guesses: useGameStore.getState().guesses,
-                  phase: "lost",
-                });
-              }
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : t("saveResultError"));
-              revertLastGuessAfterFailedSync();
-            } finally {
-              syncInFlightRef.current = false;
-            }
-          })();
-          return;
-        }
-
-        const guessEntry = {
+        const guessEntry: GuessEntry = {
           text: guessText,
           correct: false,
           correctArtist,
           correctAlbum,
           attemptNumber: effectiveCurrentAttempt,
         };
-        addGuess(guessEntry);
 
-        if (effectiveCurrentAttempt >= maxAttempts) {
-          setLost();
-          saveProgress({
-            gameId: game.id,
-            gameDate: game.date,
-            played: true,
-            won: false,
-            score: null,
-            title: game.ecos_songs.title,
-            artist_name: game.ecos_songs.artist_name,
-            cover_url: game.ecos_songs.cover_url ?? undefined,
-            guesses: useGameStore.getState().guesses,
-            phase: "lost",
-          });
-        } else {
-          saveProgress({
-            gameId: game.id,
-            gameDate: game.date,
-            played: false,
-            won: false,
-            score: null,
-            guesses: useGameStore.getState().guesses,
-            phase: "playing",
-          });
+        if (isGuest) {
+          applyGuestAttempt(guessEntry);
+          return;
         }
+
+        runSyncedAttempt(guessEntry, async ({ lostNow, optimisticGuesses }) => {
+          const data = await validateGuessMutation.mutateAsync({
+            userId,
+            gameId: game.id,
+            event: lostNow ? "gameCompleted" : "attemptSaved",
+            song: {
+              title: game.ecos_songs.title,
+              artist_name: game.ecos_songs.artist_name,
+              cover_url: game.ecos_songs.cover_url,
+            },
+            request: {
+              gameId: game.id,
+              userId: userId!,
+              attemptNumber: effectiveCurrentAttempt,
+              guessText,
+              songId: song.id,
+              guessArtistName: song.artist_name,
+              guessAlbumTitle: song.album_title ?? undefined,
+              finalize: lostNow,
+            },
+            optimistic: nonWinningOptimistic({
+              game,
+              lostNow,
+              guesses: optimisticGuesses,
+            }),
+          });
+
+          // El servidor manda sobre los flags de artista/álbum: si difieren, se corrige el
+          // último intento en el store antes de que `lostProgress` lo lea.
+          const srvA = data.correctArtist ?? correctArtist;
+          const srvB = data.correctAlbum ?? correctAlbum;
+          if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
+            const gs = useGameStore.getState().guesses;
+            const last = gs[gs.length - 1];
+            if (last && last.text === guessText && !last.correct) {
+              useGameStore.setState({
+                guesses: [
+                  ...gs.slice(0, -1),
+                  { ...last, correctArtist: srvA, correctAlbum: srvB },
+                ],
+              });
+            }
+          }
+        });
       }
     },
     [
@@ -961,16 +657,15 @@ export function GameClient({ game, userId }: Props) {
       userId,
       isGuest,
       effectiveCurrentAttempt,
-      maxAttempts,
       addGuess,
       setWon,
-      setLost,
       saveProgress,
       resolvedTheme,
       revertWinAfterFailedSync,
-      revertLastGuessAfterFailedSync,
       validateGuessMutation,
       t,
+      applyGuestAttempt,
+      runSyncedAttempt,
     ]
   );
 
@@ -995,7 +690,7 @@ export function GameClient({ game, userId }: Props) {
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
             aria-label={tc("back")}
           >
-            <span className="material-symbols-outlined text-xl">arrow_back</span>
+            <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
           </Link>
           <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
             {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
@@ -1097,7 +792,7 @@ export function GameClient({ game, userId }: Props) {
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
           aria-label={tc("back")}
         >
-          <span className="material-symbols-outlined text-xl">arrow_back</span>
+          <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
         </Link>
         <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
           {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
@@ -1116,121 +811,47 @@ export function GameClient({ game, userId }: Props) {
             if (effectivePhase !== "playing") return;
             if (!isGuest && syncInFlightRef.current) return;
 
-            if (!isGuest && userId) {
-              const now = Date.now();
-              if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
-              lastSkipTapAtRef.current = now;
-
-              syncInFlightRef.current = true;
-              const lostNow = effectiveCurrentAttempt >= maxAttempts;
-              addGuess({
-                text: "skipped",
-                correct: false,
-                attemptNumber: effectiveCurrentAttempt,
-              });
-              if (lostNow) {
-                setLost();
-              }
-              const optimisticGuesses = [...useGameStore.getState().guesses];
-              void (async () => {
-                try {
-                  await skipAttemptMutation.mutateAsync({
-                    userId,
-                    gameId: game.id,
-                    event: lostNow ? "gameCompleted" : "attemptSaved",
-                    song: {
-                      title: game.ecos_songs.title,
-                      artist_name: game.ecos_songs.artist_name,
-                      cover_url: game.ecos_songs.cover_url,
-                    },
-                    request: {
-                      gameId: game.id,
-                      attemptNumber: effectiveCurrentAttempt,
-                    },
-                    optimistic: lostNow
-                      ? {
-                          type: "completion",
-                          won: false,
-                          score: 0,
-                          completedProgress: {
-                            gameDate: game.date,
-                            guesses: optimisticGuesses,
-                          },
-                        }
-                      : {
-                          type: "inProgress",
-                          inProgress: {
-                            gameId: game.id,
-                            gameDate: game.date,
-                            guesses: optimisticGuesses,
-                            phase: "playing",
-                          },
-                        },
-                  });
-                  if (lostNow) {
-                    saveProgress({
-                      gameId: game.id,
-                      gameDate: game.date,
-                      played: true,
-                      won: false,
-                      score: 0,
-                      title: game.ecos_songs.title,
-                      artist_name: game.ecos_songs.artist_name,
-                      cover_url: game.ecos_songs.cover_url ?? undefined,
-                      guesses: useGameStore.getState().guesses,
-                      phase: "lost",
-                    });
-                  }
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : t("saveResultError"));
-                  revertLastGuessAfterFailedSync();
-                } finally {
-                  syncInFlightRef.current = false;
-                }
-              })();
-              return;
-            }
-
+            // El guard de doble tap va antes de bifurcar: aplica igual a invitado y autenticado.
             const now = Date.now();
             if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
             lastSkipTapAtRef.current = now;
 
-            addGuess({
+            const skipEntry: GuessEntry = {
               text: "skipped",
               correct: false,
               attemptNumber: effectiveCurrentAttempt,
-            });
-            if (effectiveCurrentAttempt >= maxAttempts) {
-              setLost();
-              const finalGuesses = useGameStore.getState().guesses;
-              saveProgress({
-                gameId: game.id,
-                gameDate: game.date,
-                played: true,
-                won: false,
-                score: null,
-                title: game.ecos_songs.title,
-                artist_name: game.ecos_songs.artist_name,
-                cover_url: game.ecos_songs.cover_url ?? undefined,
-                guesses: finalGuesses,
-                phase: "lost",
-              });
-            } else {
-              const updatedGuesses = useGameStore.getState().guesses;
-              saveProgress({
-                gameId: game.id,
-                gameDate: game.date,
-                played: false,
-                won: false,
-                score: null,
-                guesses: updatedGuesses,
-                phase: "playing",
-              });
+            };
+
+            if (isGuest || !userId) {
+              applyGuestAttempt(skipEntry);
+              return;
             }
+
+            runSyncedAttempt(skipEntry, async ({ lostNow, optimisticGuesses }) => {
+              await skipAttemptMutation.mutateAsync({
+                userId,
+                gameId: game.id,
+                event: lostNow ? "gameCompleted" : "attemptSaved",
+                song: {
+                  title: game.ecos_songs.title,
+                  artist_name: game.ecos_songs.artist_name,
+                  cover_url: game.ecos_songs.cover_url,
+                },
+                request: {
+                  gameId: game.id,
+                  attemptNumber: effectiveCurrentAttempt,
+                },
+                optimistic: nonWinningOptimistic({
+                  game,
+                  lostNow,
+                  guesses: optimisticGuesses,
+                }),
+              });
+            });
           }}
           className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
         >
-          <span className="material-symbols-outlined text-lg">skip_next</span>
+          <span aria-hidden className="material-symbols-outlined text-lg">skip_next</span>
           {t("skip")}
         </button>
       </header>
@@ -1260,534 +881,3 @@ export function GameClient({ game, userId }: Props) {
   );
 }
 
-const GUESS_LABEL_KEYS: Record<string, string> = {
-  CORRECT: "correct",
-  WRONG_SONG: "wrongSong",
-  CORRECT_ARTIST: "correctArtist",
-  CORRECT_ALBUM: "correctAlbum",
-  CORRECT_ARTIST_ALBUM: "correctArtistAlbum",
-  WRONG: "wrong",
-  SKIPPED: "skipped",
-};
-
-function PreviousAttempts({
-  guesses,
-}: {
-  guesses: Array<{ text: string; correct?: boolean; correctArtist?: boolean; correctAlbum?: boolean }>;
-}) {
-  const t = useTranslations("game");
-  const reversed = [...guesses].reverse();
-
-  const parseGuessText = (text: string) => {
-    const sep = text.lastIndexOf(" - ");
-    if (sep === -1) return { title: text, artist: "" };
-    return { title: text.slice(0, sep).trim(), artist: text.slice(sep + 3).trim() };
-  };
-
-  const attemptCard = (
-    g: (typeof guesses)[0],
-    i: number,
-    labelKey: string,
-    bgClass: string,
-    labelClass: string,
-    icon: string,
-    iconClass: string
-  ) => {
-    const { title, artist } = parseGuessText(g.text);
-    return (
-      <div
-        key={i}
-        className={cn(
-          "flex min-h-[44px] flex-row items-center gap-2.5 rounded-lg border px-2.5 py-2",
-          bgClass
-        )}
-      >
-        {/* Icono centrado verticalmente */}
-        <div className="flex w-14 shrink-0 items-center justify-center sm:w-auto sm:block">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-            <span
-              className={cn("material-symbols-outlined text-lg", iconClass)}
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              {icon}
-            </span>
-          </div>
-        </div>
-        {/* Contenido: etiqueta, título y artista alineados a la izquierda */}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-          <span className={cn("text-xs font-semibold", labelClass)}>
-            {t(GUESS_LABEL_KEYS[labelKey] as keyof IntlMessages["game"])}
-          </span>
-          {title ? <p className="break-words text-sm font-medium">{title}</p> : null}
-          {artist ? (
-            <p className="break-words text-xs text-muted-foreground">{artist}</p>
-          ) : null}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="mt-4">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-brand">
-        {t("previousAttempts")}
-      </h3>
-      <div className="flex flex-col gap-2">
-        {reversed.map((g, i) => {
-          const origIndex = guesses.length - 1 - i;
-          if (g.text === "skipped") {
-            return (
-              <div
-                key={origIndex}
-                className="flex min-h-[44px] flex-row items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/15 px-2.5 py-2"
-              >
-                <div className="flex w-14 shrink-0 items-center justify-center sm:w-auto sm:block">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-                    <span
-                      className="material-symbols-outlined text-lg text-destructive"
-                      style={{ fontVariationSettings: "'FILL' 1" }}
-                    >
-                      skip_next
-                    </span>
-                  </div>
-                </div>
-                <span className="text-left text-xs font-semibold text-destructive">
-                  {t("skipped")}
-                </span>
-              </div>
-            );
-          }
-          let labelKey = "WRONG";
-          let bgClass = "bg-destructive/15 border-destructive/40";
-          let labelClass = "text-destructive";
-          let icon = "close";
-          let iconClass = "text-destructive";
-          if (g.correct) {
-            labelKey = "CORRECT";
-            bgClass = "bg-brand/15 border-brand/40";
-            labelClass = "text-brand";
-            icon = "check_circle";
-            iconClass = "text-brand";
-          } else if (g.correctArtist || g.correctAlbum) {
-            labelKey = g.correctAlbum ? "CORRECT_ALBUM" : "CORRECT_ARTIST";
-            if (g.correctAlbum) {
-              bgClass = "bg-violet-500/15 border-violet-500/30";
-              labelClass = "text-violet-600 dark:text-violet-400";
-              icon = "album";
-              iconClass = "text-violet-600 dark:text-violet-400";
-            } else {
-              bgClass = "bg-teal-500/15 border-teal-500/30";
-              labelClass = "text-teal-600 dark:text-teal-400";
-              icon = "person";
-              iconClass = "text-teal-600 dark:text-teal-400";
-            }
-          } else {
-            labelKey = "WRONG_SONG";
-          }
-          return attemptCard(g, origIndex, labelKey, bgClass, labelClass, icon, iconClass);
-        })}
-      </div>
-    </div>
-  );
-}
-
-const REPORT_REASON_IDS = [
-  "bad_audio",
-  "wrong_video",
-  "intro_problem",
-  "explicit_content",
-  "other",
-] as const;
-const REPORT_REASON_KEYS: Record<(typeof REPORT_REASON_IDS)[number], string> = {
-  bad_audio: "report.reasonBadAudio",
-  wrong_video: "report.reasonWrongVideo",
-  intro_problem: "report.reasonIntroProblem",
-  explicit_content: "report.reasonExplicit",
-  other: "report.reasonOther",
-};
-
-function ResultScreen({
-  phase,
-  song,
-  gameId,
-  gameDate,
-  correctAttempt,
-  finalScore,
-  maxAttempts,
-  gameNumber,
-  isGuest,
-  guesses = [],
-}: {
-  phase: "won" | "lost";
-  song: GameWithSong["ecos_songs"];
-  gameId: string;
-  gameDate: string;
-  correctAttempt: number | null;
-  finalScore: number | null;
-  maxAttempts: number;
-  gameNumber: number;
-  isGuest: boolean;
-  guesses?: Array<{ text: string; correct?: boolean; correctArtist?: boolean; correctAlbum?: boolean }>;
-}) {
-  const t = useTranslations("game");
-  const tc = useTranslations("common");
-  const locale = useLocale();
-  const dateFnsLocale = locale === "es" ? es : enUS;
-  const won = phase === "won";
-  const metaAlbum = song.album_title?.trim();
-  const metaYear = releaseYearFromReleaseDate(song.release_date);
-  const metaGenre = song.genre?.trim();
-  const hasSongMeta = Boolean(metaAlbum || metaYear || metaGenre);
-  const [reportOpen, setReportOpen] = useState(false);
-  const [reportReason, setReportReason] = useState<string>("");
-  const [reportDesc, setReportDesc] = useState("");
-  const [reportSent, setReportSent] = useState(false);
-  const reportMutation = useReportGameMutation();
-  const [shareCopied, setShareCopied] = useState(false);
-  const navigateBackToHome = useNavigateBackToHome();
-
-  const handleShare = async () => {
-    const shareUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/${locale}/play/${gameId}`
-        : "";
-    const title = won
-      ? t("shareTitleWon", {
-          attempt: correctAttempt ?? 0,
-          max: maxAttempts,
-          score: (finalScore ?? 0).toLocaleString(),
-        })
-      : t("shareTitleLost");
-    const scoreText = won
-      ? t("shareScoreWon", {
-          attempt: correctAttempt ?? 0,
-          max: maxAttempts,
-          score: (finalScore ?? 0).toLocaleString(),
-        })
-      : t("shareScoreLost");
-    const inviteText = t("shareInvite");
-    const dateLabel = (() => {
-      if (!gameDate) return "";
-      try {
-        return format(parseISO(String(gameDate)), "d MMM", { locale: dateFnsLocale }).toUpperCase();
-      } catch {
-        return "";
-      }
-    })();
-    const metaLabel = dateLabel ? `${dateLabel} · #${gameNumber}` : `#${gameNumber}`;
-    const correctIdx = won && correctAttempt != null ? correctAttempt - 1 : -1;
-    const dotsEmoji = Array.from({ length: maxAttempts }, (_, i) => {
-      if (won && correctAttempt != null) {
-        if (i < correctIdx) return "🔴";
-        if (i === correctIdx) return "🟢";
-        return "⚪";
-      }
-      return "🔴";
-    }).join("");
-    const emojiIntro = won ? "🎵 🏆" : "🎵 💪";
-    const textWithEmojis = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText}`;
-    const fullTextForClipboard = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText} ${shareUrl}`;
-    try {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({
-          title,
-          text: textWithEmojis,
-          url: shareUrl,
-        });
-      } else {
-        await navigator.clipboard.writeText(fullTextForClipboard);
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2000);
-      }
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        try {
-          await navigator.clipboard.writeText(fullTextForClipboard);
-          setShareCopied(true);
-          setTimeout(() => setShareCopied(false), 2000);
-        } catch {
-          // ignore
-        }
-      }
-    }
-  };
-
-  const handleReport = () => {
-    if (!reportReason) return;
-    reportMutation.mutate(
-      {
-        gameId,
-        songId: song.id,
-        reason: reportReason as ReportGameInput["reason"],
-        description: reportDesc.trim() || undefined,
-      },
-      {
-        onSuccess: () => {
-          setReportSent(true);
-          setReportOpen(false);
-        },
-        onError: () => {
-          toast.error(tc("error"));
-        },
-      }
-    );
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="flex min-h-full flex-col items-center justify-center gap-5 px-6 py-8 text-center"
-    >
-      {/* Artwork */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.2 }}
-        className="relative h-44 w-44 overflow-hidden rounded-2xl shadow-2xl"
-      >
-        {song.cover_url ? (
-          <Image src={song.cover_url} alt={song.title} fill className="object-cover" sizes="176px" />
-        ) : (
-          <div className="h-full w-full bg-gradient-to-br from-brand/20 to-card" />
-        )}
-      </motion.div>
-
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.2 }}
-        className="space-y-1"
-      >
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          {t("revealingSong")}
-        </p>
-        <h2 className="text-2xl font-bold">{song.title}</h2>
-        <p className="text-muted-foreground">{song.artist_name}</p>
-        {hasSongMeta ? (
-          <dl className="mt-3 space-y-1.5 text-left text-sm text-muted-foreground">
-            {metaAlbum ? (
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                <dt className="shrink-0 font-medium text-foreground/70">{t("resultAlbum")}</dt>
-                <dd className="min-w-0 break-words">{metaAlbum}</dd>
-              </div>
-            ) : null}
-            {metaYear ? (
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                <dt className="shrink-0 font-medium text-foreground/70">{t("resultYear")}</dt>
-                <dd>{metaYear}</dd>
-              </div>
-            ) : null}
-            {metaGenre ? (
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                <dt className="shrink-0 font-medium text-foreground/70">{t("resultGenre")}</dt>
-                <dd className="min-w-0 break-words">{metaGenre}</dd>
-              </div>
-            ) : null}
-          </dl>
-        ) : null}
-      </motion.div>
-
-      {/* Resultado (sin fondo para que sea invisible) */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.2 }}
-        className="w-full rounded-2xl"
-        style={{ paddingTop: "0.25rem", paddingBottom: "2.5rem", paddingLeft: "1.25rem", paddingRight: "1.25rem" }}
-      >
-        {/* Dots de intentos (mismo estilo que en la pantalla de juego) */}
-        <div className="mb-5 flex justify-center gap-1">
-          {Array.from({ length: maxAttempts }).map((_, i) => {
-            const isWinningAttempt = won && correctAttempt !== null && i === correctAttempt - 1;
-            const isPending = won && correctAttempt !== null && i > correctAttempt - 1;
-            const guess = guesses[i];
-            const isCorrect = guess?.correct === true;
-            const dotClass = isWinningAttempt
-              ? "bg-brand"
-              : isPending
-                ? "bg-muted"
-                : isCorrect
-                  ? "bg-brand"
-                  : "bg-destructive";
-            return (
-              <div
-                key={i}
-                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-                aria-hidden
-              >
-                <div className={cn("h-2.5 w-2.5 rounded-full", dotClass)} />
-              </div>
-            );
-          })}
-        </div>
-
-        {won ? (
-          <>
-            <p className="text-3xl font-bold text-brand">
-              {finalScore?.toLocaleString()} {tc("points")}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {correctAttempt} {t("of")} {maxAttempts} {t("attempts")}
-            </p>
-          </>
-        ) : (
-          <p className="text-base font-semibold text-muted-foreground">
-            {t("playAgainTomorrow")}
-          </p>
-        )}
-        <button
-          type="button"
-          onClick={handleShare}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3.5 text-sm font-bold text-primary-foreground"
-        >
-          <span className="material-symbols-outlined text-lg">share</span>
-          {shareCopied ? t("shareCopied") : t("shareResult")}
-        </button>
-        {guesses.length > 0 && (
-          <div className="mt-4 w-full">
-            <PreviousAttempts guesses={guesses} />
-          </div>
-        )}
-      </motion.div>
-
-      {/* Banner de invitado — CTA para registrarse */}
-      {isGuest && (
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.2 }}
-          className="w-full overflow-hidden rounded-2xl bg-gradient-to-br from-brand/20 to-brand/5 p-4"
-        >
-          <div className="mb-3 flex items-center gap-2">
-            <span
-              className="material-symbols-outlined text-xl text-brand"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              leaderboard
-            </span>
-            <p className="text-sm font-bold">
-              {won ? t("guestResultTitleWon") : t("guestResultTitleLost")}
-            </p>
-          </div>
-          <p className="mb-3 text-xs text-muted-foreground">
-            {t("guestResultDescription")}
-          </p>
-          <Link
-            href={`/login?redirect=/play`}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-primary-foreground"
-          >
-            <span className="material-symbols-outlined text-base"
-              style={{ fontVariationSettings: "'FILL' 1" }}>
-              login
-            </span>
-            {t("signInWithGoogle")}
-          </Link>
-        </motion.div>
-      )}
-
-      {/* Acciones: Ver ranking, Volver al inicio, Reportar */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.2 }}
-        className="flex w-full flex-col gap-3"
-      >
-        <Link
-          href="/ranking"
-          className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
-        >
-          <span
-            className="material-symbols-outlined text-lg text-brand"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            leaderboard
-          </span>
-          {t("viewRanking")}
-        </Link>
-        <Link
-          href="/"
-          onClick={navigateBackToHome}
-          className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium"
-        >
-          <span
-            className="material-symbols-outlined text-lg"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            play_circle
-          </span>
-          {t("backToHome")}
-        </Link>
-        {!isGuest && (
-          <Dialog open={reportOpen} onOpenChange={setReportOpen}>
-            <DialogTrigger asChild>
-              <button className="flex items-center justify-center gap-2 rounded-full border border-border py-3.5 text-sm font-medium">
-                <span className="material-symbols-outlined text-lg text-destructive">report</span>
-                {t("report.reportProblemWithSong")}
-              </button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{t("report.dialogTitle")}</DialogTitle>
-                <DialogDescription className="sr-only">{t("report.reportProblemWithSong")}</DialogDescription>
-              </DialogHeader>
-                <div className="space-y-4">
-                  {reportSent ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t("report.thankYou")}
-                    </p>
-                  ) : (
-                    <>
-                      <div>
-                        <p className="mb-2 text-sm font-medium">{t("report.reasonLabel")}</p>
-                        <div className="space-y-2">
-                          {REPORT_REASON_IDS.map((id) => (
-                            <label
-                              key={id}
-                              className="flex cursor-pointer items-center gap-2"
-                            >
-                              <input
-                                type="radio"
-                                name="reason"
-                                value={id}
-                                checked={reportReason === id}
-                                onChange={() => setReportReason(id)}
-                                className="h-4 w-4"
-                              />
-                              <span className="text-sm">{t(REPORT_REASON_KEYS[id])}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                      {reportReason === "other" && (
-                        <div>
-                          <label className="mb-1 block text-sm font-medium">
-                            {t("report.descriptionLabel")}
-                          </label>
-                          <textarea
-                            value={reportDesc}
-                            onChange={(e) => setReportDesc(e.target.value)}
-                            placeholder={t("report.descriptionPlaceholder")}
-                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                            rows={3}
-                          />
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleReport}
-                        disabled={!reportReason || reportMutation.isPending}
-                        className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50"
-                      >
-                        {reportMutation.isPending ? t("report.sending") : t("report.submit")}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </DialogContent>
-            </Dialog>
-        )}
-      </motion.div>
-    </motion.div>
-  );
-}

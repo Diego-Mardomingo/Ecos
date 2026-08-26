@@ -1,9 +1,12 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { PlaylistsClient } from "./PlaylistsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPlaylistsPage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const { data: playlists } = await supabase

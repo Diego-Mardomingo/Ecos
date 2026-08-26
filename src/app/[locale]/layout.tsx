@@ -2,10 +2,11 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { DM_Sans } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
-import { getMessages } from "next-intl/server";
+import { getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { MotionProvider } from "@/components/providers/MotionProvider";
 import { SerwistProvider } from "../serwist";
 import { Toaster } from "@/components/ui/sonner";
 import "../globals.css";
@@ -17,33 +18,46 @@ const dmSans = DM_Sans({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "ECOS",
-    template: "ECOS - %s",
-  },
-  description:
-    "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global.",
-  // favicon.ico, icon0.svg, icon1.png, apple-icon.png en src/app/ son recogidos por Next.js
-  // manifest.json en src/app/ es recogido automáticamente por Next.js App Router
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    // Genera: <meta name="apple-mobile-web-app-title" content="ECOS" />
-    title: "ECOS",
-  },
-  openGraph: {
-    title: "ECOS",
-    description: "Adivina la canción del día",
-    type: "website",
-  },
-};
+/**
+ * `generateMetadata` en lugar de un objeto estatico: la descripcion y el OpenGraph estaban
+ * hardcodeados en español, asi que los enlaces compartidos desde /en salian en español.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "meta" });
+
+  return {
+    title: {
+      default: "ECOS",
+      template: "ECOS - %s",
+    },
+    description: t("description"),
+    // favicon.ico, icon0.svg, icon1.png, apple-icon.png en src/app/ son recogidos por Next.js
+    // manifest.json en src/app/ es recogido automáticamente por Next.js App Router
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "black-translucent",
+      // Genera: <meta name="apple-mobile-web-app-title" content="ECOS" />
+      title: "ECOS",
+    },
+    openGraph: {
+      title: "ECOS",
+      description: t("ogDescription"),
+      type: "website",
+      locale,
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Sin maximumScale ni userScalable: bloquear el zoom incumple WCAG 1.4.4 y en movil impide
+  // acercarse a la lista de resultados o al historico. Se quito a proposito, no por descuido.
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f6f8f7" },
     { media: "(prefers-color-scheme: dark)", color: "#0f1112" },
@@ -96,10 +110,12 @@ export default async function LocaleLayout({ children, params }: Props) {
           disableTransitionOnChange={false}
         >
           <SerwistProvider swUrl="/serwist/sw.js">
-            <NextIntlClientProvider messages={messages}>
-              {children}
-            </NextIntlClientProvider>
-            <Toaster position="top-center" richColors />
+            <MotionProvider>
+              <NextIntlClientProvider messages={messages}>
+                {children}
+              </NextIntlClientProvider>
+              <Toaster position="top-center" richColors />
+            </MotionProvider>
           </SerwistProvider>
         </ThemeProvider>
       </body>

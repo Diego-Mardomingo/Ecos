@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdminPage } from "@/lib/auth/requireAdmin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,14 @@ const JOB_LABELS: Record<string, string> = {
   ingestion: "Ingesta",
   weekly_games: "Juegos semanales",
   daily_game: "Juego diario",
-  verify_youtube: "Verificación YouTube",
   report_auto_deactivate: "Desactivación por reportes",
+};
+
+const JOB_COLORS: Record<string, string> = {
+  ingestion: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
+  weekly_games: "bg-violet-500/20 text-violet-600 dark:text-violet-400",
+  daily_game: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+  report_auto_deactivate: "bg-slate-500/20 text-slate-600 dark:text-slate-400",
 };
 
 function formatDuration(ms: number): string {
@@ -33,7 +40,7 @@ const INGESTION_LABELS: Record<string, string> = {
   playlists_checked: "Playlists",
   tracks_found: "Encontradas",
   duplicates: "Duplicadas",
-  no_youtube: "Sin YT",
+  no_preview: "Sin preview",
   songs_added: "Insertadas",
 };
 
@@ -76,6 +83,8 @@ function JobDetailsSummary({
 }
 
 export default async function AdminLogsPage() {
+  await requireAdminPage();
+
   const supabase = await createServiceClient();
 
   const { data: logs } = await supabase
@@ -111,17 +120,7 @@ export default async function AdminLogsPage() {
                 </span>
                 <span
                   className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-                    log.job_type === "ingestion"
-                      ? "bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                      : log.job_type === "weekly_games"
-                        ? "bg-violet-500/20 text-violet-600 dark:text-violet-400"
-                        : log.job_type === "verify_youtube"
-                          ? "bg-rose-500/20 text-rose-600 dark:text-rose-400"
-                          : log.job_type === "report_auto_deactivate"
-                            ? "bg-slate-500/20 text-slate-600 dark:text-slate-400"
-                            : log.job_type === "daily_game"
-                              ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                              : "bg-muted text-muted-foreground"
+                    JOB_COLORS[log.job_type] ?? "bg-muted text-muted-foreground"
                   }`}
                 >
                   {JOB_LABELS[log.job_type] ?? log.job_type}
@@ -154,7 +153,7 @@ export default async function AdminLogsPage() {
                 <span>
                   {formatLogDate(log.ran_at)}
                 </span>
-                <span
+                <span aria-hidden
                   className="material-symbols-outlined text-base"
                   style={{ fontVariationSettings: "'FILL' 0" }}
                 >

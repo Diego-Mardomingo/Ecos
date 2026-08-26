@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useState, useCallback, useRef, useEffect, useId } from "react";
+import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import {
@@ -11,6 +11,7 @@ import {
   useLeaderboard,
 } from "@/lib/hooks/queries";
 import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { cn } from "@/lib/utils";
 import {
   LeaderboardPodiumAndList,
@@ -19,6 +20,7 @@ import {
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import type { RankingData } from "@/lib/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 const SWIPE_THRESHOLD = 50;
 const RANKING_PERIOD_STORAGE_KEY = "ecos-ranking-period";
@@ -37,27 +39,26 @@ const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 
 export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   const t = useTranslations("ranking");
-  const locale = useLocale();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
-  const isFirstSaveRun = useRef(true);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  // Restauración del último periodo ajustando el estado durante el render:
+  // `mounted` es false en servidor y al hidratar, así que el HTML coincide, y el
+  // valor guardado se aplica antes del primer pintado en cliente.
+  const mounted = useIsMounted();
+  const [hasRestoredTab, setHasRestoredTab] = useState(false);
+  if (mounted && !hasRestoredTab) {
+    setHasRestoredTab(true);
     const saved = localStorage.getItem(RANKING_PERIOD_STORAGE_KEY);
     const idx = saved != null ? PERIOD_ORDER.indexOf(saved as PeriodTab) : -1;
     if (idx >= 0) setActiveTab(PERIOD_ORDER[idx]);
-  }, []);
+  }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (isFirstSaveRun.current) {
-      isFirstSaveRun.current = false;
-      return;
-    }
+    // Persistir solo después de restaurar, para no pisar el valor guardado con el inicial.
+    if (!hasRestoredTab) return;
     localStorage.setItem(RANKING_PERIOD_STORAGE_KEY, activeTab);
-  }, [activeTab]);
+  }, [hasRestoredTab, activeTab]);
 
   useEffect(() => {
     if (!initialByPeriod) return;
@@ -89,13 +90,32 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   useLeaderboardRealtime();
   const entries = data?.entries ?? [];
 
-  const lastUserIdRef = useRef<string | null>(null);
-  if (data?.currentUserId !== undefined) {
-    lastUserIdRef.current = data.currentUserId;
+  // Conserva el último usuario conocido para que el banner de invitado no
+  // parpadee mientras `data` está indefinido al cambiar de periodo. Se guarda en
+  // estado ajustado durante el render, no en una ref: leer y escribir refs en
+  // render rompe las garantías del compilador de React.
+  const [lastUserId, setLastUserId] = useState<string | null>(null);
+  if (data?.currentUserId !== undefined && data.currentUserId !== lastUserId) {
+    setLastUserId(data.currentUserId);
   }
-  const currentUserId = data?.currentUserId ?? lastUserIdRef.current;
+  const currentUserId = data?.currentUserId ?? lastUserId;
 
   const touchStartX = useRef<number>(0);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const tabsBaseId = useId();
+  const tabId = (tab: PeriodTab) => `${tabsBaseId}-tab-${tab}`;
+  const panelId = `${tabsBaseId}-panel`;
+
+  /** Cambia de periodo por indice, con ciclo. Compartido por el swipe y las flechas. */
+  const selectTabAt = useCallback((index: number, moveFocus: boolean) => {
+    const len = PERIOD_ORDER.length;
+    const nextIndex = (index + len) % len;
+    setActiveTab(PERIOD_ORDER[nextIndex]);
+    // Con roving tabindex el destino tiene tabIndex -1 hasta el siguiente render, pero
+    // focus() programatico funciona igual: -1 solo lo saca de la tabulacion.
+    if (moveFocus) tabRefs.current[nextIndex]?.focus();
+  }, []);
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   }, []);
@@ -104,18 +124,46 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
       const delta = e.changedTouches[0].clientX - touchStartX.current;
       const idx = PERIOD_ORDER.indexOf(activeTab);
       if (delta > SWIPE_THRESHOLD) {
-        setActiveTab(PERIOD_ORDER[(idx - 1 + 3) % 3]);
+        selectTabAt(idx - 1, false);
       } else if (delta < -SWIPE_THRESHOLD) {
-        setActiveTab(PERIOD_ORDER[(idx + 1) % 3]);
+        selectTabAt(idx + 1, false);
       }
     },
-    [activeTab]
+    [activeTab, selectTabAt]
   );
 
-  const formatPoints = useCallback(
-    (n: number) => n.toLocaleString(locale === "es" ? "es-ES" : "en-US"),
-    [locale]
+  /**
+   * Equivalente de teclado del swipe, que no tenia ninguno. Activacion automatica (la flecha
+   * cambia de periodo, no solo de foco) porque los tres periodos vienen prefetcheados.
+   */
+  const handleTabsKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const idx = PERIOD_ORDER.indexOf(activeTab);
+      switch (event.key) {
+        case "ArrowRight":
+          event.preventDefault();
+          selectTabAt(idx + 1, true);
+          return;
+        case "ArrowLeft":
+          event.preventDefault();
+          selectTabAt(idx - 1, true);
+          return;
+        case "Home":
+          event.preventDefault();
+          selectTabAt(0, true);
+          return;
+        case "End":
+          event.preventDefault();
+          selectTabAt(PERIOD_ORDER.length - 1, true);
+          return;
+        default:
+          return;
+      }
+    },
+    [activeTab, selectTabAt]
   );
+
+  const { formatNumber: formatPoints } = useAppFormatters();
 
   const getDisplayName = (entry: LeaderboardEntry) => {
     const name = entry.profiles?.display_name?.trim();
@@ -149,7 +197,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
             className="inline-flex h-9 w-auto shrink-0 items-center justify-start gap-1.5 rounded-xl border border-border bg-muted px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground max-w-[min(100%,11rem)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("historyLinkAria")}
           >
-            <span
+            <span aria-hidden
               className="material-symbols-outlined shrink-0 text-xl text-brand/70"
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
@@ -161,6 +209,9 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
       </header>
 
       <div
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={tabId(activeTab)}
         className="flex min-h-0 flex-1 flex-col touch-pan-y"
         style={{ touchAction: "pan-y" }}
         onTouchStart={handleTouchStart}
@@ -168,7 +219,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
       >
         {!currentUserId && (
           <div className="mx-4 mt-1 flex items-center gap-3 rounded-2xl bg-brand/10 px-4 py-3">
-            <span
+            <span aria-hidden
               className="material-symbols-outlined text-xl text-brand"
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
@@ -190,8 +241,14 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
         )}
 
         <div className="px-4 py-3">
-          <div className="relative flex rounded-full bg-muted p-1">
+          <div
+            role="tablist"
+            aria-label={t("periodTabsLabel")}
+            onKeyDown={handleTabsKeyDown}
+            className="relative flex rounded-full bg-muted p-1"
+          >
             <motion.div
+              aria-hidden
               layout
               className="absolute inset-y-1 rounded-full bg-brand"
               style={{
@@ -200,10 +257,19 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
               }}
               transition={{ type: "spring", stiffness: 400, damping: 35 }}
             />
-            {PERIOD_ORDER.map((tab) => (
+            {PERIOD_ORDER.map((tab, index) => (
               <button
                 key={tab}
+                ref={(el) => {
+                  tabRefs.current[index] = el;
+                }}
                 type="button"
+                role="tab"
+                id={tabId(tab)}
+                aria-selected={activeTab === tab}
+                aria-controls={panelId}
+                /** Roving tabindex: solo la pestana activa entra en la tabulacion. */
+                tabIndex={activeTab === tab ? 0 : -1}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
                   "relative z-10 flex-1 rounded-full py-2 text-sm font-semibold transition-colors",
@@ -221,7 +287,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
             <RankingPodiumAndListSkeleton />
           ) : entries.length === 0 ? (
             <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-              <span
+              <span aria-hidden
                 className="material-symbols-outlined mb-4 text-4xl text-muted-foreground"
                 style={{ fontVariationSettings: "'FILL' 1" }}
               >

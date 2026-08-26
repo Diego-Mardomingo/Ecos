@@ -14,6 +14,7 @@ import {
   PlayGameCompletedDetailSkeleton,
   PlayGameInProgressDetailSkeleton,
 } from "@/components/skeletons/play-game-detail-skeletons";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 
 function readVariant(): PlaySkeletonVariant {
   if (typeof window === "undefined") return "in_progress";
@@ -53,14 +54,19 @@ export function PlayNavigationPendingOverlay() {
     };
   }, []);
 
-  useEffect(() => {
-    const normalized = pathname.replace(/^\/(es|en)/, "") || "/";
-    if (!isPlayGamePath(normalized)) {
+  // Ajuste de estado durante el render al cambiar de ruta (patrón recomendado por
+  // React), en vez de un efecto: al aterrizar en una ruta que no es de partida se
+  // oculta el overlay. No puede derivarse de `pathname` a secas, porque mientras
+  // dura la navegación la ruta actual todavía es la de origen.
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    if (!isPlayGamePath(stripLocalePrefix(pathname))) {
       setVisible(false);
     }
-  }, [pathname]);
+  }
 
-  /** Si nunca monta PlayGameWrapper (p. ej. notFound), evitar overlay colgado. */
+  /** Si nunca monta la pantalla de juego (p. ej. notFound), evitar overlay colgado. */
   useEffect(() => {
     if (!visible) return;
     const id = window.setTimeout(() => setVisible(false), 12_000);

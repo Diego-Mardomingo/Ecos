@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/hooks/queries";
+import { createEventCoalescer } from "./coalesce";
 
 /**
  * Suscripción a cambios para actualizar el ranking en tiempo real.
@@ -16,15 +17,12 @@ export function useLeaderboardRealtime() {
 
   useEffect(() => {
     const supabase = createClient();
-    const syncRanking = async () => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.ranking.all,
-      });
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.ranking.all,
-        type: "active",
-      });
-    };
+
+    // Basta con invalidar: TanStack Query ya refetchea por su cuenta las queries activas que
+    // marca como stale. El refetchQueries que había después duplicaba cada petición.
+    const sync = createEventCoalescer(() => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all });
+    });
 
     const channel = supabase
       .channel("leaderboard-changes")
@@ -35,9 +33,7 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_scores",
         },
-        () => {
-          void syncRanking();
-        }
+        sync.schedule
       )
       .on(
         "postgres_changes",
@@ -46,13 +42,12 @@ export function useLeaderboardRealtime() {
           schema: "public",
           table: "ecos_leaderboard",
         },
-        () => {
-          void syncRanking();
-        }
+        sync.schedule
       )
       .subscribe();
 
     return () => {
+      sync.cancel();
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
