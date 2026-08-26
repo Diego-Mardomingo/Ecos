@@ -15,8 +15,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
-    "ingest-weekly": "python scripts/ingest-weekly.py",
-    "verify-youtube": "tsx scripts/verify-youtube.ts"
+    "ingest-weekly": "python scripts/ingest-weekly.py"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

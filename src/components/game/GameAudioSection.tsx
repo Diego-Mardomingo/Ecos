@@ -221,7 +221,6 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       <div className="px-4 pb-8 pt-5">
         <AudioPlayer
           ref={playerRef}
-          youtubeId={song.youtube_id ?? ""}
           previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
           maxDuration={audioDuration}
           onTimeUpdate={handleAudioTimeUpdate}

@@ -14,7 +14,6 @@ pnpm build               # build de producción — comprueba tipos, no lo salte
 pnpm typecheck           # tsc de la app + del service worker
 pnpm lint                # eslint
 
-pnpm verify-youtube      # comprueba que los youtube_id siguen siendo embebibles
 pnpm ingest-weekly       # ingesta manual desde las playlists de Spotify
 ```
 
@@ -78,7 +77,9 @@ Consecuencia de diseño: la canción del día viaja completa al cliente en el pa
 
 ### Audio
 
-Dos fuentes con fallback (`AudioPlayer.tsx`): si la canción tiene `preview_url` de Spotify se sirve a través de `/api/audio-proxy`, que existe para no exponer la URL del CDN; si no, se usa un iframe oculto de YouTube. Al añadir campos a respuestas públicas, comprueba que no filtras `preview_url`, `title`, `artist_name` ni `cover_url` de un reto no resuelto.
+Una sola fuente (`AudioPlayer.tsx`): el `preview_url` de Spotify, servido a través de `/api/audio-proxy`, que existe para no exponer la URL del CDN. Al añadir campos a respuestas públicas, comprueba que no filtras `preview_url`, `title`, `artist_name` ni `cover_url` de un reto no resuelto.
+
+Hubo un fallback a un iframe oculto de YouTube, retirado porque nunca llegó a usarse: la ingesta exige `preview_url` medido y el selector diario también, así que la rama de YouTube era inalcanzable. Si algún día se cae el scraping de previews, el arreglo es recuperar una fuente de audio **y** relajar el filtro del pool en `select-daily-game.py`; solo lo primero no sirve de nada.
 
 ### i18n
 
@@ -93,7 +94,7 @@ Los tres workflows de `.github/workflows/` son jobs de datos, no CI:
 
 Todos usan la service role key y registran su ejecución en `ecos_system_logs`, que es lo que muestra el panel de admin. Si añades un script, mantén ese registro.
 
-Los scripts que llaman a APIs externas deben distinguir **fallo de la API** (cuota, auth, 5xx) de **"no hay resultados"**. Confundirlos ya provocó un incidente: `verify-youtube.ts` desactivaba el catálogo entero al agotarse la cuota diaria de YouTube. Por eso tiene ahora un circuit breaker.
+Los scripts que llaman a APIs externas deben distinguir **fallo de la API** (cuota, auth, 5xx) de **"no hay resultados"**. Confundirlos ya provocó un incidente: el antiguo `verify-youtube.ts` desactivaba el catálogo entero al agotarse la cuota diaria de YouTube. Ese script ya no existe, pero la regla sigue valiendo para todo lo que hable con Spotify.
 
 ## Reglas de React que rompen el lint
 

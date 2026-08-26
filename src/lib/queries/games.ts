@@ -14,7 +14,6 @@ export interface GameWithSong {
     artist_name: string;
     album_title: string | null;
     cover_url: string;
-    youtube_id: string | null;
     preview_url: string | null;
     genre: string | null;
     /** ISO date YYYY-MM-DD desde Spotify */
@@ -78,7 +77,7 @@ async function getTodaysGameWithClient(
       id, date, game_number,
       ecos_songs (
         id, title, artist_name, album_title,
-        cover_url, youtube_id, preview_url, genre, release_date
+        cover_url, preview_url, genre, release_date
       )
     `
     )
@@ -93,7 +92,7 @@ const GAME_WITH_SONG_SELECT = `
   id, date, game_number,
   ecos_songs (
     id, title, artist_name, album_title,
-    cover_url, youtube_id, preview_url, genre, release_date
+    cover_url, preview_url, genre, release_date
   )
 `;
 

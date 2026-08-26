@@ -9,7 +9,6 @@ type Song = {
   artist_name: string | null;
   cover_url: string | null;
   is_active: boolean;
-  youtube_verified: boolean;
   spotify_playlist_name: string | null;
 };
 
@@ -87,15 +86,6 @@ export function CatalogClient({ songs }: { songs: Song[] }) {
               {!s.is_active && (
                 <span className="rounded bg-red-500/20 px-2 py-0.5 text-xs text-red-600 dark:text-red-400">
                   inactiva
-                </span>
-              )}
-              {s.youtube_verified && (
-                <span aria-hidden
-                  className="material-symbols-outlined text-lg text-green-500"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                  title="YouTube verificado"
-                >
-                  check_circle
                 </span>
               )}
             </div>

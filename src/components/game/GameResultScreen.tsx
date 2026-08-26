@@ -173,7 +173,6 @@ const ResultGameView = memo(function ResultGameView({
       </div>
       <AudioPlayer
         ref={resultAudioPlayerRef}
-        youtubeId={song.youtube_id ?? ""}
         previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
         maxDuration={FULL_PREVIEW_SECONDS}
         onTimeUpdate={handleAudioTimeUpdate}

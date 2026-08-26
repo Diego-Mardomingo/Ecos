@@ -118,7 +118,7 @@ def _load_eligible_pool(supabase: Client, log: logging.Logger) -> list[dict]:
     }
 
     r_songs = supabase.table("ecos_songs").select(
-        "id, title, artist_name, youtube_id, preview_url, preview_duration_seconds, release_date, genre, "
+        "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
         "spotify_playlist_id, spotify_playlist_name"
     ).eq("is_active", True).execute()
 

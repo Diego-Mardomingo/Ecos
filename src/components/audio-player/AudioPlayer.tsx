@@ -4,9 +4,6 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { createYoutubePlayer, type YTPlayer } from "@/lib/youtube-player";
-
-type AudioSource = "youtube" | "preview";
 
 export interface AudioPlayerHandle {
   togglePlay: () => void;
@@ -15,8 +12,8 @@ export interface AudioPlayerHandle {
 }
 
 interface AudioPlayerProps {
-  youtubeId: string;
-  previewUrl?: string; // Spotify preview MP3 (fallback si no hay YouTube)
+  /** Preview MP3 de Spotify, servido a través de /api/audio-proxy. Única fuente de audio. */
+  previewUrl?: string;
   maxDuration: number;
   onEnded?: () => void;
   onTimeUpdate?: (currentTime: number) => void;
@@ -28,7 +25,6 @@ interface AudioPlayerProps {
 }
 
 const AudioPlayerComponent = ({
-  youtubeId,
   previewUrl,
   maxDuration,
   onEnded,
@@ -42,27 +38,16 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const t = useTranslations("game");
   /** Se resuelve aqui porque dentro de `togglePlay` hay un `t` local que sombrea el del hook. */
   const fragmentTitle = t("audioFragment");
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const playerRef = useRef<YTPlayer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  /** id de requestAnimationFrame para el bucle de progreso (preview / YouTube) */
+  /** id de requestAnimationFrame para el bucle de progreso */
   const playbackRafRef = useRef<number | null>(null);
   /** setTimeout de hard-stop absoluto — fallback cuando RAF se throttlea en móvil */
   const stopTimeoutRef = useRef<number | null>(null);
-  /** setInterval que mantiene Media Session suprimida mientras YouTube reproduce */
-  const mediaSessionSuppressRef = useRef<number | null>(null);
 
   const cancelHardStop = useCallback(() => {
     if (stopTimeoutRef.current !== null) {
       clearTimeout(stopTimeoutRef.current);
       stopTimeoutRef.current = null;
-    }
-  }, []);
-
-  const cancelMediaSessionSuppress = useCallback(() => {
-    if (mediaSessionSuppressRef.current !== null) {
-      clearInterval(mediaSessionSuppressRef.current);
-      mediaSessionSuppressRef.current = null;
     }
   }, []);
 
@@ -72,7 +57,6 @@ ref: React.Ref<AudioPlayerHandle>) => {
       playbackRafRef.current = null;
     }
   }, []);
-  const sourceRef = useRef<AudioSource | null>(null);
   /** Listener "ended" activo del preview, para poder retirarlo y no acumularlos. */
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const maxDurationRef = useRef(maxDuration);
@@ -106,7 +90,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
   });
 
   const updateMediaSessionPosition = useCallback((position: number) => {
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator && sourceRef.current === "preview") {
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       try {
         navigator.mediaSession.setPositionState({
           duration: maxDurationRef.current,
@@ -132,30 +116,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
     }
   }, []);
 
-  /** Inicia un interval que mantiene la Media Session suprimida mientras YouTube reproduce.
-   *  YouTube IFrame API puede sobreescribir metadata/playbackState de forma asíncrona. */
-  const startMediaSessionSuppress = useCallback(() => {
-    cancelMediaSessionSuppress();
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    const suppress = () => {
-      try {
-        navigator.mediaSession.metadata = null;
-        navigator.mediaSession.playbackState = "none";
-      } catch {
-        // ignore
-      }
-    };
-    suppress();
-    mediaSessionSuppressRef.current = window.setInterval(suppress, 300);
-  }, [cancelMediaSessionSuppress]);
-
   /** Declarado aquí, antes del efecto de montaje del reproductor, porque ese efecto
    *  lo usa: si se declara después queda en zona muerta temporal y la referencia
    *  capturada no se actualiza cuando cambia. */
   const stopAndReset = useCallback(() => {
-    if (playerRef.current) {
-      playerRef.current.stopVideo();
-    }
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -166,12 +130,11 @@ ref: React.Ref<AudioPlayerHandle>) => {
     }
     cancelPlaybackLoop();
     cancelHardStop();
-    cancelMediaSessionSuppress();
     setCurrentTime(0);
     setIsPlaying(false);
     clearMediaSession();
     onTimeUpdate?.(0);
-  }, [cancelPlaybackLoop, cancelHardStop, cancelMediaSessionSuppress, clearMediaSession, onTimeUpdate]);
+  }, [cancelPlaybackLoop, cancelHardStop, clearMediaSession, onTimeUpdate]);
 
   useEffect(() => {
     onPlayingChange?.(isPlaying);
@@ -181,13 +144,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
     onLoadedChange?.(isLoaded);
   }, [isLoaded, onLoadedChange]);
 
-  const source: AudioSource | null =
-    previewUrl ? "preview" : youtubeId ? "youtube" : null;
-
   // Reset al cambiar de pista, ajustando el estado durante el render en lugar de
   // en el efecto de montaje del reproductor. En el primer render no hace nada,
   // porque estos son ya los valores iniciales.
-  const trackKey = `${youtubeId ?? ""}|${previewUrl ?? ""}`;
+  const trackKey = previewUrl ?? "";
   const [lastTrackKey, setLastTrackKey] = useState(trackKey);
   if (trackKey !== lastTrackKey) {
     setLastTrackKey(trackKey);
@@ -198,291 +158,177 @@ ref: React.Ref<AudioPlayerHandle>) => {
   }
 
   useEffect(() => {
-    if (!source) return;
+    if (!previewUrl) return;
 
-    sourceRef.current = source;
+    const audio = new Audio(previewUrl);
+    audioRef.current = audio;
 
-    if (source === "youtube") {
-      const wrapper = document.createElement("div");
-      wrapper.style.cssText =
-        "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;";
-      document.body.appendChild(wrapper);
+    const onLoaded = () => setIsLoaded(true);
+    const onError = () => {
+      audioRef.current = null;
+      setHasError(true);
+    };
 
-      // Guard anti-carrera: si el componente se desmonta antes de que el player
-      // resuelva, destruimos el player y no tocamos estado (evita iframe huérfano
-      // y setState tras unmount).
-      let cancelled = false;
-
-      createYoutubePlayer({
-        videoId: youtubeId,
-        containerRef: { current: wrapper },
-      })
-        .then((player) => {
-          if (cancelled) {
-            player.destroy();
-            wrapper.remove();
-            return;
-          }
-          playerRef.current = player;
-          setIsLoaded(true);
-        })
-        .catch(() => {
-          wrapper.remove();
-        });
-
-      return () => {
-        cancelled = true;
-        if (playbackRafRef.current !== null) {
-          cancelAnimationFrame(playbackRafRef.current);
-          playbackRafRef.current = null;
-        }
-        if (stopTimeoutRef.current !== null) {
-          clearTimeout(stopTimeoutRef.current);
-          stopTimeoutRef.current = null;
-        }
-        if (mediaSessionSuppressRef.current !== null) {
-          clearInterval(mediaSessionSuppressRef.current);
-          mediaSessionSuppressRef.current = null;
-        }
-        if (playerRef.current) {
-          playerRef.current.stopVideo();
-          playerRef.current.destroy();
-          playerRef.current = null;
-        }
-        wrapper.remove();
-      };
-    }
-
-    if (source === "preview" && previewUrl) {
-      const audio = new Audio(previewUrl);
-      audioRef.current = audio;
-
-      const onLoaded = () => setIsLoaded(true);
-      const onError = () => {
-        audioRef.current = null;
-        setHasError(true);
-      };
-
-      const clampPreviewTime = () => {
-        const max = maxDurationRef.current;
-        if (audio.currentTime > max) {
-          audio.currentTime = max;
-          audio.pause();
-          stopAndReset();
-        }
-      };
-
-      const onSeeking = () => {
-        const max = maxDurationRef.current;
-        if (audio.currentTime > max) {
-          audio.currentTime = max;
-          audio.pause();
-          stopAndReset();
-        }
-      };
-
-      const onTimeUpdate = () => clampPreviewTime();
-
-      audio.addEventListener("loadeddata", onLoaded, { once: true });
-      audio.addEventListener("error", onError, { once: true });
-      audio.addEventListener("seeking", onSeeking);
-      audio.addEventListener("timeupdate", onTimeUpdate);
-      audio.load();
-
-      return () => {
-        audio.removeEventListener("loadeddata", onLoaded);
-        audio.removeEventListener("error", onError);
-        audio.removeEventListener("seeking", onSeeking);
-        audio.removeEventListener("timeupdate", onTimeUpdate);
-        if (endedHandlerRef.current) {
-          audio.removeEventListener("ended", endedHandlerRef.current);
-          endedHandlerRef.current = null;
-        }
-        if (playbackRafRef.current !== null) {
-          cancelAnimationFrame(playbackRafRef.current);
-          playbackRafRef.current = null;
-        }
-        if (stopTimeoutRef.current !== null) {
-          clearTimeout(stopTimeoutRef.current);
-          stopTimeoutRef.current = null;
-        }
+    const clampPreviewTime = () => {
+      const max = maxDurationRef.current;
+      if (audio.currentTime > max) {
+        audio.currentTime = max;
         audio.pause();
-        audio.src = "";
-        audioRef.current = null;
-        clearMediaSession();
-      };
-    }
-  }, [youtubeId, previewUrl, source, clearMediaSession, stopAndReset]);
+        stopAndReset();
+      }
+    };
+
+    const onSeeking = () => {
+      const max = maxDurationRef.current;
+      if (audio.currentTime > max) {
+        audio.currentTime = max;
+        audio.pause();
+        stopAndReset();
+      }
+    };
+
+    const onTimeUpdate = () => clampPreviewTime();
+
+    audio.addEventListener("loadeddata", onLoaded, { once: true });
+    audio.addEventListener("error", onError, { once: true });
+    audio.addEventListener("seeking", onSeeking);
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.load();
+
+    return () => {
+      audio.removeEventListener("loadeddata", onLoaded);
+      audio.removeEventListener("error", onError);
+      audio.removeEventListener("seeking", onSeeking);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      if (endedHandlerRef.current) {
+        audio.removeEventListener("ended", endedHandlerRef.current);
+        endedHandlerRef.current = null;
+      }
+      if (playbackRafRef.current !== null) {
+        cancelAnimationFrame(playbackRafRef.current);
+        playbackRafRef.current = null;
+      }
+      if (stopTimeoutRef.current !== null) {
+        clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
+      audio.pause();
+      audio.src = "";
+      audioRef.current = null;
+      clearMediaSession();
+    };
+  }, [previewUrl, clearMediaSession, stopAndReset]);
 
   const stopIfPlaying = useCallback(() => {
     if (!isLoadedRef.current || !isPlayingRef.current) return;
-
-    if (sourceRef.current === "youtube") {
-      playerRef.current?.stopVideo();
-      stopAndReset();
-      return;
-    }
-
-    if (sourceRef.current === "preview") {
-      audioRef.current?.pause();
-      stopAndReset();
-    }
+    audioRef.current?.pause();
+    stopAndReset();
   }, [stopAndReset]);
 
   const togglePlay = useCallback(() => {
     if (!isLoaded) return;
 
-    if (sourceRef.current === "youtube") {
-      const player = playerRef.current;
-      if (!player) return;
+    const audio = audioRef.current;
+    if (!audio) return;
 
-      if (isPlaying) {
-        player.stopVideo();
-        stopAndReset();
-        return;
-      }
-
-      // cueVideoById respeta endSeconds internamente (YouTube corta por su lado)
-      player.cueVideoById({ videoId: youtubeId, startSeconds: 0, endSeconds: maxDuration });
-      player.playVideo();
-      setIsPlaying(true);
-
-      // Suprimir Media Session: YouTube IFrame API registra el título real del video
-      startMediaSessionSuppress();
-
-      // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
-      cancelHardStop();
-      stopTimeoutRef.current = window.setTimeout(() => {
-        stopAndReset();
-        onEnded?.();
-      }, (maxDuration + 0.5) * 1000);
-
-      cancelPlaybackLoop();
-      const tickYoutube = () => {
-        const p = playerRef.current;
-        if (!p) return;
-        const seek = p.getCurrentTime();
-        if (seek >= maxDuration) {
-          cancelPlaybackLoop();
-          p.stopVideo();
-          onTimeUpdate?.(maxDuration);
-          setTimeout(() => {
-            stopAndReset();
-            onEnded?.();
-          }, 120);
-          return;
-        }
-        setCurrentTimeIfVisible(seek);
-        onTimeUpdate?.(seek);
-        playbackRafRef.current = requestAnimationFrame(tickYoutube);
-      };
-      playbackRafRef.current = requestAnimationFrame(tickYoutube);
+    if (isPlaying) {
+      audio.pause();
+      stopAndReset();
       return;
     }
 
-    if (sourceRef.current === "preview") {
-      const audio = audioRef.current;
-      if (!audio) return;
+    audio.currentTime = 0;
+    // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
+    // manejarlo para no quedar con isPlaying=true sin audio.
+    void audio.play().catch(() => {
+      setIsPlaying(false);
+      cancelHardStop();
+      cancelPlaybackLoop();
+    });
+    setIsPlaying(true);
 
-      if (isPlaying) {
-        audio.pause();
-        stopAndReset();
+    const onEndedNative = () => {
+      cancelPlaybackLoop();
+      stopAndReset();
+      onEnded?.();
+    };
+    // Retirar cualquier listener previo para no acumularlos entre ciclos play/stop.
+    if (endedHandlerRef.current) {
+      audio.removeEventListener("ended", endedHandlerRef.current);
+    }
+    endedHandlerRef.current = onEndedNative;
+    audio.addEventListener("ended", onEndedNative);
+
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          // Sale en la pantalla de bloqueo del movil, asi que va traducido.
+          // Ojo: el handler de "seekto" de mas abajo declara su propio `t`, que sombrea
+          // el de useTranslations; este uso queda fuera de ese ambito a proposito.
+          title: fragmentTitle,
+          artist: "",
+          album: "",
+        });
+        // playbackState "none" evita que aparezca en controles del sistema
+        navigator.mediaSession.playbackState = "none";
+        updateMediaSessionPosition(0);
+        navigator.mediaSession.setActionHandler("seekto", (details) => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          const t = details.seekTime ?? 0;
+          const clamped = Math.min(Math.max(0, t), maxDuration);
+          audio.currentTime = clamped;
+          setCurrentTime(clamped);
+          onTimeUpdate?.(clamped);
+          updateMediaSessionPosition(clamped);
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
+    cancelHardStop();
+    stopTimeoutRef.current = window.setTimeout(() => {
+      stopAndReset();
+      onEnded?.();
+    }, (maxDuration + 0.5) * 1000);
+
+    cancelPlaybackLoop();
+    const tickPreview = () => {
+      const a = audioRef.current;
+      if (!a) return;
+      const seek = a.currentTime;
+      const clamped = Math.min(seek, maxDuration);
+      if (clamped < seek) {
+        a.currentTime = clamped;
+        a.pause();
+      }
+      if (seek >= maxDuration) {
+        cancelPlaybackLoop();
+        a.pause();
+        onTimeUpdate?.(maxDuration);
+        updateMediaSessionPosition(maxDuration);
+        setTimeout(() => {
+          stopAndReset();
+          onEnded?.();
+        }, 120);
         return;
       }
-
-      audio.currentTime = 0;
-      // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
-      // manejarlo para no quedar con isPlaying=true sin audio.
-      void audio.play().catch(() => {
-        setIsPlaying(false);
-        cancelHardStop();
-        cancelPlaybackLoop();
-      });
-      setIsPlaying(true);
-
-      const onEndedNative = () => {
-        cancelPlaybackLoop();
-        stopAndReset();
-        onEnded?.();
-      };
-      // Retirar cualquier listener previo para no acumularlos entre ciclos play/stop.
-      if (endedHandlerRef.current) {
-        audio.removeEventListener("ended", endedHandlerRef.current);
-      }
-      endedHandlerRef.current = onEndedNative;
-      audio.addEventListener("ended", onEndedNative);
-
-      if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-        try {
-          navigator.mediaSession.metadata = new MediaMetadata({
-            // Sale en la pantalla de bloqueo del movil, asi que va traducido.
-            // Ojo: el handler de "seekto" de mas abajo declara su propio `t`, que sombrea
-            // el de useTranslations; este uso queda fuera de ese ambito a proposito.
-            title: fragmentTitle,
-            artist: "",
-            album: "",
-          });
-          // playbackState "none" evita que aparezca en controles del sistema
-          navigator.mediaSession.playbackState = "none";
-          updateMediaSessionPosition(0);
-          navigator.mediaSession.setActionHandler("seekto", (details) => {
-            const audio = audioRef.current;
-            if (!audio || sourceRef.current !== "preview") return;
-            const t = details.seekTime ?? 0;
-            const clamped = Math.min(Math.max(0, t), maxDuration);
-            audio.currentTime = clamped;
-            setCurrentTime(clamped);
-            onTimeUpdate?.(clamped);
-            updateMediaSessionPosition(clamped);
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
-      cancelHardStop();
-      stopTimeoutRef.current = window.setTimeout(() => {
-        stopAndReset();
-        onEnded?.();
-      }, (maxDuration + 0.5) * 1000);
-
-      cancelPlaybackLoop();
-      const tickPreview = () => {
-        const a = audioRef.current;
-        if (!a) return;
-        const seek = a.currentTime;
-        const clamped = Math.min(seek, maxDuration);
-        if (clamped < seek) {
-          a.currentTime = clamped;
-          a.pause();
-        }
-        if (seek >= maxDuration) {
-          cancelPlaybackLoop();
-          a.pause();
-          onTimeUpdate?.(maxDuration);
-          updateMediaSessionPosition(maxDuration);
-          setTimeout(() => {
-            stopAndReset();
-            onEnded?.();
-          }, 120);
-          return;
-        }
-        setCurrentTimeIfVisible(seek);
-        onTimeUpdate?.(seek);
-        updateMediaSessionPosition(seek);
-        playbackRafRef.current = requestAnimationFrame(tickPreview);
-      };
+      setCurrentTimeIfVisible(seek);
+      onTimeUpdate?.(seek);
+      updateMediaSessionPosition(seek);
       playbackRafRef.current = requestAnimationFrame(tickPreview);
-    }
-  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, youtubeId, stopAndReset, startMediaSessionSuppress, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle]);
+    };
+    playbackRafRef.current = requestAnimationFrame(tickPreview);
+  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle]);
 
   useImperativeHandle(ref, () => ({
     togglePlay,
     stopIfPlaying,
   }), [togglePlay, stopIfPlaying]);
 
-  if (!source || hasError) {
+  if (!previewUrl || hasError) {
     return (
       <div className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}>
         {t("noAudio")}
@@ -495,7 +341,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   if (hideControls) {
-    return <div ref={containerRef} aria-hidden className="sr-only" />;
+    return null;
   }
 
   return (
@@ -559,13 +405,12 @@ ref: React.Ref<AudioPlayerHandle>) => {
           </span>
         )}
       </motion.button>
-      <div ref={containerRef} aria-hidden className="sr-only" />
     </div>
   );
 };
 
 /**
- * `memo` para que un re-render del padre no arrastre al reproductor: monta el iframe de YouTube y
- * el <audio>, y sus props son estables mientras dura la partida.
+ * `memo` para que un re-render del padre no arrastre al reproductor: monta el <audio> y sus
+ * props son estables mientras dura la partida.
  */
 export const AudioPlayer = memo(forwardRef(AudioPlayerComponent));

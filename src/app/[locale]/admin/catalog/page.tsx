@@ -9,7 +9,7 @@ export default async function AdminCatalogPage() {
 
   const { data: songs } = await supabase
     .from("ecos_songs")
-    .select("id, title, artist_name, cover_url, is_active, youtube_verified, spotify_playlist_name")
+    .select("id, title, artist_name, cover_url, is_active, spotify_playlist_name")
     .order("created_at", { ascending: false });
 
   return <CatalogClient songs={songs ?? []} />;

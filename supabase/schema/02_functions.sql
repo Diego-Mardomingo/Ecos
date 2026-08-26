@@ -57,8 +57,8 @@ BEGIN
 END;
 $function$;
 
--- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con alguna
--- fuente de audio, que es lo que el juego puede reproducir.
+-- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con preview,
+-- que es lo único que el juego puede reproducir.
 CREATE OR REPLACE FUNCTION public.ecos_search_songs(p_query text, p_limit integer)
  RETURNS SETOF ecos_songs
  LANGUAGE sql
@@ -67,7 +67,7 @@ AS $function$
   SELECT *
   FROM ecos_songs
   WHERE is_active = true
-    AND (youtube_id IS NOT NULL OR preview_url IS NOT NULL)
+    AND preview_url IS NOT NULL
     AND (
       unaccent(title) ILIKE '%' || unaccent(p_query) || '%'
       OR unaccent(artist_name) ILIKE '%' || unaccent(p_query) || '%'
