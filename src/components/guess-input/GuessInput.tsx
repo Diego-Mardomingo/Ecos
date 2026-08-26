@@ -22,6 +22,22 @@ interface GuessInputProps {
 const DEBOUNCE_MS = 350;
 
 /**
+ * Movimiento máximo (px) para que un gesto de puntero cuente como toque y no como scroll.
+ * En táctil, `pointerdown` llega en el instante en que empieza un arrastre, así que sin este
+ * umbral el arranque de un scroll se confundía con un clic fuera y cerraba la lista.
+ */
+const TAP_SLOP_PX = 10;
+
+/** Alto de la lista cuando hay sitio de sobra; el mismo valor que `max-h-64`. */
+const LIST_MAX_HEIGHT_PX = 256;
+/** Suelo por debajo del cual encoger más no aporta nada: mejor desbordar un poco. */
+const LIST_MIN_HEIGHT_PX = 96;
+/** Header fijo de la partida (`h-14`, con el `pt-safe` dentro por border-box) más holgura. */
+const LIST_TOP_GUTTER_PX = 56 + 8;
+/** Separación entre la lista y el input, que es el `mb-2` de la lista. */
+const LIST_ANCHOR_GAP_PX = 8;
+
+/**
  * Combobox de búsqueda de canciones, siguiendo el patrón ARIA de combobox con lista de
  * autocompletado: `role="combobox"` en el input, `role="listbox"`/`option` en el desplegable y
  * `aria-activedescendant` para marcar la opción activa sin mover el foco fuera del input.
@@ -155,18 +171,47 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   );
 
   /**
-   * Cierre por puntero fuera del componente. `pointerdown` en vez de `mousedown` para cubrir
-   * también táctil y lápiz, que era una de las carencias: en móvil la lista no se cerraba.
+   * Cierre por puntero fuera del componente. Eventos de puntero en vez de `mousedown` para
+   * cubrir también táctil y lápiz, que era una de las carencias: en móvil la lista no se cerraba.
+   *
+   * El cierre ocurre en el `pointerup`, no en el `pointerdown`: en táctil ese primer evento es
+   * el arranque del gesto de scroll, así que cerrar ahí hacía desaparecer la lista en cuanto
+   * intentabas desplazar la página. Solo cuenta como clic fuera si el puntero apenas se movió
+   * (`TAP_SLOP_PX`); si el navegador se queda el gesto para hacer scroll, llega `pointercancel`
+   * y no se cierra nada.
    */
   useEffect(() => {
-    const handler = (e: PointerEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setActiveIndex(-1);
-      }
+    // Estado del gesto en curso. Un objeto local en vez de un ref: solo lo tocan estos
+    // listeners, nunca el render (ver `react-hooks/refs` en CLAUDE.md).
+    const press = { outside: false, x: 0, y: 0 };
+
+    const onPointerDown = (e: PointerEvent) => {
+      press.outside =
+        !!containerRef.current && !containerRef.current.contains(e.target as Node);
+      press.x = e.clientX;
+      press.y = e.clientY;
     };
-    document.addEventListener("pointerdown", handler);
-    return () => document.removeEventListener("pointerdown", handler);
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (!press.outside) return;
+      press.outside = false;
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP_PX) return;
+      setOpen(false);
+      setActiveIndex(-1);
+    };
+
+    const onPointerCancel = () => {
+      press.outside = false;
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("pointercancel", onPointerCancel);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointercancel", onPointerCancel);
+    };
   }, []);
 
   /** Mantener visible la opción activa al navegar con el teclado. */
@@ -185,6 +230,61 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   }, []);
 
   const isExpanded = open && results.length > 0;
+
+  /**
+   * La lista crece hacia arriba desde el input, así que su techo es el borde superior de lo que
+   * el usuario ve **de verdad**, y con el teclado abierto eso no es el viewport de layout: en iOS
+   * el layout no se encoge, solo se desplaza el viewport visual. `getBoundingClientRect()` está
+   * en coordenadas de layout, y `visualViewport.offsetTop` es justo la diferencia entre ambos.
+   * Sin esta cuenta, un `max-height` fijo se salía por arriba de la pantalla y había que subir la
+   * página a mano para ver la lista completa.
+   *
+   * `containerRef` es la referencia correcta: la lista está en `bottom-full` respecto a él, así
+   * que el borde inferior de la lista coincide con el borde superior del contenedor (menos el
+   * `mb-2`).
+   *
+   * El valor se escribe directo en el DOM, igual que el progreso del audio en
+   * `GameAudioSection`: guardarlo en estado obligaría a un `setState` dentro del efecto, que es
+   * lo que prohíbe `react-hooks/set-state-in-effect`.
+   */
+  useEffect(() => {
+    if (!isExpanded) return;
+    const list = listboxRef.current;
+    const anchor = containerRef.current;
+    if (!list || !anchor) return;
+
+    const viewport = window.visualViewport;
+
+    const measure = () => {
+      const ceiling = Math.max(viewport?.offsetTop ?? 0, LIST_TOP_GUTTER_PX);
+      const available =
+        anchor.getBoundingClientRect().top - ceiling - LIST_ANCHOR_GAP_PX;
+      const height = Math.max(
+        LIST_MIN_HEIGHT_PX,
+        Math.min(LIST_MAX_HEIGHT_PX, available)
+      );
+      list.style.maxHeight = `${height}px`;
+    };
+
+    // La primera medida va en el siguiente frame: al abrirse la lista el teclado todavía puede
+    // estar entrando y el viewport visual aún no ha llegado a su tamaño final.
+    const frame = requestAnimationFrame(measure);
+
+    // `scroll` de la ventana también cuenta: mover la página mueve el input, y ahora la lista
+    // sigue abierta mientras se hace scroll, así que el techo hay que recalcularlo.
+    window.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    viewport?.addEventListener("resize", measure);
+    viewport?.addEventListener("scroll", measure);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      viewport?.removeEventListener("resize", measure);
+      viewport?.removeEventListener("scroll", measure);
+    };
+  }, [isExpanded]);
 
   return (
     <div
@@ -259,6 +359,8 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.15 }}
+            // `max-h-64` es el valor de partida del primer frame: el efecto de arriba lo
+            // sustituye por el hueco real que queda sobre el input en el viewport visible.
             className="absolute bottom-full z-50 mb-2 flex max-h-64 w-full flex-col overflow-hidden overflow-y-auto rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
           >
             {results.map((song, index) => {
