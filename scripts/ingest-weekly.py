@@ -10,6 +10,10 @@ El preview de Spotify es la única fuente de audio del juego: guarda preview_dur
 midiendo el MP3 de preview_url, y no inserta si falta preview_url, si la medición falla o si
 la duración es < MIN_PREVIEW_SECONDS.
 
+Los duplicados se descartan por spotify_id y por clave título+artista (ver song_key.py). El
+catálogo se lee con fetch_all: sin paginar, la API corta en 1.000 filas y el filtro queda ciego
+a todo lo que pase de ahí, que es lo que metió canciones repetidas hasta agosto de 2026.
+
 Requiere: pip install -r scripts/requirements-ingest.txt
 """
 from __future__ import annotations
@@ -35,7 +39,9 @@ try:
     from spotify_scraper import SpotifyClient
     from spotify_scraper.parsers.json_parser import extract_track_data_from_page
     from supabase import create_client, Client
+    from db_paging import fetch_all
     from preview_audio import get_mp3_duration_seconds
+    from song_key import dedupe_key
 except ImportError as e:
     print(f"Error importando dependencias: {e}")
     print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
@@ -77,18 +83,6 @@ def get_spotify_id(track: dict) -> str:
         return tid
     uri = track.get("uri", "")
     return uri.split(":")[-1] if uri and ":" in uri else ""
-
-
-def exact_track_key(title: str | None, artist: str | None) -> str | None:
-    """
-    Dedupe por título y artista exactos (solo strip en bordes).
-    Si difiere una letra, mayúscula o acento respecto al catálogo, no es duplicado.
-    """
-    t = (title or "").strip()
-    a = (artist or "").strip()
-    if not t and not a:
-        return None
-    return f"{t}\x00{a}"
 
 
 def extract_title_artist_from_track(track: dict) -> tuple[str | None, str | None]:
@@ -186,11 +180,16 @@ def main() -> None:
         sys.exit(1)
 
     supabase: Client = create_client(url_env, key_env)
-    existing_rows = (supabase.table("ecos_songs").select("spotify_id, title, artist_name").execute()).data or []
+    existing_rows = fetch_all(
+        lambda: supabase.table("ecos_songs").select(
+            "spotify_id, title, artist_name", count="exact"
+        )
+    )
+    log.info("Catálogo cargado para deduplicar: %d canciones", len(existing_rows))
     existing = {r["spotify_id"] for r in existing_rows if r.get("spotify_id")}
     existing_keys: set[str] = set()
     for r in existing_rows:
-        k = exact_track_key(r.get("title"), r.get("artist_name"))
+        k = dedupe_key(r.get("title"), r.get("artist_name"))
         if k:
             existing_keys.add(k)
     seen_this_run: set[str] = set()
@@ -257,7 +256,7 @@ def main() -> None:
                     keys = []
                     for tr in block:
                         t, a = extract_title_artist_from_track(tr)
-                        keys.append(exact_track_key(t, a))
+                        keys.append(dedupe_key(t, a))
                     all_block_dup = all(
                         (
                             (sid and (sid in existing or sid in seen_this_run))
@@ -301,8 +300,8 @@ def main() -> None:
                     cover = images[0].get("url") if images else None
 
                     preview_url = full.get("preview_url")
-                    dedupe_key = exact_track_key(title, artist)
-                    if dedupe_key and (dedupe_key in existing_keys or dedupe_key in seen_keys_this_run):
+                    track_key = dedupe_key(title, artist)
+                    if track_key and (track_key in existing_keys or track_key in seen_keys_this_run):
                         pl_duplicates += 1
                         total_duplicates += 1
                         continue
@@ -342,18 +341,21 @@ def main() -> None:
                     try:
                         supabase.table("ecos_songs").insert(row).execute()
                         existing.add(sid)
-                        if dedupe_key:
-                            existing_keys.add(dedupe_key)
+                        if track_key:
+                            existing_keys.add(track_key)
                         pl_inserted += 1
                         total_inserted += 1
                         inserted_in_block += 1
                         log.debug("  + %s - %s", title[:40], artist[:30])
                     except Exception as ins_err:
                         err_msg = str(ins_err)
+                        # 23505 = unique_violation. Puede venir de spotify_id o del índice único
+                        # sobre dedupe_key, que es el árbitro final si la clave de Python y la de
+                        # Postgres discrepan en algún carácter raro.
                         if "23505" in err_msg or "duplicate" in err_msg.lower():
                             existing.add(sid)
-                            if dedupe_key:
-                                existing_keys.add(dedupe_key)
+                            if track_key:
+                                existing_keys.add(track_key)
                             pl_duplicates += 1
                             total_duplicates += 1
                         else:

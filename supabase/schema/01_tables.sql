@@ -31,7 +31,12 @@ create table if not exists public.ecos_songs (
   raw_spotify_data jsonb,
   preview_url text,
   spotify_playlist_name text,
-  preview_duration_seconds double precision
+  preview_duration_seconds double precision,
+  -- Clave canónica título+artista. La calcula el trigger ecos_songs_dedupe_key; no se escribe
+  -- a mano. Existe para poder imponer un único sobre ella: Spotify publica la misma canción
+  -- como single y dentro de un álbum, con distinto spotify_id y distinta carátula, y el único
+  -- de spotify_id no ve esos duplicados.
+  dedupe_key text not null
 );
 
 create table if not exists public.ecos_games (
@@ -236,6 +241,11 @@ CREATE INDEX IF NOT EXISTS idx_ecos_scores_game ON public.ecos_scores USING btre
 CREATE INDEX IF NOT EXISTS idx_ecos_scores_user ON public.ecos_scores USING btree (user_id);
 CREATE INDEX IF NOT EXISTS ecos_songs_fts ON public.ecos_songs
   USING gin (to_tsvector('spanish'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(artist_name, ''::text))));
+-- Un único por canción, no por edición. Parcial a propósito: las copias desactivadas conviven
+-- con la que se quedó activa, y si algún día se retira una canción por audio malo se puede
+-- reingerir otra edición de la misma.
+CREATE UNIQUE INDEX IF NOT EXISTS ecos_songs_dedupe_key_activas_key ON public.ecos_songs
+  USING btree (dedupe_key) WHERE is_active;
 CREATE INDEX IF NOT EXISTS ecos_push_subscriptions_user_id_idx ON public.ecos_push_subscriptions USING btree (user_id);
 CREATE INDEX IF NOT EXISTS ecos_push_subscriptions_enabled_idx ON public.ecos_push_subscriptions USING btree (enabled) WHERE (enabled = true);
 CREATE INDEX IF NOT EXISTS ecos_spotify_playlists_sort_order_idx ON public.ecos_spotify_playlists USING btree (sort_order);
@@ -243,6 +253,10 @@ CREATE INDEX IF NOT EXISTS ecos_spotify_playlists_sort_order_idx ON public.ecos_
 -- ---------------------------------------------------------------------------------------------
 -- Triggers (las funciones están en 02_functions.sql)
 -- ---------------------------------------------------------------------------------------------
+
+CREATE TRIGGER ecos_songs_dedupe_key
+  BEFORE INSERT OR UPDATE OF title, artist_name ON public.ecos_songs
+  FOR EACH ROW EXECUTE FUNCTION ecos_songs_set_dedupe_key();
 
 CREATE TRIGGER ecos_push_subscriptions_updated_at_trigger
   BEFORE UPDATE ON public.ecos_push_subscriptions

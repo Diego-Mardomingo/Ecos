@@ -26,6 +26,8 @@ if _env.exists():
 
 try:
     from supabase import create_client, Client
+    from db_paging import fetch_all
+    from song_key import dedupe_key
 except ImportError:
     print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
     sys.exit(1)
@@ -62,6 +64,7 @@ def select_song_for_date(
     supabase: Client,
     target_date: str,
     used_song_ids: set[str],
+    used_keys: set[str],
     games_before: list[dict],
     all_songs: list[dict],
     log: logging.Logger,
@@ -70,7 +73,14 @@ def select_song_for_date(
     yesterday = (date.fromisoformat(target_date) - timedelta(days=1)).isoformat()
     cutoff_14 = (date.fromisoformat(target_date) - timedelta(days=ROTATION_DAYS)).isoformat()
 
-    pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]
+    # Regla 1, por id y por clave título+artista (el catálogo puede tener dos ediciones de la
+    # misma canción). Igual que en select-daily-game.py.
+    pool = [
+        s
+        for s in all_songs
+        if str(s["id"]) not in used_song_ids
+        and dedupe_key(s.get("title"), s.get("artist_name")) not in used_keys
+    ]
     if not pool:
         return None
 
@@ -143,10 +153,13 @@ def main() -> None:
         if r.get("spotify_playlist_id")
     }
 
-    r_songs = supabase.table("ecos_songs").select(
-        "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
-        "spotify_playlist_id, spotify_playlist_name"
-    ).eq("is_active", True).execute()
+    songs = fetch_all(
+        lambda: supabase.table("ecos_songs").select(
+            "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
+            "spotify_playlist_id, spotify_playlist_name",
+            count="exact",
+        ).eq("is_active", True)
+    )
 
     def is_eligible_pool(song: dict) -> bool:
         pl_id = (song.get("spotify_playlist_id") or "").strip()
@@ -162,7 +175,8 @@ def main() -> None:
         except (TypeError, ValueError):
             return False
 
-    all_songs = [s for s in (r_songs.data or []) if is_eligible_pool(s)]
+    all_songs = [s for s in songs if is_eligible_pool(s)]
+    log.info("Pool elegible: %d de %d canciones activas", len(all_songs), len(songs))
 
     if not all_songs:
         log.error("No hay canciones en el catálogo")
@@ -184,9 +198,19 @@ def main() -> None:
         for i in range((end_date - start_date).days + 1)
     ]
 
-    r_used = supabase.table("ecos_games").select("song_id, date").execute()
-    used_song_ids = {str(r["song_id"]) for r in (r_used.data or []) if r.get("song_id")}
-    existing_dates = {r["date"] for r in (r_used.data or []) if r.get("date")}
+    used_rows = fetch_all(
+        lambda: supabase.table("ecos_games").select(
+            "song_id, date, ecos_songs(title, artist_name)", count="exact"
+        )
+    )
+    used_song_ids = {str(r["song_id"]) for r in used_rows if r.get("song_id")}
+    existing_dates = {r["date"] for r in used_rows if r.get("date")}
+    used_keys: set[str] = set()
+    for r in used_rows:
+        s = r.get("ecos_songs") or {}
+        k = dedupe_key(s.get("title"), s.get("artist_name"))
+        if k:
+            used_keys.add(k)
 
     r_count = supabase.table("ecos_games").select("*", count="exact", head=True).execute()
     next_game_number = (r_count.count or 0) + 1
@@ -202,7 +226,9 @@ def main() -> None:
         ).gte("date", cutoff_14).lt("date", target_date).order("date", desc=True).execute()
         games_before = r_recent.data or []
 
-        song = select_song_for_date(supabase, target_date, used_song_ids, games_before, all_songs, log)
+        song = select_song_for_date(
+            supabase, target_date, used_song_ids, used_keys, games_before, all_songs, log
+        )
         if not song or not song.get("title") or not song.get("artist_name"):
             log.error("%s: sin candidatos válidos", target_date)
             continue
@@ -214,6 +240,9 @@ def main() -> None:
                 "game_number": next_game_number,
             }).execute()
             used_song_ids.add(str(song["id"]))
+            used_key = dedupe_key(song.get("title"), song.get("artist_name"))
+            if used_key:
+                used_keys.add(used_key)
             next_game_number += 1
             log.info("%s: Ecos #%d — %s / %s",
                      target_date, next_game_number - 1,

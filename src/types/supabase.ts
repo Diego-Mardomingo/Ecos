@@ -321,6 +321,7 @@ export type Database = {
           cover_url: string
           created_at: string | null
           danceability: number | null
+          dedupe_key: string
           duration_ms: number | null
           energy: number | null
           explicit: boolean | null
@@ -344,6 +345,7 @@ export type Database = {
           cover_url: string
           created_at?: string | null
           danceability?: number | null
+          dedupe_key: string
           duration_ms?: number | null
           energy?: number | null
           explicit?: boolean | null
@@ -367,6 +369,7 @@ export type Database = {
           cover_url?: string
           created_at?: string | null
           danceability?: number | null
+          dedupe_key?: string
           duration_ms?: number | null
           energy?: number | null
           explicit?: boolean | null

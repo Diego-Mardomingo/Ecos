@@ -57,6 +57,46 @@ BEGIN
 END;
 $function$;
 
+-- ---------------------------------------------------------------------------------------------
+-- Deduplicación del catálogo
+--
+-- ecos_songs solo tenía único en spotify_id, y Spotify publica la misma canción como single y
+-- dentro de un álbum o recopilatorio: otro spotify_id, misma pista, otra carátula. La ingesta
+-- las veía como dos canciones distintas.
+--
+-- La clave va en una columna mantenida por trigger y no en un índice de expresión porque
+-- unaccent() es STABLE, no IMMUTABLE, así que Postgres no la admite dentro de un índice.
+-- Marcarla como inmutable a mano es el truco habitual, pero deja el índice inconsistente si
+-- algún día cambia el diccionario. Un trigger BEFORE sí puede llamar a una función STABLE, y
+-- además cubre cualquier insert: la ingesta, el panel o una consulta a mano.
+--
+-- scripts/song_key.py calcula una versión de esta clave para prefiltrar en la ingesta. No es
+-- idéntica (no replica toda la tabla de unaccent) pero sí igual o más fina, así que nunca junta
+-- lo que aquí se separa. El árbitro es el índice único.
+-- ---------------------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.ecos_dedupe_key(p_title text, p_artist text)
+ RETURNS text
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT lower(btrim(regexp_replace(unaccent(coalesce(p_title, '')), '\s+', ' ', 'g')))
+      || E'\x1f'
+      || lower(btrim(regexp_replace(unaccent(coalesce(p_artist, '')), '\s+', ' ', 'g')));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ecos_songs_set_dedupe_key()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  new.dedupe_key := public.ecos_dedupe_key(new.title, new.artist_name);
+  return new;
+end;
+$function$;
+
 -- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con preview,
 -- que es lo único que el juego puede reproducir.
 CREATE OR REPLACE FUNCTION public.ecos_search_songs(p_query text, p_limit integer)

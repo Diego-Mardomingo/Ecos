@@ -32,6 +32,8 @@ if _env.exists():
 
 try:
     from supabase import create_client, Client
+    from db_paging import fetch_all
+    from song_key import dedupe_key
 except ImportError:
     print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
     sys.exit(1)
@@ -117,10 +119,15 @@ def _load_eligible_pool(supabase: Client, log: logging.Logger) -> list[dict]:
         if r.get("spotify_playlist_id")
     }
 
-    r_songs = supabase.table("ecos_songs").select(
-        "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
-        "spotify_playlist_id, spotify_playlist_name"
-    ).eq("is_active", True).execute()
+    # Paginado: sin esto la API devuelve 1.000 filas de las ~1.600 activas y el sorteo diario
+    # nunca llega a ver el resto del catálogo.
+    songs = fetch_all(
+        lambda: supabase.table("ecos_songs").select(
+            "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
+            "spotify_playlist_id, spotify_playlist_name",
+            count="exact",
+        ).eq("is_active", True)
+    )
 
     def is_eligible_pool(song: dict) -> bool:
         pl_id = (song.get("spotify_playlist_id") or "").strip()
@@ -136,7 +143,9 @@ def _load_eligible_pool(supabase: Client, log: logging.Logger) -> list[dict]:
         except (TypeError, ValueError):
             return False
 
-    return [s for s in (r_songs.data or []) if is_eligible_pool(s)]
+    pool = [s for s in songs if is_eligible_pool(s)]
+    log.info("Pool elegible: %d de %d canciones activas", len(pool), len(songs))
+    return pool
 
 
 def select_song_for_date(
@@ -145,6 +154,7 @@ def select_song_for_date(
     now_madrid: datetime,
     all_songs: list[dict],
     used_song_ids: set[str],
+    used_keys: set[str],
     log: logging.Logger,
 ) -> tuple[dict | None, str | None]:
     """Aplica las reglas de selección para una fecha. Devuelve (song, error).
@@ -157,8 +167,15 @@ def select_song_for_date(
         datetime.strptime(target_date, "%Y-%m-%d").date() - timedelta(days=1)
     ).isoformat()
 
-    # Regla 1: nunca repetir
-    pool = [s for s in all_songs if str(s["id"]) not in used_song_ids]
+    # Regla 1: nunca repetir. Se descarta por id y por clave título+artista, porque el catálogo
+    # puede tener dos ediciones de la misma canción (single y álbum, con distinta carátula) y
+    # filtrar solo por id las trataría como dos canciones distintas.
+    pool = [
+        s
+        for s in all_songs
+        if str(s["id"]) not in used_song_ids
+        and dedupe_key(s.get("title"), s.get("artist_name")) not in used_keys
+    ]
     if not pool:
         return None, "Pool vacío: no quedan canciones no usadas"
 
@@ -260,8 +277,20 @@ def main() -> None:
         _log_failure(supabase, start_ms, msg)
         sys.exit(1)
 
-    r_used = supabase.table("ecos_games").select("song_id").execute()
-    used_song_ids = {str(r["song_id"]) for r in (r_used.data or []) if r.get("song_id")}
+    # Paginado también aquí: hoy hay bastantes menos de 1.000 juegos, pero al pasar de esa cifra
+    # un select sin paginar empezaría a "olvidar" canciones ya jugadas y a repetirlas.
+    used_rows = fetch_all(
+        lambda: supabase.table("ecos_games").select(
+            "song_id, ecos_songs(title, artist_name)", count="exact"
+        )
+    )
+    used_song_ids = {str(r["song_id"]) for r in used_rows if r.get("song_id")}
+    used_keys: set[str] = set()
+    for r in used_rows:
+        s = r.get("ecos_songs") or {}
+        k = dedupe_key(s.get("title"), s.get("artist_name"))
+        if k:
+            used_keys.add(k)
 
     r_count = supabase.table("ecos_games").select("*", count="exact", head=True).execute()
     next_game_number = (r_count.count or 0) + 1
@@ -269,7 +298,7 @@ def main() -> None:
     created: list[str] = []
     for target_date in pending_dates:
         song, err = select_song_for_date(
-            supabase, target_date, now_madrid, all_songs, used_song_ids, log
+            supabase, target_date, now_madrid, all_songs, used_song_ids, used_keys, log
         )
         if err or not song:
             log.error("No se pudo seleccionar para %s: %s", target_date, err)
@@ -295,6 +324,9 @@ def main() -> None:
 
         # Actualizar estado local para que la siguiente fecha no repita canción.
         used_song_ids.add(str(song["id"]))
+        used_key = dedupe_key(song.get("title"), song.get("artist_name"))
+        if used_key:
+            used_keys.add(used_key)
         try:
             supabase.table("ecos_system_logs").insert({
                 "job_type": "daily_game",
