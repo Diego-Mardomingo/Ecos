@@ -192,6 +192,8 @@
     "viewRanking": "View leaderboard",
     "backToHome": "Back to home",
     "previousAttempts": "Previous attempts",
+    "attemptOfMax": "Attempt {attempt} of {max}",
+    "fragmentSeconds": "{seconds}s of audio",
     "noAudio": "No audio available for this song.",
     "pressPlay": "Press play",
     "previewingTime": "Previewing: {current} / {total}",

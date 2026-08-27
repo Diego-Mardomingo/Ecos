@@ -11,14 +11,15 @@ import {
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
+import { AttemptsStrip } from "@/components/game/AttemptsStrip";
 import { Link } from "@/i18n/navigation";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { GuessEntry } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
 
 /**
- * Sección de audio de una partida en curso: cuenta atrás, anillo de progreso, botón grande y
- * puntos de intento. Extraído de `GameClient` sin cambios de lógica.
+ * Sección de audio de una partida en curso: cuenta atrás, franja de intentos, anillo de
+ * progreso, botón grande y puntos de intento. Extraído de `GameClient` sin cambios de lógica.
  *
  * El progreso NO pasa por estado de React: se escribe en el DOM desde `handleAudioTimeUpdate`
  * porque `onTimeUpdate` llega en cada requestAnimationFrame. Ver el comentario de esa función.
@@ -50,7 +51,6 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const [audioLoaded, setAudioLoaded] = useState(false);
   /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const progressBarRef = useRef<HTMLDivElement | null>(null);
   const ringRef = useRef<SVGCircleElement | null>(null);
   const song = game.ecos_songs;
 
@@ -59,8 +59,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
    * esta sección ~60 veces por segundo mientras suena el fragmento: el anillo SVG de 192 px, el
    * botón de framer-motion y los puntos de intento.
    *
-   * El progreso continuo se escribe directamente en el DOM de los dos nodos que lo pintan, y el
-   * estado solo cambia cuando cambia el segundo que se muestra en el contador (una vez por
+   * El progreso continuo se escribe directamente en el DOM del anillo, que es quien lo pinta, y
+   * el estado solo cambia cuando cambia el segundo que se muestra en el contador (una vez por
    * segundo en vez de sesenta).
    */
   const handleAudioTimeUpdate = useCallback(
@@ -68,9 +68,6 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       const ratio =
         audioDuration > 0 ? Math.min(currentTime / audioDuration, 1) : 0;
 
-      if (progressBarRef.current) {
-        progressBarRef.current.style.width = `${ratio * 100}%`;
-      }
       if (ringRef.current) {
         ringRef.current.style.strokeDashoffset = String(
           RING_CIRCUMFERENCE * (1 - ratio)
@@ -98,14 +95,13 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
         <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
           {formatTimeRemaining(secondsRemaining)}
         </span>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          {/* El ancho lo escribe handleAudioTimeUpdate; aquí solo el valor de partida. */}
-          <div
-            ref={progressBarRef}
-            className="h-full rounded-full bg-brand"
-            style={{ width: "0%" }}
-          />
-        </div>
+        <AttemptsStrip
+          className="mt-2"
+          guesses={guesses}
+          maxAttempts={maxAttempts}
+          currentAttempt={guesses.length + 1}
+          audioDuration={audioDuration}
+        />
       </div>
 
       {isGuest && (
@@ -190,32 +186,6 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          {Array.from({ length: maxAttempts }).map((_, i) => {
-            const guess = guesses[i];
-            const isCurrent = i === guesses.length;
-            return (
-              <div
-                key={i}
-                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-                aria-hidden
-              >
-                <div
-                  className={cn(
-                    "h-2.5 w-2.5 rounded-full transition-all",
-                    i < guesses.length
-                      ? guess?.correct
-                        ? "bg-brand"
-                        : "bg-destructive"
-                      : isCurrent
-                        ? "bg-brand/50 ring-2 ring-brand/30"
-                        : "bg-muted"
-                  )}
-                />
-              </div>
-            );
-          })}
-        </div>
       </div>
 
       <div className="px-4 pb-8 pt-5">

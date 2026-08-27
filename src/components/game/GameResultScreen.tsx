@@ -24,6 +24,7 @@ import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import type { GamePhase, GuessEntry } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
 import { PreviousAttempts } from "@/components/game/GameAttemptsList";
+import { AttemptsStrip } from "@/components/game/AttemptsStrip";
 
 /**
  * Pantalla de resultado: la canción revelada, la puntuación, compartir y el formulario de
@@ -379,31 +380,13 @@ function ResultScreen({
         className="w-full rounded-2xl"
         style={{ paddingTop: "0.25rem", paddingBottom: "2.5rem", paddingLeft: "1.25rem", paddingRight: "1.25rem" }}
       >
-        {/* Dots de intentos (mismo estilo que en la pantalla de juego) */}
-        <div className="mb-5 flex justify-center gap-1">
-          {Array.from({ length: maxAttempts }).map((_, i) => {
-            const isWinningAttempt = won && correctAttempt !== null && i === correctAttempt - 1;
-            const isPending = won && correctAttempt !== null && i > correctAttempt - 1;
-            const guess = guesses[i];
-            const isCorrect = guess?.correct === true;
-            const dotClass = isWinningAttempt
-              ? "bg-brand"
-              : isPending
-                ? "bg-muted"
-                : isCorrect
-                  ? "bg-brand"
-                  : "bg-destructive";
-            return (
-              <div
-                key={i}
-                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-                aria-hidden
-              >
-                <div className={cn("h-2.5 w-2.5 rounded-full", dotClass)} />
-              </div>
-            );
-          })}
-        </div>
+        {/* Franja de intentos, la misma que en la pantalla de juego pero sin intento activo. */}
+        <AttemptsStrip
+          className="mb-5"
+          guesses={guesses}
+          maxAttempts={maxAttempts}
+          correctAttempt={won ? correctAttempt : null}
+        />
 
         {won ? (
           <>

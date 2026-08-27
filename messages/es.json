@@ -192,6 +192,8 @@
     "viewRanking": "Ver ranking",
     "backToHome": "Volver al inicio",
     "previousAttempts": "Intentos anteriores",
+    "attemptOfMax": "Intento {attempt} de {max}",
+    "fragmentSeconds": "{seconds}s de fragmento",
     "noAudio": "No hay audio disponible para esta canción.",
     "pressPlay": "Pulsa play",
     "previewingTime": "Reproduciendo: {current} / {total}",
