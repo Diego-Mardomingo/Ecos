@@ -391,16 +391,19 @@ ref: React.Ref<AudioPlayerHandle>) => {
             : "bg-muted cursor-not-allowed opacity-50"
         )}
       >
+        {/* `key` por estado: evita que React mute el texto del nodo en sitio, que en iOS Safari
+            deja el glifo anterior pintado debajo. Ver GameAudioSection.tsx. */}
         {isLoaded ? (
           <span
             aria-hidden
+            key={isPlaying ? "stop" : "play"}
             className="material-symbols-outlined text-3xl text-primary-foreground"
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
             {isPlaying ? "stop" : "play_arrow"}
           </span>
         ) : (
-          <span aria-hidden className="material-symbols-outlined animate-spin text-2xl text-muted-foreground">
+          <span aria-hidden key="loading" className="material-symbols-outlined animate-spin text-2xl text-muted-foreground">
             progress_activity
           </span>
         )}

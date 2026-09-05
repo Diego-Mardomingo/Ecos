@@ -129,15 +129,18 @@ const ResultGameView = memo(function ResultGameView({
                 )}
                 aria-label={audioPlaying ? t("listening") : t("pressPlay")}
               >
+                {/* `key` por estado: mismo motivo que en GameAudioSection.tsx (glifo fantasma
+                    en iOS Safari al mutar el texto del nodo en sitio). */}
                 {audioLoaded ? (
                   <span aria-hidden
+                    key={audioPlaying ? "stop" : "play"}
                     className="material-symbols-outlined text-xl"
                     style={{ fontVariationSettings: "'FILL' 1" }}
                   >
                     {audioPlaying ? "stop" : "play_arrow"}
                   </span>
                 ) : (
-                  <span aria-hidden className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                  <span aria-hidden key="loading" className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
                 )}
               </button>
               <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
