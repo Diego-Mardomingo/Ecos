@@ -161,8 +161,16 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
               )}
               aria-label={audioPlaying ? t("listening") : t("pressPlay")}
             >
+              {/* El `key` no es decorativo. Sin él React reutiliza el mismo <span> y solo cambia
+                  el texto del nodo. En iOS Safari este botón acaba en una capa de composición
+                  —solapa el anillo SVG, cuyo strokeDashoffset se reescribe en cada frame, y
+                  framer-motion le escribe transform— y WebKit no invalida esa capa ante un cambio
+                  que es solo de texto: el glifo anterior se queda rasterizado debajo del nuevo y se
+                  ven play y stop a la vez, de forma fija. Con un `key` distinto por estado React
+                  sustituye el nodo, y un cambio estructural del DOM sí fuerza el repintado. */}
               {audioLoaded ? (
                 <span aria-hidden
+                  key={audioPlaying ? "stop" : "play"}
                   className="material-symbols-outlined inline-block font-bold"
                   style={{
                     fontVariationSettings: "'FILL' 1, 'opsz' 48",
@@ -173,6 +181,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
                 </span>
               ) : (
                 <span aria-hidden
+                  key="loading"
                   className="material-symbols-outlined inline-block animate-spin"
                   style={{
                     fontVariationSettings: "'opsz' 48",
