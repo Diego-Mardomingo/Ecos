@@ -13,6 +13,7 @@ import { motion } from "framer-motion";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { AttemptsStrip } from "@/components/game/AttemptsStrip";
 import { Link } from "@/i18n/navigation";
+import { useIsVirtualKeyboardOpen } from "@/lib/hooks/useVirtualKeyboard";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { GuessEntry } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,31 @@ import { cn } from "@/lib/utils";
 
 /** Perímetro del anillo de progreso (2πr con r=80), para el dash del SVG. */
 const RING_CIRCUMFERENCE = 502.65;
+
+/** Lado del anillo de progreso en px. Coincide con el `viewBox` del SVG. */
+const RING_SIZE_PX = 192;
+
+/**
+ * Escala del anillo mientras el teclado está abierto.
+ *
+ * En iOS el teclado no encoge el viewport de diseño: solo tapa la mitad inferior de la pantalla,
+ * y Safari desplaza el documento para dejar a la vista el campo enfocado. Ese desplazamiento es
+ * el tirón que se nota al tocar el buscador, y no se puede desactivar —`interactive-widget` y la
+ * VirtualKeyboard API siguen sin implementarse en WebKit—. Lo que sí se puede es quitarle el
+ * motivo: si con el teclado abierto la pantalla cabe en la franja visible, no hay nada que
+ * revelar y Safari no desplaza nada.
+ *
+ * Entre esta escala y los paddings recortados se ganan unos 155 px, que es de sobra lo que hace
+ * falta en un iPhone con notch (~120 px) y casi todo lo que hace falta en un SE.
+ */
+const RING_KEYBOARD_SCALE = 0.56;
+
+/**
+ * Duración de los ajustes de la pantalla al abrirse el teclado. Corta y con salida suave: lo que
+ * se busca es que el cambio acompañe a la animación del teclado, no que se note como una
+ * animación propia. `prefers-reduced-motion` la anula desde `globals.css`.
+ */
+const KEYBOARD_TRANSITION = "duration-[250ms] ease-out";
 
 const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   game,
@@ -47,6 +73,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
+  /** Con el teclado abierto la pantalla se compacta. Ver `RING_KEYBOARD_SCALE`. */
+  const keyboardOpen = useIsVirtualKeyboardOpen();
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
@@ -91,8 +119,20 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 
   return (
     <>
-      <div className="flex w-full flex-col items-center px-4 pb-4 pt-1">
-        <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
+      <div
+        className={cn(
+          "flex w-full flex-col items-center px-4 pt-1 transition-[padding]",
+          KEYBOARD_TRANSITION,
+          keyboardOpen ? "pb-1" : "pb-4"
+        )}
+      >
+        <span
+          className={cn(
+            "font-bold tracking-tight tabular-nums text-foreground transition-[font-size,line-height]",
+            KEYBOARD_TRANSITION,
+            keyboardOpen ? "text-xl" : "text-3xl"
+          )}
+        >
           {formatTimeRemaining(secondsRemaining)}
         </span>
         <AttemptsStrip
@@ -105,7 +145,15 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       </div>
 
       {isGuest && (
-        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2">
+        <div
+          className={cn(
+            "mx-4 flex items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 transition-[padding,margin]",
+            KEYBOARD_TRANSITION,
+            // Se aprieta, no se oculta: es información que el invitado sigue necesitando mientras
+            // escribe, y hacerla desaparecer sería justo el salto que se intenta evitar.
+            keyboardOpen ? "mt-1 py-1" : "mt-2 py-2"
+          )}
+        >
           <span aria-hidden
             className="material-symbols-outlined text-base text-brand"
             style={{ fontVariationSettings: "'FILL' 1" }}
@@ -119,9 +167,36 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
         </div>
       )}
 
-      <div className="relative flex shrink-0 flex-col items-center justify-start gap-3 overflow-hidden px-4 pb-2 pt-4">
-        <div className="relative flex flex-col items-center gap-2">
-          <div className="relative flex items-center justify-center">
+      <div
+        className={cn(
+          "relative flex shrink-0 flex-col items-center justify-start gap-3 overflow-hidden px-4 transition-[padding]",
+          KEYBOARD_TRANSITION,
+          keyboardOpen ? "pb-0 pt-1" : "pb-2 pt-4"
+        )}
+      >
+        {/* El anillo se encoge en dos capas que se animan a la vez: el hueco que ocupa (la altura
+            de este contenedor) y el dibujo (un `scale` sobre el de dentro). Escalar en lugar de
+            redimensionar el SVG evita recalcular el layout del botón y del glifo en cada frame, y
+            `origin-top` hace que encoja hacia arriba, que es de donde hay que sacar el sitio. */}
+        <div
+          className={cn("relative shrink-0 transition-[height]", KEYBOARD_TRANSITION)}
+          style={{
+            height: keyboardOpen
+              ? RING_SIZE_PX * RING_KEYBOARD_SCALE
+              : RING_SIZE_PX,
+          }}
+        >
+          <div
+            className={cn(
+              "relative flex origin-top items-center justify-center transition-transform",
+              KEYBOARD_TRANSITION
+            )}
+            style={{
+              width: RING_SIZE_PX,
+              height: RING_SIZE_PX,
+              transform: `scale(${keyboardOpen ? RING_KEYBOARD_SCALE : 1})`,
+            }}
+          >
             <svg className="h-48 w-48 -rotate-90" viewBox="0 0 192 192" aria-hidden>
               <circle
                 cx="96"
@@ -194,10 +269,15 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
             </motion.button>
           </div>
         </div>
-
       </div>
 
-      <div className="px-4 pb-8 pt-5">
+      <div
+        className={cn(
+          "px-4 transition-[padding]",
+          KEYBOARD_TRANSITION,
+          keyboardOpen ? "pb-3 pt-2" : "pb-8 pt-5"
+        )}
+      >
         <AudioPlayer
           ref={playerRef}
           previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
