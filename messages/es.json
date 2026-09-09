@@ -222,6 +222,7 @@
     "searchLabel": "Buscar canción o artista",
     "searchResultsCount": "{count} resultados disponibles. Usa las flechas para elegir.",
     "searchNoResults": "Sin resultados",
+    "clearSearch": "Borrar la búsqueda",
     "optionAlreadyGuessed": "ya intentado",
     "playFragment": "Reproducir el fragmento",
     "stopFragment": "Detener el fragmento",

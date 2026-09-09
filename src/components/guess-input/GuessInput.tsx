@@ -22,6 +22,12 @@ interface GuessInputProps {
 const DEBOUNCE_MS = 350;
 
 /**
+ * A partir de cuántos caracteres aparece el botón de borrar. Con una o dos letras el campo se
+ * vacía de un par de pulsaciones y el botón sería más estorbo que ayuda.
+ */
+const CLEAR_BUTTON_MIN_CHARS = 2;
+
+/**
  * Movimiento máximo (px) para que un gesto de puntero cuente como toque y no como scroll.
  * En táctil, `pointerdown` llega en el instante en que empieza un arrastre, así que sin este
  * umbral el arranque de un scroll se confundía con un clic fuera y cerraba la lista.
@@ -47,6 +53,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
@@ -95,16 +102,34 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
     }, DEBOUNCE_MS);
   }, []);
 
+  /**
+   * Vacía el campo y cierra la lista. Cancelar el debounce pendiente no es opcional: si quedara
+   * vivo, se dispararía 350 ms después con el texto anterior y volvería a abrir la lista sobre un
+   * campo ya vacío.
+   */
+  const resetSearch = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setQuery("");
+    setDebouncedQuery("");
+    setOpen(false);
+    setActiveIndex(-1);
+  }, []);
+
   const handleSelect = useCallback(
     (song: Song) => {
-      setQuery("");
-      setDebouncedQuery("");
-      setOpen(false);
-      setActiveIndex(-1);
+      resetSearch();
       onGuess(song);
     },
-    [onGuess]
+    [onGuess, resetSearch]
   );
+
+  const handleClear = useCallback(() => {
+    resetSearch();
+    // El foco vuelve al campo para que el teclado del móvil no se cierre después de borrar.
+    // Con puntero nunca llega a salir (el botón hace preventDefault en pointerdown); esto cubre
+    // la activación por teclado, donde el foco sí está en el botón.
+    inputRef.current?.focus();
+  }, [resetSearch]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -221,6 +246,8 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   }, []);
 
   const isExpanded = open && results.length > 0;
+  const showClearButton =
+    !disabled && query.trim().length > CLEAR_BUTTON_MIN_CHARS;
 
   return (
     <div
@@ -242,6 +269,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
           search
         </span>
         <input
+          ref={inputRef}
           type="text"
           role="combobox"
           aria-label={t("searchLabel")}
@@ -259,19 +287,39 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
           disabled={disabled}
           placeholder={t("typeToSearch")}
           className={cn(
-            "w-full rounded-xl border-2 border-transparent bg-muted py-4 pl-12 pr-4 text-base outline-none transition-all placeholder:text-muted-foreground",
+            // `pr-12` fijo, aunque no siempre haya botón: reservar el hueco evita que el texto
+            // salte al aparecer y desaparecer el aspa.
+            "w-full rounded-xl border-2 border-transparent bg-muted py-4 pl-12 pr-12 text-base outline-none transition-all placeholder:text-muted-foreground",
             "focus:border-brand/50 focus:ring-0",
+            // Con la lista desplegada los dos forman una sola pieza, así que el campo pierde el
+            // redondeo de abajo y la lista el de arriba.
+            isExpanded && "rounded-b-none",
             disabled && "cursor-not-allowed opacity-50"
           )}
         />
-        {isLoading && (
+        {/* Spinner y aspa comparten sitio: mientras se busca manda el spinner. */}
+        {isLoading ? (
           <span
             aria-hidden
             className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-xl text-brand"
           >
             progress_activity
           </span>
-        )}
+        ) : showClearButton ? (
+          <button
+            type="button"
+            // Mismo motivo que en las opciones: sin esto el campo pierde el foco al pulsar y en
+            // móvil se cerraría el teclado antes de que llegue el clic.
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={handleClear}
+            aria-label={t("clearSearch")}
+            className="absolute right-2 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15"
+          >
+            <span aria-hidden className="material-symbols-outlined text-xl">
+              close
+            </span>
+          </button>
+        ) : null}
       </div>
 
       {/* Anuncia el número de resultados a los lectores de pantalla: sin esto la lista aparece
@@ -291,9 +339,11 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             id={listboxId}
             role="listbox"
             aria-label={t("searchLabel")}
-            initial={{ opacity: 0, y: -8, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            // Sin `scale`: encogerla la separaría del borde del campo al que va pegada. Solo se
+            // despliega desde ahí.
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
             // Se despliega hacia abajo (`top-full`), no hacia arriba. En iOS, al enfocar el campo
             // la pantalla sube para dejarlo por encima del teclado, y lo que queda por encima del
@@ -301,10 +351,14 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             // del input hay sitio hasta donde empieza el teclado, que es donde la pantalla de
             // juego ya se compacta para dejar hueco (ver `RING_KEYBOARD_SCALE`).
             //
+            // Va pegada al campo, sin hueco ni redondeo arriba, para que las dos se lean como una
+            // sola pieza. Tampoco lleva borde superior: el del propio campo, que con la lista
+            // abierta siempre está enfocado y por tanto en color de marca, hace de separador.
+            //
             // `divide-y` separa cada opción de la siguiente sin tocar los extremos, así que no
             // hace falta distinguir el último elemento. Misma opacidad de borde que el resto de
             // separadores de la app.
-            className="absolute top-full z-50 mt-2 flex max-h-64 w-full flex-col divide-y divide-border/80 overflow-hidden overflow-y-auto rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
+            className="absolute top-full z-50 flex max-h-64 w-full flex-col divide-y divide-border/80 overflow-hidden overflow-y-auto rounded-b-xl border border-t-0 border-border bg-card shadow-xl shadow-black/20"
           >
             {results.map((song, index) => {
               const isAlreadyGuessed = isGuessed(song);

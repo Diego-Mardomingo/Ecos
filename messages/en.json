@@ -222,6 +222,7 @@
     "searchLabel": "Search song or artist",
     "searchResultsCount": "{count} results available. Use the arrow keys to choose.",
     "searchNoResults": "No results",
+    "clearSearch": "Clear the search",
     "optionAlreadyGuessed": "already guessed",
     "playFragment": "Play the snippet",
     "stopFragment": "Stop the snippet",
