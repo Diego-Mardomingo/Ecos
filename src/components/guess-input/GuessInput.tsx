@@ -295,10 +295,16 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.15 }}
+            // Se despliega hacia abajo (`top-full`), no hacia arriba. En iOS, al enfocar el campo
+            // la pantalla sube para dejarlo por encima del teclado, y lo que queda por encima del
+            // input es poco y además lo recorta el header fijo: la lista salía apretada. Debajo
+            // del input hay sitio hasta donde empieza el teclado, que es donde la pantalla de
+            // juego ya se compacta para dejar hueco (ver `RING_KEYBOARD_SCALE`).
+            //
             // `divide-y` separa cada opción de la siguiente sin tocar los extremos, así que no
             // hace falta distinguir el último elemento. Misma opacidad de borde que el resto de
             // separadores de la app.
-            className="absolute bottom-full z-50 mb-2 flex max-h-64 w-full flex-col divide-y divide-border/80 overflow-hidden overflow-y-auto rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
+            className="absolute top-full z-50 mt-2 flex max-h-64 w-full flex-col divide-y divide-border/80 overflow-hidden overflow-y-auto rounded-2xl border border-border bg-card shadow-xl shadow-black/20"
           >
             {results.map((song, index) => {
               const isAlreadyGuessed = isGuessed(song);
