@@ -50,6 +50,9 @@ function AvatarImage({
        */
       loading="lazy"
       decoding="async"
+      // Los avatares de Google (lh3.googleusercontent.com) responden 429 a las peticiones con
+      // referrer cuando se cargan muchos a la vez, como en el ranking.
+      referrerPolicy="no-referrer"
       width={40}
       height={40}
       className={cn("aspect-square size-full", className)}

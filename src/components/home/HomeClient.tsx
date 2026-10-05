@@ -8,12 +8,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslations } from "next-intl";
-import Image from "next/image";
-import { motion } from "framer-motion";
-import { format } from "date-fns";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
+  getEffectiveGameDate,
   getMadridDate,
   getTomorrowMadridDate,
 } from "@/lib/date-utils";
@@ -32,7 +29,6 @@ import {
   homeSessionSegment,
   queryKeys,
   fetchHomePreviousDaysData,
-  useSubmitFeedbackMutation,
   HOME_PREVIOUS_DAYS_GC_MS,
   HOME_PREVIOUS_DAYS_STALE_MS,
   type HomeData,
@@ -41,29 +37,10 @@ import {
   type HomePreviousDaysData,
 } from "@/lib/hooks/queries";
 import type { PreviousDayGame, GameWithSong } from "@/lib/queries/games";
-import { cn } from "@/lib/utils";
 import { HomeSkeleton } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useRouter } from "@/i18n/navigation";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Link, useRouter } from "@/i18n/navigation";
-import {
-  ABOUT_HOW_TO_PLAY_ICONS,
   HOME_EAGER_PREFETCH_MAX,
   HOME_PREFETCH_STRATEGY,
   MAX_PREFETCH_HISTORY_MONTHS_SAFETY,
@@ -71,15 +48,15 @@ import {
   mergeInProgressPreferringMoreGuesses,
   mergePreviousDays,
   runBatched,
-  titleCaseWords,
 } from "@/components/home/homeHelpers";
+import { HomeGuestCard, HomeProgress, type CompletedGame } from "@/components/home/HomeStats";
+import { HomeArchive } from "@/components/home/HomeArchive";
+import { HomeHeader } from "@/components/home/HomeHeader";
+import { HomeTodayHero } from "@/components/home/HomeTodayHero";
+import { HomeRecentDays } from "@/components/home/HomeRecentDays";
 import { Countdown } from "@/components/home/HomeCountdown";
-import { HomeStatsCarousel } from "@/components/home/HomeStats";
-import { PreviousDaysSection } from "@/components/home/PreviousDaysSection";
-import {
-  HeaderBrandWaveform,
-  WaveformBars,
-} from "@/components/home/HomeWaveform";
+import { deriveHomeDayState } from "@/components/home/homeDayDerived";
+import { attemptFromScore } from "@/lib/scoring";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
   PLAY_SKELETON_VARIANT_KEY,
@@ -87,7 +64,6 @@ import {
 } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
-import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 
 interface Props {
   initialData?: {
@@ -103,9 +79,6 @@ interface Props {
     prefetchGameIds?: string[];
   };
 }
-
-/** Alineado con `duration-200` del Dialog; evita flash del formulario durante la animación de cierre. */
-const REPORT_FEEDBACK_DIALOG_EXIT_MS = 250;
 
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
@@ -656,72 +629,8 @@ export function HomeClient({ initialData }: Props) {
   const rankingStats = homeUserStatsData?.rankingStats;
 
   const t = useTranslations("home");
-  const tc = useTranslations("common");
-  const howToPlaySteps = t.raw("howToPlayStepsList") as { title: string; desc: string }[];
   const locale = useLocale();
-  const { dateFnsLocale, formatNumber } = useAppFormatters();
   const { byGameId, saveProgress } = useGameProgressStore();
-
-  const [reportOpen, setReportOpen] = useState(false);
-  const [reportType, setReportType] = useState<"bug" | "error" | "suggestion">("bug");
-  const [reportMessage, setReportMessage] = useState("");
-  const [reportEmail, setReportEmail] = useState("");
-  const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
-  const reportStatusResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const submitFeedback = useSubmitFeedbackMutation();
-
-  const handleReportSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      const message = reportMessage.trim();
-      if (!message) return;
-      setReportStatus("sending");
-      submitFeedback.mutate(
-        {
-          type: reportType,
-          message,
-          email: reportEmail.trim() || undefined,
-        },
-        {
-          onSuccess: () => {
-            setReportStatus("success");
-            setReportMessage("");
-            setReportEmail("");
-          },
-          onError: () => {
-            setReportStatus("error");
-          },
-        }
-      );
-    },
-    // Los setters de useState son estables; van declarados porque el compilador
-    // los infiere como dependencias y si no coinciden descarta la optimización.
-    [reportType, reportMessage, reportEmail, submitFeedback, setReportMessage, setReportEmail]
-  );
-
-  const handleReportOpenChange = useCallback((open: boolean) => {
-    if (reportStatusResetTimeoutRef.current !== null) {
-      clearTimeout(reportStatusResetTimeoutRef.current);
-      reportStatusResetTimeoutRef.current = null;
-    }
-    setReportOpen(open);
-    if (open) {
-      setReportStatus("idle");
-    } else {
-      reportStatusResetTimeoutRef.current = setTimeout(() => {
-        reportStatusResetTimeoutRef.current = null;
-        setReportStatus("idle");
-      }, REPORT_FEEDBACK_DIALOG_EXIT_MS);
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (reportStatusResetTimeoutRef.current !== null) {
-        clearTimeout(reportStatusResetTimeoutRef.current);
-      }
-    };
-  }, []);
 
   // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
   useEffect(() => {
@@ -765,6 +674,22 @@ export function HomeClient({ initialData }: Props) {
   const todaysInProgress = todaysProgress?.phase === "playing" && (todaysProgress?.guesses?.length ?? 0) > 0;
   const todaysGuesses = todaysProgress?.guesses ?? [];
   const todaysWon = todaysCompletedResult?.won ?? todaysProgress?.phase === "won";
+
+  /**
+   * Partidas terminadas (fecha + intento del acierto) para la distribución de «Tu progreso».
+   * Sin las queries de estado por día: los puntos del histórico bastan para saber el intento.
+   */
+  const completedGames: CompletedGame[] = [];
+  for (const day of previousDays) {
+    const d = deriveHomeDayState(day, userId, null, byGameId);
+    if (d.completed) completedGames.push({ date: day.date, attempt: d.won ? attemptFromScore(d.displayScore) : null });
+  }
+  if (todaysGame && todaysCompleted) {
+    completedGames.push({
+      date: todaysGame.date,
+      attempt: todaysWon ? attemptFromScore(todaysDisplayScore) : null,
+    });
+  }
 
   const markPlayNavigationStart = useCallback((variant: PlaySkeletonVariant) => {
     if (typeof window === "undefined") return;
@@ -835,459 +760,72 @@ export function HomeClient({ initialData }: Props) {
     return <HomeSkeleton />;
   }
 
-  const headerActionButtonClass =
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[415px]:h-9 min-[415px]:w-auto min-[415px]:max-w-[min(100%,11rem)] min-[415px]:justify-start min-[415px]:gap-1.5 min-[415px]:px-2.5 min-[415px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-  const headerInfoButtonClass =
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center gap-0 rounded-xl border border-border bg-muted px-0 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground min-[348px]:w-auto min-[348px]:max-w-[min(100%,11rem)] min-[348px]:justify-start min-[348px]:gap-1.5 min-[348px]:px-2.5 min-[348px]:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const todayDate = todaysGame?.date ?? getEffectiveGameDate();
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col gap-5 px-4 pb-6">
-      {/* Header + Hero más compactos */}
-      <div className="flex flex-col gap-1">
-      <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between px-4 py-3 backdrop-blur-md"
-        style={{ background: "color-mix(in srgb, var(--background) 85%, transparent)" }}>
-        <div className="flex min-w-0 flex-1 items-center gap-2 pr-2 sm:pr-3">
-          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-brand/15 ring-1 ring-brand/30">
-            <Image
-              src="/ecos_icon_v2_192.png"
-              alt=""
-              width={36}
-              height={36}
-              className="object-contain"
-              sizes="36px"
-            />
-          </div>
-          <span className="shrink-0 text-lg font-bold leading-none tracking-tight">{tc("appName")}</span>
-          <HeaderBrandWaveform />
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5 min-[415px]:gap-2">
-          <Dialog>
-            <DialogTrigger asChild>
-              <button type="button" className={headerInfoButtonClass} aria-label={t("aboutTitle")}>
-                <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[348px]:text-xl">info</span>
-                <span className="hidden truncate min-[348px]:inline">{t("headerInfoButton")}</span>
-              </button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md gap-0 overflow-y-auto sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>{t("aboutTitle")}</DialogTitle>
-                <DialogDescription className="sr-only">{t("aboutAccessibilitySummary")}</DialogDescription>
-              </DialogHeader>
-              <div className="mt-3 space-y-5">
-                <div className="rounded-xl border border-brand/25 bg-gradient-to-br from-brand/12 to-brand/5 px-3.5 py-3">
-                  <p className="text-sm font-semibold leading-snug text-brand">{t("aboutTagline")}</p>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("aboutBody")}</p>
-                </div>
-                <div>
-                  <h4 className="mb-3 text-sm font-semibold tracking-tight">{t("howToPlayTitle")}</h4>
-                  <ul className="space-y-2" role="list">
-                    {howToPlaySteps.map((step, i) => (
-                      <li
-                        key={i}
-                        className="flex gap-3 rounded-xl border border-border/60 bg-muted/40 px-2.5 py-2.5"
-                      >
-                        <span
-                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand ring-1 ring-brand/25"
-                          aria-hidden
-                        >
-                          <span aria-hidden
-                            className="material-symbols-outlined text-[22px]"
-                            style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
-                          >
-                            {ABOUT_HOW_TO_PLAY_ICONS[i] ?? "music_note"}
-                          </span>
-                        </span>
-                        <div className="min-w-0 flex-1 pt-0.5">
-                          <p className="text-sm font-medium leading-snug text-foreground">{step.title}</p>
-                          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{step.desc}</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-          <Dialog open={reportOpen} onOpenChange={handleReportOpenChange}>
-            <DialogTrigger asChild>
-              <button type="button" className={headerActionButtonClass} aria-label={t("reportTitle")}>
-                <span aria-hidden className="material-symbols-outlined shrink-0 text-lg text-brand/70 min-[415px]:text-xl">bug_report</span>
-                <span className="hidden truncate min-[415px]:inline">{t("headerReportButton")}</span>
-              </button>
-            </DialogTrigger>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>{t("reportTitle")}</DialogTitle>
-                <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
-                  {t("reportDescription")}
-                </DialogDescription>
-              </DialogHeader>
-              {reportStatus === "success" ? (
-                <p className="text-sm font-medium text-brand">{t("reportSuccess")}</p>
-              ) : (
-                <form onSubmit={handleReportSubmit} className="mt-4 space-y-4">
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium">{t("reportType")}</label>
-                    <Select value={reportType} onValueChange={(v) => setReportType(v as "bug" | "error" | "suggestion")}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bug">{t("reportTypeBug")}</SelectItem>
-                        <SelectItem value="error">{t("reportTypeError")}</SelectItem>
-                        <SelectItem value="suggestion">{t("reportTypeSuggestion")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium">{t("reportMessage")}</label>
-                    <textarea
-                      value={reportMessage}
-                      onChange={(e) => setReportMessage(e.target.value)}
-                      placeholder={t("reportMessagePlaceholder")}
-                      required
-                      rows={3}
-                      maxLength={2000}
-                      className={cn(
-                        "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 placeholder:text-muted-foreground disabled:opacity-50",
-                        "min-h-[72px] resize-y"
-                      )}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-muted-foreground">{t("reportEmail")}</label>
-                    <Input
-                      type="email"
-                      value={reportEmail}
-                      onChange={(e) => setReportEmail(e.target.value)}
-                      placeholder={t("reportEmailPlaceholder")}
-                      className="w-full"
-                    />
-                  </div>
-                  {reportStatus === "error" && (
-                    <p className="text-sm text-destructive">{t("reportError")}</p>
-                  )}
-                  <Button type="submit" className="w-full" disabled={submitFeedback.isPending}>
-                    {submitFeedback.isPending ? t("reportSending") : t("reportSubmit")}
-                  </Button>
-                </form>
-              )}
-            </DialogContent>
-          </Dialog>
-        </div>
-      </header>
+    <div className="flex min-h-full min-w-0 flex-col gap-[26px] px-4 pb-6">
+      <div className="flex flex-col gap-3">
+        <HomeHeader />
 
-      {/* Today's Challenge Hero */}
-      <section>
-        <div className="mb-3 flex justify-center">
+        <HomeTodayHero
+          gameNumber={todaysGame?.game_number ?? null}
+          gameDate={todaysGame?.date ?? null}
+          completed={todaysCompleted}
+          inProgress={todaysInProgress}
+          won={todaysWon === true}
+          guesses={todaysGuesses}
+          cover={heroBackdropUrl}
+          title={todaysDisplayTitle}
+          artist={todaysDisplayArtist}
+          score={todaysDisplayScore}
+          onPlay={navigateToPlayToday}
+          onPrefetch={prefetchTodayPlay}
+          onShare={handleShareHome}
+        />
+
+        <div className="flex justify-center">
           <Countdown
             t={t}
             onCountdownUnder10s={handleCountdownUnder10s}
             onCountdownZero={handleCountdownZero}
           />
         </div>
-
-        {/* Contenedor estático: en iOS Safari, transform (p. ej. whileTap) en el mismo nodo que
-            rounded + overflow-hidden rompe el recorte; el motion.div va dentro sin border-radius en el padre animado */}
-        <div
-          className="relative cursor-pointer overflow-hidden rounded-2xl border border-white/[0.08]"
-        >
-          <motion.div
-            role="button"
-            tabIndex={0}
-            whileTap={{ scale: 0.99 }}
-            onMouseEnter={prefetchTodayPlay}
-            onFocus={prefetchTodayPlay}
-            onClick={navigateToPlayToday}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                navigateToPlayToday();
-              }
-            }}
-            className="flex w-full flex-col origin-center will-change-transform"
-          >
-            {/* Imagen */}
-            <div className="relative overflow-hidden" style={{ aspectRatio: "2 / 1" }}>
-              {todaysCompleted && heroBackdropUrl ? (
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    backgroundImage: `url(${heroBackdropUrl})`,
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                  }}
-                />
-              ) : (
-                <div className="absolute inset-0 bg-card dark:bg-[#0a0f0c]" />
-              )}
-
-              <div
-                className="absolute inset-0 opacity-10 pointer-events-none bg-repeat"
-                style={{
-                  backgroundImage: "url('https://www.transparenttextures.com/patterns/stardust.png')",
-                }}
-              />
-
-              {/* Scrim suave: solo para que el badge respire arriba */}
-              <div
-                className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/0 to-black/20 dark:from-black/35 dark:via-black/0 dark:to-transparent"
-                aria-hidden
-              />
-
-              {/* Badge (único overlay informativo) */}
-              <div className="absolute right-4 top-4">
-                <TodaysCardBadge
-                  todaysCompleted={todaysCompleted}
-                  todaysInProgress={todaysInProgress}
-                  todaysWon={todaysWon}
-                  t={t}
-                />
-              </div>
-
-              {/* Waveform decorativa (se mantiene en la parte superior cuando NO está completado) */}
-              {!todaysCompleted && <WaveformBars />}
-            </div>
-
-            {/* Panel inferior sólido (info + acciones) */}
-            <div className="relative border-t border-border bg-card px-4 py-3">
-              <div className="flex items-start justify-between gap-3">
-                {/* Fecha + game number */}
-                <p className="min-w-0 text-[10px] font-bold tracking-widest text-muted-foreground">
-                  {titleCaseWords(format(new Date(), "EEE", { locale: dateFnsLocale }))}{" "}
-                  <span className="opacity-60">|</span>{" "}
-                  {titleCaseWords(format(new Date(), "d MMM", { locale: dateFnsLocale }))}
-                  {todaysGame?.game_number != null && (
-                    <>
-                      <span className="opacity-60"> | </span>
-                      <span className="tabular-nums">#{todaysGame.game_number}</span>
-                    </>
-                  )}
-                </p>
-
-                {/* Puntuación (arriba derecha) cuando completado */}
-                {todaysCompleted ? (
-                  <div className="flex shrink-0 items-center gap-2 text-xs font-semibold">
-                    <span
-                      className={cn(
-                        todaysDisplayScore === 0 ? "text-destructive dark:text-[color:var(--ecos-bright-destructive)]" : "text-brand dark:text-[color:var(--ecos-bright-brand)]"
-                      )}
-                    >
-                      {t("score")}:
-                    </span>
-                    <span
-                      className={cn(
-                        todaysDisplayScore === 0 ? "text-destructive dark:text-[color:var(--ecos-bright-destructive)]" : "text-brand dark:text-[color:var(--ecos-bright-brand)]"
-                      )}
-                    >
-                      {formatNumber(todaysDisplayScore ?? 0)}{" "}
-                      {tc("points")}
-                    </span>
-                  </div>
-                ) : null}
-
-                {/* Progreso a la derecha (solo si está en curso) */}
-                {!todaysCompleted && todaysInProgress && (
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                      {t("progress")}
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={cn(
-                            "h-2 w-2 shrink-0 rounded-full",
-                            i < todaysGuesses.length
-                              ? "bg-destructive dark:bg-[var(--ecos-bright-destructive)]"
-                              : i === todaysGuesses.length
-                                ? "bg-muted-foreground/70 dark:bg-foreground/80"
-                                : "bg-muted-foreground/45 dark:bg-white/40"
-                          )}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {todaysCompleted ? (
-                <>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3
-                        className="max-w-full text-pretty text-[1.1rem] font-bold leading-snug text-foreground line-clamp-2"
-                        title={todaysDisplayTitle || undefined}
-                      >
-                        {todaysDisplayTitle || "—"}
-                      </h3>
-                      {todaysDisplayArtist && (
-                        <p className="mt-1 max-w-full text-[0.95rem] text-muted-foreground line-clamp-2">
-                          {todaysDisplayArtist}
-                        </p>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleShareHome}
-                      aria-label={tc("share")}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
-                    >
-                      <span aria-hidden
-                        className="material-symbols-outlined text-lg text-[color:var(--brand)]"
-                        style={{ fontVariationSettings: "'FILL' 0" }}
-                      >
-                        share
-                      </span>
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="mt-3 flex items-center justify-between gap-2 sm:gap-3">
-                    <div
-                      className="flex w-fit items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-bold text-primary-foreground shadow-[0_0_20px_-4px_color-mix(in_srgb,var(--brand)_40%,transparent)]"
-                      style={{
-                        background:
-                          "linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 50%, var(--brand) 100%)",
-                      }}
-                    >
-                      <span aria-hidden
-                        className="material-symbols-outlined text-lg text-primary-foreground"
-                        style={{ fontVariationSettings: "'FILL' 1" }}
-                      >
-                        play_arrow
-                      </span>
-                      {t("playNow")}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleShareHome}
-                      aria-label={tc("share")}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/90 text-accent-foreground shadow-md transition-all hover:bg-white hover:opacity-90 hover:shadow-lg active:scale-95 dark:bg-accent dark:hover:bg-accent/80"
-                    >
-                      <span aria-hidden
-                        className="material-symbols-outlined text-lg text-[color:var(--brand)]"
-                        style={{ fontVariationSettings: "'FILL' 0" }}
-                      >
-                        share
-                      </span>
-                    </button>
-                  </div>
-
-                </>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      </section>
       </div>
 
-      {/* Stats por período: carrusel Global / Semanal / Mensual (bucle infinito) */}
+      {/* Progreso por periodo, o el aviso para entrar si es invitado */}
       {userId && rankingStats ? (
-        <HomeStatsCarousel rankingStats={rankingStats} t={t} tc={tc} />
+        <HomeProgress rankingStats={rankingStats} completedGames={completedGames} todayDate={todayDate} />
       ) : userId ? (
-        <section className="grid grid-cols-2 gap-3">
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-        </section>
+        <Skeleton className="h-[290px] rounded-[22px]" />
       ) : (
-        /* Invitado: CTA motivacional para registrarse */
-        <section>
-          <Link
-            href="/login"
-            className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 transition-colors active:bg-card/70"
-          >
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand/15">
-              <span aria-hidden
-                className="material-symbols-outlined text-xl text-brand"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                person_add
-              </span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
-              <p className="text-xs text-muted-foreground">
-                {t("guestBannerDescription")}
-              </p>
-            </div>
-            <span aria-hidden className="material-symbols-outlined text-brand">chevron_right</span>
-          </Link>
-        </section>
+        <HomeGuestCard />
       )}
 
-      {/* Días anteriores */}
-      <PreviousDaysSection
+      <HomeRecentDays
         previousDays={previousDays}
+        todayDate={todayDate}
         userId={userId}
         inProgressByGameId={inProgressByGameId}
         onNavigateToGame={markPlayNavigationStart}
       />
-    </div>
-  );
-}
 
-function TodaysCardBadge({
-  todaysCompleted,
-  todaysInProgress,
-  todaysWon,
-  t,
-}: {
-  todaysCompleted: boolean;
-  todaysInProgress: boolean;
-  todaysWon?: boolean;
-  t: (key: string) => string;
-}) {
-  const baseClass = "inline-flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur-md";
-
-  const dotColor = todaysCompleted
-    ? todaysWon
-      ? "bg-[var(--ecos-bright-brand)]"
-      : "bg-[var(--ecos-bright-destructive)]"
-    : todaysInProgress
-      ? "bg-orange-500"
-      : "bg-blue-500";
-
-  if (todaysCompleted) {
-    const isWon = todaysWon === true;
-    return (
-      <div className={baseClass}>
-        <span
-          className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
-          style={{ animationDuration: "2s" }}
-        />
-        <span
-          className={
-            isWon ? "text-[color:var(--ecos-bright-brand)]" : "text-[color:var(--ecos-bright-destructive)]"
-          }
-        >
-          {isWon ? t("badgeWon") : t("badgeLost")}
-        </span>
-      </div>
-    );
-  }
-
-  if (todaysInProgress) {
-    return (
-      <div className={baseClass}>
-        <span
-          className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
-          style={{ animationDuration: "2s" }}
-        />
-        {t("badgeInProgress")}
-      </div>
-    );
-  }
-
-  return (
-    <div className={baseClass}>
-      <span
-        className={cn("h-1.5 w-1.5 shrink-0 rounded-full animate-pulse", dotColor)}
-        style={{ animationDuration: "2s" }}
+      <HomeArchive
+        previousDays={previousDays}
+        userId={userId}
+        inProgressByGameId={inProgressByGameId}
+        onNavigateToGame={markPlayNavigationStart}
+        today={
+          todaysGame
+            ? {
+                date: todaysGame.date,
+                completed: todaysCompleted,
+                won: todaysWon === true,
+                inProgress: todaysInProgress,
+              }
+            : null
+        }
+        onPlayToday={navigateToPlayToday}
       />
-      {t("badgeNotPlayed")}
     </div>
   );
 }

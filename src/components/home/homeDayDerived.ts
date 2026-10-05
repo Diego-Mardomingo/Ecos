@@ -9,13 +9,14 @@ export type DerivedHomeDayState = {
   inProgress: boolean;
   displayScore: number | null;
   displayTitle: string;
+  displayArtist: string;
   displayCover: string;
   guesses: GameProgress["guesses"];
   maxAttempts: number;
 };
 
 /**
- * Misma lógica que las tarjetas de «Días anteriores» en HomeClient (invitado vs usuario).
+ * Estado de un día anterior tal y como lo pinta el archivo de la home (invitado vs usuario).
  */
 export function deriveHomeDayState(
   day: PreviousDayGame,
@@ -36,6 +37,9 @@ export function deriveHomeDayState(
   const serverWon = status?.won ?? day.won;
   const serverHasResult = Boolean(userId && played && serverScore != null);
   const displayTitle = played ? (localProgress?.title ?? status?.title ?? day.title) : "";
+  const displayArtist = played
+    ? (localProgress?.artist_name ?? status?.artist_name ?? day.artist_name)
+    : "";
   const displayCover = played ? (localProgress?.cover_url ?? status?.cover_url ?? day.cover_url) : "";
   const displayScore = played
     ? serverHasResult
@@ -57,31 +61,9 @@ export function deriveHomeDayState(
     inProgress,
     displayScore,
     displayTitle,
+    displayArtist,
     displayCover,
     guesses,
     maxAttempts,
-  };
-}
-
-export type MonthGroupStats = {
-  totalGames: number;
-  completed: number;
-};
-
-export function aggregateMonthGroupStats(
-  days: PreviousDayGame[],
-  userId: string | null,
-  dayStatusByGameId: Map<string, HomeDayStatusData>,
-  byGameId: Record<string, GameProgress>
-): MonthGroupStats {
-  let completed = 0;
-  for (const day of days) {
-    const status = userId ? dayStatusByGameId.get(day.id) : undefined;
-    const d = deriveHomeDayState(day, userId, status ?? null, byGameId);
-    if (d.completed) completed++;
-  }
-  return {
-    totalGames: days.length,
-    completed,
   };
 }

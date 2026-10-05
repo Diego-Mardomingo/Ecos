@@ -18,9 +18,5 @@ export default function RankingHistoryLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <div className="pt-3 sm:pt-4">
-      {children}
-    </div>
-  );
+  return children;
 }

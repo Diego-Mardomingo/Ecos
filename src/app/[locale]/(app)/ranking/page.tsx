@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getLeaderboardByPeriod } from "@/lib/queries/users";
 import { LeaderboardClient } from "@/components/leaderboard/LeaderboardClient";
-import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
+import { RankingSkeleton } from "@/components/skeletons";
 
 export const metadata: Metadata = {
   title: "Ranking",
@@ -39,7 +39,7 @@ async function RankingPageContent() {
 
 export default function RankingPage() {
   return (
-    <Suspense fallback={<RankingPodiumAndListSkeleton />}>
+    <Suspense fallback={<RankingSkeleton />}>
       <RankingPageContent />
     </Suspense>
   );

@@ -4,9 +4,24 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import Script from "next/script";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Link } from "@/i18n/navigation";
+import { cn } from "@/lib/utils";
+import { WaveformBars } from "@/components/home/HomeWaveform";
+
+const rise: Variants = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
+};
+
+/** Los tres puntos que resumen el juego bajo el título. */
+const FEATURES = [
+  { key: "featureDaily", icon: "calendar_month", iconClass: "bg-brand/15 text-brand" },
+  { key: "featureClip", icon: "graphic_eq", iconClass: "bg-sky-500/15 text-sky-500" },
+  { key: "featureRanking", icon: "trophy", iconClass: "bg-amber-500/15 text-amber-500" },
+] as const;
 
 declare global {
   interface Window {
@@ -88,86 +103,103 @@ export function LoginClient() {
   };
 
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center bg-background px-6">
+    <div className="relative isolate flex min-h-dvh flex-col overflow-hidden bg-background px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
       <Script
         src="https://accounts.google.com/gsi/client"
         strategy="afterInteractive"
         onLoad={() => setOneTapReady(true)}
       />
-      {/* Botón volver */}
-      <button
-        type="button"
-        onClick={() => router.back()}
-        className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        aria-label={tCommon("back")}
+
+      {/* Fondo: manchas a la deriva y un ecualizador grande al pie. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="ecos-drift-a absolute -left-24 -top-24 size-80 rounded-full bg-brand/20 blur-3xl" />
+        <div className="ecos-drift-b absolute -right-24 top-1/3 size-72 rounded-full bg-sky-400/15 blur-3xl" />
+        <div className="absolute inset-x-0 bottom-0 h-40 opacity-30 [mask-image:linear-gradient(to_top,black,transparent)]">
+          <WaveformBars />
+        </div>
+      </div>
+
+      <div className="mx-auto flex w-full max-w-sm items-center">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="group flex size-10 items-center justify-center rounded-full border border-border bg-card/70 backdrop-blur transition-[transform,border-color] hover:border-brand/40 active:scale-90"
+          aria-label={tCommon("back")}
+        >
+          <span aria-hidden className="material-symbols-outlined text-xl transition-transform group-hover:-translate-x-0.5">
+            arrow_back
+          </span>
+        </button>
+      </div>
+
+      <motion.div
+        initial="hidden"
+        animate="show"
+        variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } }}
+        className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center"
       >
-        <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
-        {tCommon("back")}
-      </button>
-      {/* Blobs decorativos */}
-      <div className="pointer-events-none absolute left-1/4 top-1/4 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/10 blur-[100px]" />
-      <div className="pointer-events-none absolute right-1/4 bottom-1/3 h-48 w-48 translate-x-1/2 rounded-full bg-blue-500/10 blur-[80px]" />
+        <motion.div
+          variants={{
+            hidden: { scale: 0.5, opacity: 0, rotate: -15 },
+            show: { scale: 1, opacity: 1, rotate: 0, transition: { type: "spring", stiffness: 280, damping: 16 } },
+          }}
+          className="relative mb-6 size-20"
+        >
+          <span aria-hidden className="ecos-ping absolute inset-0 rounded-[26px] bg-brand/25 [animation-duration:2.8s]" />
+          <span className="relative flex size-full items-center justify-center overflow-hidden rounded-[26px] bg-brand/15 shadow-[0_16px_40px_-14px_var(--brand)] ring-1 ring-brand/30">
+            <Image src="/ecos_icon_v2_192.png" alt="ECOS" width={80} height={80} className="object-contain" priority />
+          </span>
+        </motion.div>
+
+        <motion.h1 variants={rise} className="text-[34px] font-bold leading-[1.1] tracking-tight">
+          {t("welcome")}
+        </motion.h1>
+        <motion.p variants={rise} className="mt-3 text-base leading-relaxed text-muted-foreground">
+          {t("subtitle")}
+        </motion.p>
+
+        <ul className="mt-8 space-y-3">
+          {FEATURES.map((feature) => (
+            <motion.li key={feature.key} variants={rise} className="flex items-center gap-3">
+              <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-2xl", feature.iconClass)}>
+                <span aria-hidden className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  {feature.icon}
+                </span>
+              </span>
+              <span className="text-sm font-medium">{t(feature.key)}</span>
+            </motion.li>
+          ))}
+        </ul>
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative z-10 flex w-full max-w-sm flex-col items-center gap-8"
+        transition={{ delay: 0.45, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="mx-auto w-full max-w-sm space-y-3 pt-8"
       >
-        {/* Logo */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-brand/15 ring-1 ring-brand/30">
-            <Image
-              src="/ecos_icon_v2_192.png"
-              alt="ECOS"
-              width={80}
-              height={80}
-              className="object-contain"
-            />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">ECOS</h1>
-          <p className="text-center text-sm text-muted-foreground">
-            {t("subtitle")}
-          </p>
-        </div>
-
-        {/* Waveform decorativa */}
-        <div className="flex items-end justify-center gap-[3px] opacity-40">
-          {Array.from({ length: 24 }).map((_, i) => (
-            <motion.div
-              key={i}
-              className="w-[3px] rounded-full bg-brand"
-              animate={{
-                height: [`${6 + Math.random() * 20}px`, `${6 + Math.random() * 20}px`],
-              }}
-              transition={{
-                duration: 0.8 + Math.random() * 0.6,
-                repeat: Infinity,
-                repeatType: "reverse",
-                ease: "easeInOut",
-                delay: i * 0.05,
-              }}
-            />
-          ))}
-        </div>
-
         {/* Botón Google (fallback cuando One Tap no se muestra) */}
-        <div className="w-full space-y-3">
-          <motion.button
-            onClick={handleGoogleSignIn}
-            disabled={loading}
-            whileTap={{ scale: 0.98 }}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white py-4 text-sm font-semibold text-gray-900 shadow-lg transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-70"
-          >
-            {loading ? (
-              <span aria-hidden className="material-symbols-outlined animate-spin text-xl text-gray-500">
-                progress_activity
-              </span>
-            ) : (
-              <GoogleIcon />
-            )}
-            {loading ? t("signingIn") : t("signInWithGoogle")}
-          </motion.button>
-        </div>
+        <motion.button
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          whileTap={{ scale: 0.97 }}
+          className="ecos-shimmer flex h-14 w-full items-center justify-center gap-3 rounded-full bg-white text-[15px] font-semibold text-gray-900 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.45)] ring-1 ring-black/5 transition-colors hover:bg-gray-50 disabled:opacity-70"
+        >
+          {loading ? (
+            <span aria-hidden className="material-symbols-outlined animate-spin text-xl text-gray-500">
+              progress_activity
+            </span>
+          ) : (
+            <GoogleIcon />
+          )}
+          {loading ? t("signingIn") : t("signInWithGoogle")}
+        </motion.button>
+        <Link
+          href="/"
+          className="flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {t("continueAsGuest")}
+        </Link>
       </motion.div>
     </div>
   );

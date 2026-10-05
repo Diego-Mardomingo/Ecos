@@ -264,7 +264,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
       <div className="relative">
         <span
           aria-hidden
-          className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-xl text-muted-foreground transition-colors group-focus-within:text-brand"
+          className="material-symbols-outlined pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-xl text-muted-foreground transition-[color,transform] duration-300 group-focus-within:scale-110 group-focus-within:text-brand"
         >
           search
         </span>
@@ -289,8 +289,8 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
           className={cn(
             // `pr-12` fijo, aunque no siempre haya botón: reservar el hueco evita que el texto
             // salte al aparecer y desaparecer el aspa.
-            "w-full rounded-xl border-2 border-transparent bg-muted py-4 pl-12 pr-12 text-base outline-none transition-all placeholder:text-muted-foreground",
-            "focus:border-brand/50 focus:ring-0",
+            "w-full rounded-2xl border border-border bg-card py-4 pl-12 pr-12 text-base shadow-sm outline-none transition-[border-color,box-shadow,border-radius] duration-200 placeholder:text-muted-foreground",
+            "focus:border-brand/60 focus:shadow-[0_0_0_4px_color-mix(in_srgb,var(--brand)_14%,transparent),0_10px_30px_-12px_color-mix(in_srgb,var(--brand)_45%,transparent)] focus:ring-0",
             // Con la lista desplegada los dos forman una sola pieza, así que el campo pierde el
             // redondeo de abajo y la lista el de arriba.
             isExpanded && "rounded-b-none",
@@ -358,7 +358,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             // `divide-y` separa cada opción de la siguiente sin tocar los extremos, así que no
             // hace falta distinguir el último elemento. Misma opacidad de borde que el resto de
             // separadores de la app.
-            className="absolute top-full z-50 flex max-h-64 w-full flex-col divide-y divide-border/80 overflow-hidden overflow-y-auto rounded-b-xl border border-t-0 border-border bg-card shadow-xl shadow-black/20"
+            className="absolute top-full z-50 flex max-h-64 w-full flex-col divide-y divide-border/60 overflow-hidden overflow-y-auto rounded-b-2xl border border-t-0 border-brand/60 bg-card shadow-2xl shadow-black/25"
           >
             {results.map((song, index) => {
               const isAlreadyGuessed = isGuessed(song);
@@ -375,15 +375,21 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
                   onPointerDown={(e) => e.preventDefault()}
                   onClick={() => !isAlreadyGuessed && handleSelect(song)}
                   onMouseEnter={() => setActiveIndex(index)}
+                  // Entrada escalonada de los resultados. CSS y no framer: son elementos de
+                  // lista que cambian con cada pulsación, no merece la pena montar un motion por fila.
+                  style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
                   className={cn(
-                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                    "relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 animate-in fade-in-0 slide-in-from-top-1 fill-mode-both",
                     isAlreadyGuessed
-                      ? "cursor-not-allowed bg-destructive/15 opacity-70"
-                      : "cursor-pointer active:bg-muted/70",
-                    isActive && !isAlreadyGuessed && "bg-muted"
+                      ? "cursor-not-allowed bg-destructive/10 opacity-70"
+                      : "cursor-pointer active:bg-brand/15",
+                    isActive && !isAlreadyGuessed && "bg-brand/10"
                   )}
                 >
-                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
+                  {isActive && !isAlreadyGuessed && (
+                    <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-brand" />
+                  )}
+                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm">
                     {song.cover_url ? (
                       <Image
                         src={song.cover_url}

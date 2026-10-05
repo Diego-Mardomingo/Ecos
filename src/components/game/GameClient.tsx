@@ -9,7 +9,6 @@ import {
   useMemo,
 } from "react";
 import { useTranslations } from "next-intl";
-import { format, parseISO } from "date-fns";
 import { useTheme } from "next-themes";
 import { calculateScore } from "@/lib/scoring";
 import { type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
@@ -33,17 +32,16 @@ import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgres
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { toast } from "sonner";
-import { Link, useRouter } from "@/i18n/navigation";
-import {
-  PLAY_FROM_HOME_STORAGE_KEY,
-  useNavigateBackToHome,
-} from "@/lib/navigation/useNavigateBackToHome";
+import { motion } from "framer-motion";
+import { useRouter } from "@/i18n/navigation";
+import { PLAY_FROM_HOME_STORAGE_KEY } from "@/lib/navigation/useNavigateBackToHome";
 import { PLAY_SKELETON_VARIANT_KEY } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_END_EVENT } from "@/lib/navigation/playNavigationEvents";
-import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import { PreviousAttempts } from "@/components/game/GameAttemptsList";
 import { PlayingGameAudioSection } from "@/components/game/GameAudioSection";
 import { ResultGameView } from "@/components/game/GameResultScreen";
+import { GameBackdrop } from "@/components/game/GameBackdrop";
+import { GameHeader } from "@/components/game/GameHeader";
 import {
   lostProgress,
   nonWinningOptimistic,
@@ -73,11 +71,9 @@ export function GameClient({ game, userId }: Props) {
   const { resolvedTheme } = useTheme();
   const t = useTranslations("game");
   const tc = useTranslations("common");
-  const { dateFnsLocale } = useAppFormatters();
   const isGuest = !userId;
   const validateGuessMutation = useValidateGuessMutation();
   const skipAttemptMutation = useSkipAttemptMutation();
-  const navigateBackToHomePlaying = useNavigateBackToHome();
 
   useEffect(() => {
     router.prefetch("/");
@@ -679,34 +675,11 @@ export function GameClient({ game, userId }: Props) {
   if (!isGuest && !hasLocalDecisiveProgress && isServerProgressPending) {
     return (
       <div className="relative flex min-h-dvh flex-col bg-background">
-        <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
-          <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
-          <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
-        </div>
-        <header className="relative z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/80 bg-background/95 px-4 pt-safe backdrop-blur-sm">
-          <Link
-            href="/"
-            onClick={navigateBackToHomePlaying}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
-            aria-label={tc("back")}
-          >
-            <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
-          </Link>
-          <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
-            {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
-            {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
-            {game.game_number != null && (
-              <>
-                <span className="text-foreground/50"> · </span>
-                <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
-              </>
-            )}
-          </h1>
-          <div className="flex h-9 w-9 shrink-0" aria-hidden />
-        </header>
+        <GameBackdrop />
+        <GameHeader game={game} />
         <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-24">
           <span
-            className="material-symbols-outlined animate-spin text-3xl text-muted-foreground"
+            className="material-symbols-outlined animate-spin text-3xl text-brand"
             aria-hidden
           >
             progress_activity
@@ -775,89 +748,71 @@ export function GameClient({ game, userId }: Props) {
     );
   }
 
+  const handleSkip = () => {
+    gameAudioPlayerRef.current?.stopIfPlaying();
+    if (effectivePhase !== "playing") return;
+    if (!isGuest && syncInFlightRef.current) return;
+
+    // El guard de doble tap va antes de bifurcar: aplica igual a invitado y autenticado.
+    const now = Date.now();
+    if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
+    lastSkipTapAtRef.current = now;
+
+    const skipEntry: GuessEntry = {
+      text: "skipped",
+      correct: false,
+      attemptNumber: effectiveCurrentAttempt,
+    };
+
+    if (isGuest || !userId) {
+      applyGuestAttempt(skipEntry);
+      return;
+    }
+
+    runSyncedAttempt(skipEntry, async ({ lostNow, optimisticGuesses }) => {
+      await skipAttemptMutation.mutateAsync({
+        userId,
+        gameId: game.id,
+        event: lostNow ? "gameCompleted" : "attemptSaved",
+        song: {
+          title: game.ecos_songs.title,
+          artist_name: game.ecos_songs.artist_name,
+          cover_url: game.ecos_songs.cover_url,
+        },
+        request: {
+          gameId: game.id,
+          attemptNumber: effectiveCurrentAttempt,
+        },
+        optimistic: nonWinningOptimistic({
+          game,
+          lostNow,
+          guesses: optimisticGuesses,
+        }),
+      });
+    });
+  };
+
   return (
     <div className="relative flex flex-col bg-background">
-      {/* Fondo de efectos a pantalla completa (sutil para no restar contraste a las barras) */}
-      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden>
-        <div className="absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/5 blur-[120px]" />
-        <div className="absolute bottom-1/4 right-1/4 h-64 w-64 translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/5 blur-[100px]" />
-      </div>
+      <GameBackdrop />
 
       <div className="relative z-10 flex flex-col">
-      {/* Header fijo — back (más cuadrado), fecha + id, botón Saltar con texto */}
-      <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between border-b border-border/80 bg-background/95 backdrop-blur-sm px-4 pt-safe">
-        <Link
-          href="/"
-          onClick={navigateBackToHomePlaying}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground transition-colors hover:bg-muted/80"
-          aria-label={tc("back")}
-        >
-          <span aria-hidden className="material-symbols-outlined text-xl">arrow_back</span>
-        </Link>
-        <h1 className="text-center text-[10px] font-bold uppercase tracking-widest text-foreground/80">
-          {format(parseISO(game.date), "d", { locale: dateFnsLocale })}{" "}
-          {format(parseISO(game.date), "MMMM", { locale: dateFnsLocale }).toUpperCase()}
-          {game.game_number != null && (
-            <>
-              <span className="text-foreground/50"> · </span>
-              <span className="tabular-nums text-foreground/80">#{game.game_number}</span>
-            </>
-          )}
-        </h1>
-        <button
-          type="button"
-          onClick={() => {
-            gameAudioPlayerRef.current?.stopIfPlaying();
-            if (effectivePhase !== "playing") return;
-            if (!isGuest && syncInFlightRef.current) return;
-
-            // El guard de doble tap va antes de bifurcar: aplica igual a invitado y autenticado.
-            const now = Date.now();
-            if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
-            lastSkipTapAtRef.current = now;
-
-            const skipEntry: GuessEntry = {
-              text: "skipped",
-              correct: false,
-              attemptNumber: effectiveCurrentAttempt,
-            };
-
-            if (isGuest || !userId) {
-              applyGuestAttempt(skipEntry);
-              return;
-            }
-
-            runSyncedAttempt(skipEntry, async ({ lostNow, optimisticGuesses }) => {
-              await skipAttemptMutation.mutateAsync({
-                userId,
-                gameId: game.id,
-                event: lostNow ? "gameCompleted" : "attemptSaved",
-                song: {
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url,
-                },
-                request: {
-                  gameId: game.id,
-                  attemptNumber: effectiveCurrentAttempt,
-                },
-                optimistic: nonWinningOptimistic({
-                  game,
-                  lostNow,
-                  guesses: optimisticGuesses,
-                }),
-              });
-            });
-          }}
-          className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <span aria-hidden className="material-symbols-outlined text-lg">skip_next</span>
-          {t("skip")}
-        </button>
-      </header>
-
-      {/* Espaciador para el header fijo */}
-      <div className="h-14 shrink-0" aria-hidden />
+      <GameHeader
+        game={game}
+        action={
+          <motion.button
+            type="button"
+            onClick={handleSkip}
+            whileTap={{ scale: 0.92 }}
+            className="group flex h-10 items-center gap-1 rounded-full border border-border bg-card/70 pl-3 pr-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground"
+          >
+            {t("skip")}
+            <span aria-hidden className="material-symbols-outlined text-xl transition-transform duration-200 group-hover:translate-x-0.5 group-active:translate-x-1">
+              skip_next
+            </span>
+          </motion.button>
+        }
+      />
 
       <PlayingGameAudioSection
         game={game}

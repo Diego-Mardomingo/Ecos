@@ -9,6 +9,11 @@ export interface AudioPlayerHandle {
   togglePlay: () => void;
   /** Si está reproduciendo, pausa y resetea el fragmento (mismo efecto que pulsar Stop). */
   stopIfPlaying: () => void;
+  /**
+   * Lleva el cabezal a ese segundo, sin reproducir ni parar. Sonando, salta y sigue; parado, el
+   * siguiente play arranca desde ahí. Se acota al fragmento disponible (`maxDuration`).
+   */
+  seekTo: (seconds: number) => void;
 }
 
 interface AudioPlayerProps {
@@ -60,6 +65,9 @@ ref: React.Ref<AudioPlayerHandle>) => {
   /** Listener "ended" activo del preview, para poder retirarlo y no acumularlos. */
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const maxDurationRef = useRef(maxDuration);
+  /** Segundo desde el que arrancará el siguiente play, fijado por `seekTo` con el audio parado. */
+  const pendingStartRef = useRef(0);
+  const onEndedRef = useRef(onEnded);
   const [isPlaying, setIsPlaying] = useState(false);
   /**
    * Solo alimenta los controles propios del reproductor. Con `hideControls` no se pinta, y el
@@ -85,6 +93,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
   // del compilador de React.
   useEffect(() => {
     maxDurationRef.current = maxDuration;
+    onEndedRef.current = onEnded;
     isPlayingRef.current = isPlaying;
     isLoadedRef.current = isLoaded;
   });
@@ -130,11 +139,29 @@ ref: React.Ref<AudioPlayerHandle>) => {
     }
     cancelPlaybackLoop();
     cancelHardStop();
+    pendingStartRef.current = 0;
     setCurrentTime(0);
     setIsPlaying(false);
     clearMediaSession();
     onTimeUpdate?.(0);
   }, [cancelPlaybackLoop, cancelHardStop, clearMediaSession, onTimeUpdate]);
+
+  /**
+   * Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil. Se programa con lo que
+   * *queda* de fragmento desde `fromSeconds`, no con el fragmento entero: tras un salto hacia
+   * atrás, contar desde el play original cortaría el audio antes de tiempo.
+   */
+  const scheduleHardStop = useCallback(
+    (fromSeconds: number) => {
+      cancelHardStop();
+      const remaining = Math.max(0, maxDurationRef.current - fromSeconds);
+      stopTimeoutRef.current = window.setTimeout(() => {
+        stopAndReset();
+        onEndedRef.current?.();
+      }, (remaining + 0.5) * 1000);
+    },
+    [cancelHardStop, stopAndReset]
+  );
 
   useEffect(() => {
     onPlayingChange?.(isPlaying);
@@ -237,7 +264,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
       return;
     }
 
-    audio.currentTime = 0;
+    // Arranca donde lo dejó `seekTo` con el audio parado; si no hubo salto, desde el principio.
+    const startAt = Math.min(pendingStartRef.current, Math.max(0, maxDuration - 0.05));
+    pendingStartRef.current = 0;
+    audio.currentTime = startAt;
     // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
     // manejarlo para no quedar con isPlaying=true sin audio.
     void audio.play().catch(() => {
@@ -271,7 +301,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
         });
         // playbackState "none" evita que aparezca en controles del sistema
         navigator.mediaSession.playbackState = "none";
-        updateMediaSessionPosition(0);
+        updateMediaSessionPosition(startAt);
         navigator.mediaSession.setActionHandler("seekto", (details) => {
           const audio = audioRef.current;
           if (!audio) return;
@@ -287,12 +317,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       }
     }
 
-    // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
-    cancelHardStop();
-    stopTimeoutRef.current = window.setTimeout(() => {
-      stopAndReset();
-      onEnded?.();
-    }, (maxDuration + 0.5) * 1000);
+    scheduleHardStop(startAt);
 
     cancelPlaybackLoop();
     const tickPreview = () => {
@@ -321,12 +346,34 @@ ref: React.Ref<AudioPlayerHandle>) => {
       playbackRafRef.current = requestAnimationFrame(tickPreview);
     };
     playbackRafRef.current = requestAnimationFrame(tickPreview);
-  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle]);
+  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle, scheduleHardStop]);
+
+  const seekTo = useCallback(
+    (seconds: number) => {
+      if (!isLoadedRef.current) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      // Un pelo antes del final: caer justo en `maxDuration` dispararía el corte de fin de fragmento.
+      const clamped = Math.min(Math.max(0, seconds), Math.max(0, maxDurationRef.current - 0.05));
+      if (isPlayingRef.current) {
+        audio.currentTime = clamped;
+        scheduleHardStop(clamped);
+        updateMediaSessionPosition(clamped);
+      } else {
+        pendingStartRef.current = clamped;
+      }
+      setCurrentTimeIfVisible(clamped);
+      // Parado también se notifica: así quien pinta la onda deja el cabezal donde se tocó.
+      onTimeUpdate?.(clamped);
+    },
+    [scheduleHardStop, updateMediaSessionPosition, setCurrentTimeIfVisible, onTimeUpdate]
+  );
 
   useImperativeHandle(ref, () => ({
     togglePlay,
     stopIfPlaying,
-  }), [togglePlay, stopIfPlaying]);
+    seekTo,
+  }), [togglePlay, stopIfPlaying, seekTo]);
 
   if (!previewUrl || hasError) {
     return (

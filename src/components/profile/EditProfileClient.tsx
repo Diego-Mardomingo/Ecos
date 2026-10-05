@@ -1,15 +1,21 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useId, useRef, useState } from "react";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 import { createClient } from "@/lib/supabase/client";
 import { useUpdateProfileMutation } from "@/lib/hooks/queries";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { PageHeader } from "@/components/ui/page-header";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { cn } from "@/lib/utils";
+
+const rise: Variants = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
+};
 
 // Permite letras, números, _, espacios y emojis (3-50 caracteres)
 const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
@@ -39,6 +45,9 @@ export function EditProfileClient({ profile }: Props) {
   );
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const usernameId = useId();
+  /** Subida de la foto en curso: velo con spinner sobre el avatar y guardar deshabilitado. */
+  const [uploading, setUploading] = useState(false);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,6 +62,7 @@ export function EditProfileClient({ profile }: Props) {
     }
 
     setError(null);
+    setUploading(true);
     const supabase = createClient();
     const ext = file.name.split(".").pop() || "jpg";
     const path = `${profile.id}/avatar.${ext}`;
@@ -60,6 +70,7 @@ export function EditProfileClient({ profile }: Props) {
     const { error: uploadError } = await supabase.storage
       .from("avatars")
       .upload(path, file, { upsert: true });
+    setUploading(false);
 
     if (uploadError) {
       setError("Error al subir la imagen.");
@@ -104,99 +115,169 @@ export function EditProfileClient({ profile }: Props) {
     );
   };
 
-  return (
-    <div className="flex min-h-full flex-col gap-6 px-4 pb-28">
-      <header className="flex items-center gap-3 py-3">
-        <Link
-          href="/profile"
-          aria-label={tc("back")}
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-muted"
-        >
-          <span aria-hidden className="material-symbols-outlined text-lg">arrow_back</span>
-        </Link>
-        <h1 className="text-base font-bold">{t("title")}</h1>
-      </header>
+  const trimmed = username.trim();
+  const looksValid = USERNAME_REGEX.test(trimmed);
 
-      <div className="space-y-6">
-        {/* Avatar */}
-        <div className="flex flex-col items-center gap-3">
-          <p className="text-sm font-medium text-muted-foreground">{t("avatar")}</p>
-          <div className="relative">
-            <Avatar className="h-28 w-28 ring-2 ring-brand/40">
-              <AvatarImage src={avatarUrl} />
-              <AvatarFallback className="bg-secondary text-2xl font-bold">
-                {(username || profile.display_name).slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={handleAvatarChange}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-brand shadow-md"
+  return (
+    <div className="flex min-h-full flex-col px-4 pb-28">
+      <PageHeader title={t("title")} backHref="/profile" backLabel={tc("back")} />
+
+      <motion.div
+        initial="hidden"
+        animate="show"
+        variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}
+        className="flex flex-col gap-5 pt-2"
+      >
+        {/* Foto */}
+        <motion.section
+          variants={rise}
+          className="relative isolate flex flex-col items-center overflow-hidden rounded-[28px] border border-border bg-card px-5 py-6"
+        >
+          <div aria-hidden className="absolute inset-x-0 top-0 -z-10 h-24 overflow-hidden">
+            <div className="ecos-drift-a absolute -left-10 -top-16 size-44 rounded-full bg-brand/20 blur-3xl" />
+            <div className="ecos-drift-b absolute -right-10 -top-10 size-36 rounded-full bg-sky-400/15 blur-3xl" />
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
+          <motion.button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            whileTap={{ scale: 0.95 }}
+            aria-label={t("changeAvatar")}
+            className="group relative rounded-full bg-gradient-to-br from-brand via-sky-400 to-violet-400 p-[3px]"
+          >
+            <span className="block rounded-full bg-card p-[3px]">
+              <Avatar className="size-28">
+                <AvatarImage src={avatarUrl} />
+                <AvatarFallback className="bg-muted text-3xl font-bold">
+                  {(username || profile.display_name).slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            </span>
+            {/* Velo con cámara al pasar por encima, y siempre mientras sube la foto. */}
+            <span
+              className={cn(
+                "absolute inset-[6px] flex items-center justify-center rounded-full bg-black/45 text-white transition-opacity duration-200",
+                uploading ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              )}
             >
-              <span aria-hidden
-                className="material-symbols-outlined text-base text-primary-foreground"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
+              {uploading ? (
+                <Loader2 className="size-7 animate-spin" aria-hidden />
+              ) : (
+                <span aria-hidden className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  photo_camera
+                </span>
+              )}
+            </span>
+            <span className="absolute bottom-1 right-1 flex size-9 items-center justify-center rounded-full bg-brand text-primary-foreground shadow-lg ring-4 ring-card transition-transform duration-200 group-hover:scale-110">
+              <span aria-hidden className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>
                 add_a_photo
               </span>
-            </button>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
+            </span>
+          </motion.button>
+          <p className="mt-3 text-sm font-medium">{t("avatar")}</p>
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
+            className="mt-1 text-sm font-semibold text-brand transition-opacity hover:opacity-80"
           >
             {t("changeAvatar")}
-          </Button>
-        </div>
+          </button>
+        </motion.section>
 
-        <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/80 bg-card/50 px-4 py-3">
-          <div className="min-w-0 space-y-1 pr-2">
-            <p className="text-sm font-medium leading-snug">
-              {t("rankingsAvatarVisibility")}
-            </p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {t("rankingsAvatarVisibilityHelp")}
-            </p>
+        {/* Nombre de usuario */}
+        <motion.section variants={rise} className="rounded-3xl border border-border bg-card p-4">
+          <label htmlFor={usernameId} className="mb-2 block text-sm font-semibold">
+            {t("username")}
+          </label>
+          <div className="relative">
+            <span aria-hidden className="material-symbols-outlined pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xl text-muted-foreground">
+              alternate_email
+            </span>
+            <input
+              id={usernameId}
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setError(null);
+              }}
+              placeholder={t("usernamePlaceholder")}
+              maxLength={50}
+              aria-invalid={error ? true : undefined}
+              className="h-12 w-full rounded-2xl border border-border bg-background pl-11 pr-11 text-base outline-none transition-[border-color,box-shadow] focus:border-brand/60 focus:shadow-[0_0_0_4px_color-mix(in_srgb,var(--brand)_14%,transparent)]"
+            />
+            <AnimatePresence>
+              {looksValid && (
+                <motion.span
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 24 }}
+                  aria-hidden
+                  className="material-symbols-outlined absolute right-3.5 top-1/2 -translate-y-1/2 text-xl text-brand"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  check_circle
+                </motion.span>
+              )}
+            </AnimatePresence>
           </div>
-          <Switch
+          <div className="mt-2 flex justify-between gap-3 text-xs text-muted-foreground">
+            <span>{t("usernameInvalid")}</span>
+            <span className="shrink-0 tabular-nums">{username.length}/50</span>
+          </div>
+        </motion.section>
+
+        {/* Visibilidad de la foto */}
+        <motion.section variants={rise} className="flex items-start gap-4 rounded-3xl border border-border bg-card p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold leading-snug">{t("rankingsAvatarVisibility")}</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("rankingsAvatarVisibilityHelp")}</p>
+          </div>
+          <ToggleSwitch
+            label={t("rankingsAvatarVisibility")}
             checked={showAvatarInRankings}
             onCheckedChange={setShowAvatarInRankings}
-            className="shrink-0"
-            aria-label={t("rankingsAvatarVisibility")}
+            className="mt-0.5"
           />
-        </div>
+        </motion.section>
 
-        {/* Username */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">{t("username")}</label>
-          <Input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder={t("usernamePlaceholder")}
-            maxLength={50}
-          />
-        </div>
+        <AnimatePresence>
+          {error && (
+            <motion.p
+              role="alert"
+              initial={{ opacity: 0, y: -6, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto" }}
+              exit={{ opacity: 0, y: -6, height: 0 }}
+              className="flex items-center gap-2 rounded-2xl bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive"
+            >
+              <span aria-hidden className="material-symbols-outlined text-lg">error</span>
+              {error}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
-
-        <Button
+        <motion.button
+          variants={rise}
+          type="button"
           onClick={handleSave}
-          disabled={updateProfile.isPending}
-          className="w-full rounded-xl py-3 font-semibold"
+          disabled={updateProfile.isPending || uploading}
+          whileTap={{ scale: 0.97 }}
+          className="ecos-shimmer flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand text-[15px] font-bold text-primary-foreground shadow-[0_14px_36px_-14px_var(--brand)] disabled:opacity-60"
         >
+          {updateProfile.isPending ? (
+            <Loader2 className="size-5 animate-spin" aria-hidden />
+          ) : (
+            <span aria-hidden className="material-symbols-outlined text-xl">check</span>
+          )}
           {updateProfile.isPending ? t("saving") : t("save")}
-        </Button>
-      </div>
+        </motion.button>
+      </motion.div>
     </div>
   );
 }

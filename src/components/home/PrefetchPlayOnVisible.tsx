@@ -5,15 +5,20 @@ import { useEffect, useRef, type ReactNode } from "react";
 /**
  * Dispara prefetch de ruta + queries de partida cuando el enlace entra en el viewport,
  * para clicks sin pasar por hover (móvil, scroll rápido).
+ *
+ * El envoltorio necesita caja propia: antes era `display: contents`, y un nodo sin caja no
+ * intersecta nunca, así que el observer no llegaba a disparar.
  */
 export function PrefetchPlayOnVisible({
   gameId,
   onPrefetch,
   children,
+  className,
 }: {
   gameId: string;
   onPrefetch: (gameId: string) => void;
   children: ReactNode;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -36,7 +41,7 @@ export function PrefetchPlayOnVisible({
   }, [gameId, onPrefetch]);
 
   return (
-    <div ref={ref} className="contents">
+    <div ref={ref} className={className}>
       {children}
     </div>
   );

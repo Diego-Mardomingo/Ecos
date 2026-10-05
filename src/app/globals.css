@@ -7,6 +7,8 @@
 @theme inline {
   /* Fuente */
   --font-sans: var(--font-dm-sans);
+  --font-display: var(--font-bricolage);
+  --font-mono: var(--font-jetbrains-mono);
 
   /* Colores semánticos mapeados desde variables CSS */
   --color-background: var(--background);
@@ -126,6 +128,27 @@
   }
 }
 
+/**
+ * Tamaño de los iconos de Material Symbols.
+ *
+ * La hoja de Google Fonts declara `.material-symbols-outlined { font-size: 24px }` sin capa, y en
+ * la cascada lo que no tiene capa gana siempre a lo que sí la tiene: a todas las utilidades de
+ * Tailwind. Resultado, todos los iconos medían 24 px dijera lo que dijera su `text-*`.
+ *
+ * Arreglo en dos partes: el 24 px por defecto pasa a la capa base, y una regla sin capa (con más
+ * especificidad que la de Google) devuelve `font-size` a lo que digan las capas con
+ * `revert-layer`. Así manda la utilidad si la hay, y si no, el 24 px de la base.
+ */
+@layer base {
+  .material-symbols-outlined {
+    font-size: 24px;
+  }
+}
+
+.material-symbols-outlined.material-symbols-outlined {
+  font-size: revert-layer;
+}
+
 /* Safe area para dispositivos con notch */
 @layer utilities {
   .pb-safe {
@@ -134,6 +157,198 @@
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+}
+
+/**
+ * Microanimaciones de la home y de la partida. Van en CSS y no en framer-motion porque son
+ * bucles infinitos sobre muchas barras a la vez: con `transform` y `opacity` el navegador las
+ * resuelve en el compositor sin pasar por React ni por el hilo principal.
+ */
+@layer utilities {
+  /** Halo de marca: el brillo que acompaña a los elementos activos. */
+  .ecos-glow {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent),
+      0 8px 32px -8px color-mix(in srgb, var(--brand) 55%, transparent);
+  }
+
+  /** Barra de ecualizador: oscila en vertical desde la base. Duración y retardo, por barra. */
+  .ecos-eq-bar {
+    transform-origin: 50% 100%;
+    animation: ecos-eq var(--eq-duration, 1.1s) ease-in-out var(--eq-delay, 0s) infinite alternate;
+  }
+  .ecos-eq-bar-center {
+    transform-origin: 50% 50%;
+    animation: ecos-eq var(--eq-duration, 1.1s) ease-in-out var(--eq-delay, 0s) infinite alternate;
+  }
+
+  /** Oscilación suave para la onda de la partida mientras suena el fragmento. */
+  .ecos-wobble {
+    transform-origin: 50% 50%;
+    animation: ecos-wobble var(--eq-duration, 0.9s) ease-in-out var(--eq-delay, 0s) infinite alternate;
+  }
+
+  /** Destello que barre un botón de izquierda a derecha cada pocos segundos. */
+  .ecos-shimmer {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .ecos-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.35) 50%,
+      transparent 65%
+    );
+    transform: translateX(-120%);
+    animation: ecos-shimmer 3.6s cubic-bezier(0.4, 0, 0.2, 1) 1.2s infinite;
+  }
+
+  /** Respiración del botón de play cuando está listo y esperando: invita a pulsarlo. */
+  .ecos-breathe {
+    animation: ecos-breathe 2.8s ease-in-out infinite;
+  }
+
+  /** Onda expansiva alrededor del botón de play mientras suena. */
+  .ecos-ping {
+    animation: ecos-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /** Giro del vinilo de la pantalla de resultado; se pausa con `animation-play-state`. */
+  .ecos-spin-slow {
+    animation: spin 3.2s linear infinite;
+  }
+
+  /** Surcos del vinilo. */
+  .ecos-vinyl {
+    background:
+      radial-gradient(circle at 50% 50%, transparent 0 31%, rgba(255, 255, 255, 0.05) 31.5% 32%, transparent 32.5%),
+      repeating-radial-gradient(circle at 50% 50%, #111 0 1.5px, #1b1b1b 1.5px 3px),
+      #111;
+  }
+
+  /**
+   * Lámina holográfica (pegatinas y rayas de la funda del reto). El degradado se desplaza en
+   * bucle y un rayado fino encima le da el aspecto de foil.
+   */
+  .ecos-foil {
+    isolation: isolate;
+    background: linear-gradient(110deg, #6ee7b7, #a5f3fc, #c4b5fd, #f9a8d4, #fde68a, #6ee7b7, #a5f3fc);
+    background-size: 200% 100%;
+    animation: ecos-foil 6s linear infinite;
+  }
+  .ecos-foil::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.18) 0 1px, transparent 1px 5px);
+    mix-blend-mode: overlay;
+  }
+
+  /** Recorta un fondo en rayas diagonales de 1 px (se combina con `.ecos-foil`). */
+  .ecos-hairlines {
+    mask: repeating-linear-gradient(118deg, transparent 0 6px, #000 6px 7px);
+  }
+
+  /** Desvanece un bloque desde la esquina superior derecha hacia abajo a la izquierda. */
+  .ecos-fade-tr {
+    mask: linear-gradient(215deg, #000 0%, rgba(0, 0, 0, 0.5) 35%, transparent 75%);
+  }
+}
+
+@keyframes ecos-foil {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+/**
+ * Deriva lenta de las manchas de color de fondo (tarjeta del reto). Solo `transform`: la mancha
+ * difuminada se rasteriza una vez y el compositor la mueve sin repintar.
+ */
+@layer utilities {
+  .ecos-drift-a {
+    animation: ecos-drift-a 14s ease-in-out infinite alternate;
+  }
+  .ecos-drift-b {
+    animation: ecos-drift-b 17s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes ecos-drift-a {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(28%, 18%, 0) scale(1.15); }
+}
+
+@keyframes ecos-drift-b {
+  0% { transform: translate3d(0, 0, 0) scale(1.1); }
+  100% { transform: translate3d(-24%, -14%, 0) scale(0.95); }
+}
+
+/** Skeleton de carga: un destello recorre el bloque en vez del pulso de opacidad. */
+@layer utilities {
+  .ecos-skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+  }
+  .ecos-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      transparent
+    );
+    animation: ecos-skeleton 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes ecos-skeleton {
+  100% { transform: translateX(100%); }
+}
+
+@keyframes ecos-eq {
+  0% { transform: scaleY(var(--eq-from, 0.25)); }
+  100% { transform: scaleY(var(--eq-to, 1)); }
+}
+
+@keyframes ecos-wobble {
+  0% { transform: scaleY(0.72); }
+  100% { transform: scaleY(1.08); }
+}
+
+@keyframes ecos-shimmer {
+  0% { transform: translateX(-120%); }
+  45%, 100% { transform: translateX(120%); }
+}
+
+@keyframes ecos-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--brand) 0%, transparent),
+      0 12px 40px -12px color-mix(in srgb, var(--brand) 60%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 10px color-mix(in srgb, var(--brand) 12%, transparent),
+      0 12px 48px -10px color-mix(in srgb, var(--brand) 75%, transparent);
+  }
+}
+
+@keyframes ecos-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.75); opacity: 0; }
 }
 
 /**

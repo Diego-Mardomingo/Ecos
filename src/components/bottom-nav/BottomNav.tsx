@@ -5,171 +5,95 @@ import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store/authStore";
-import {
-  fetchLeaderboardPeriodData,
-  fetchHomePreviousDaysData,
-  fetchHomeTodayData,
-  fetchHomeUserStatsData,
-  fetchProfileCoreData,
-  fetchProfileStatsData,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
-  HOME_TODAY_STALE_MS,
-  PROFILE_STALE_MS,
-  queryKeys,
-  RANKING_STALE_MS,
-  useProfile,
-} from "@/lib/hooks/queries";
-import { Link, usePathname, useRouter } from "@/i18n/navigation";
-import { useQueryClient } from "@tanstack/react-query";
-import { getMadridDate } from "@/lib/date-utils";
-import { hasRecentGameCompleted } from "@/lib/consistencySync";
-import { stripLocalePrefix } from "@/i18n/locale-path";
+import { useProfile } from "@/lib/hooks/queries";
+import { Link, useRouter } from "@/i18n/navigation";
+import { useNavPrefetch } from "@/components/navigation/useNavPrefetch";
 
-interface NavItem {
-  href: string;
-  labelKey: string;
-  icon: string;
-}
+/**
+ * Barra de navegación inferior (móvil): Ranking · Jugar · Perfil, en una cápsula flotante.
+ * La pestaña activa se invierte (fondo del color del texto) y la pastilla se desliza de una a
+ * otra. Con sesión, la de perfil lleva el nombre del usuario; sin ella, «Entrar».
+ */
+const ITEMS = [
+  { href: "/ranking", icon: "leaderboard", labelKey: "ranking" },
+  { href: "/", icon: "play_circle", labelKey: "play" },
+  { href: "/profile", icon: "person", labelKey: "profile" },
+] as const;
 
-const NAV_ITEMS: NavItem[] = [
-  { href: "/ranking", labelKey: "ranking", icon: "leaderboard" },
-  { href: "/", labelKey: "play", icon: "play_circle" },
-  { href: "/profile", labelKey: "profile", icon: "person" },
-];
+/** Ancho de cada pestaña y hueco entre ellas (px). La pastilla se coloca con estas medidas. */
+const TAB_WIDTH = 74;
+const TAB_GAP = 4;
 
 export function BottomNav() {
-  const pathname = usePathname();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const t = useTranslations("nav");
+  const tc = useTranslations("common");
   const user = useAuthStore((s) => s.user);
   const { data } = useProfile(user?.id ?? null, undefined, { enabled: !!user });
-  const hasRecentCompletion = hasRecentGameCompleted(user?.id ?? null, 2 * 60 * 1000);
-
-  // Normalizar pathname quitando el prefijo de locale (/en/... → /...)
-  const normalizedPath = stripLocalePrefix(pathname);
-
-  const isActive = (href: string) => {
-    if (href === "/") return normalizedPath === "/";
-    return normalizedPath.startsWith(href);
-  };
+  const { isActive, handleNavClick } = useNavPrefetch();
 
   useEffect(() => {
     // Mantener Home prefetcheada reduce el delay al volver desde otras secciones.
     router.prefetch("/");
   }, [router]);
 
-  return (
-    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t-[3px] border-brand/45 bg-card min-[670px]:hidden">
-      {/* Blob verde sutil centrado en Inicio */}
-      <div
-        className="pointer-events-none absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand/8 blur-[50px]"
-        aria-hidden
-      />
-      <div className="relative flex justify-around px-2 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(item.href);
-          const label =
-            item.labelKey === "profile" && user
-              ? (data?.profile?.display_name ?? t("profile"))
-              : t(item.labelKey);
+  const profileLabel = user ? (data?.profile?.display_name ?? t("profile")) : tc("enter");
+  const activeIndex = ITEMS.findIndex((item) => isActive(item.href));
 
+  return (
+    <nav
+      aria-label={t("mainLabel")}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(1rem,env(safe-area-inset-bottom))] min-[670px]:hidden"
+    >
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.25 }}
+        className="pointer-events-auto relative flex items-center rounded-[26px] border border-border p-1.5 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.35)] backdrop-blur-[18px] backdrop-saturate-[1.4]"
+        style={{ background: "color-mix(in srgb, var(--card) 80%, transparent)", gap: TAB_GAP }}
+      >
+        {/* Pastilla de la pestaña activa. Una sola, desplazada en X hasta su pestaña, en vez de un
+            `layoutId` que salta de una pestaña a otra: el `layoutId` mide posiciones de página, y
+            como la nav es `position: fixed`, el salto de scroll al cambiar de ruta se colaba en la
+            animación y la pastilla llegaba «desde abajo de la pantalla» (medido: 537 px). Con las
+            pestañas de ancho fijo, la posición se calcula y el scroll no interviene. */}
+        <motion.span
+          aria-hidden
+          initial={false}
+          animate={{ x: Math.max(0, activeIndex) * (TAB_WIDTH + TAB_GAP), opacity: activeIndex >= 0 ? 1 : 0 }}
+          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+          className="absolute bottom-1.5 left-1.5 top-1.5 rounded-[20px] bg-foreground"
+          style={{ width: TAB_WIDTH }}
+        />
+        {ITEMS.map((item) => {
+          const active = isActive(item.href);
+          const label = item.labelKey === "profile" ? profileLabel : t(item.labelKey);
           return (
             <Link
               key={item.href}
               href={item.href}
               prefetch
-              className="flex min-w-0 flex-1 flex-col items-center gap-0"
-              onClick={(e) => {
-                if (active) {
-                  e.preventDefault();
-                  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
-                  sessionStorage.setItem(`scroll:${pathname}`, "0");
-                  return;
-                }
-
-                if (item.href === "/") {
-                  const monthKey = getMadridDate().slice(0, 7);
-                  const uid = user?.id ?? null;
-                  void queryClient.prefetchQuery({
-                    queryKey: queryKeys.home.today(uid),
-                    queryFn: fetchHomeTodayData,
-                    staleTime: hasRecentCompletion ? 0 : HOME_TODAY_STALE_MS,
-                  });
-                  void queryClient.prefetchQuery({
-                    queryKey: queryKeys.home.previousDays(monthKey, uid),
-                    queryFn: () => fetchHomePreviousDaysData(monthKey),
-                    staleTime: hasRecentCompletion ? 0 : HOME_PREVIOUS_DAYS_STALE_MS,
-                    gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-                  });
-                  if (uid) {
-                    void queryClient.prefetchQuery({
-                      queryKey: queryKeys.home.userStats(uid),
-                      queryFn: fetchHomeUserStatsData,
-                      staleTime: hasRecentCompletion ? 0 : HOME_TODAY_STALE_MS,
-                    });
-                  }
-                }
-
-                if (item.href === "/ranking") {
-                  if (hasRecentCompletion) {
-                    void queryClient.invalidateQueries({
-                      queryKey: queryKeys.ranking.all,
-                    });
-                  }
-                  for (const period of ["weekly", "monthly", "global"] as const) {
-                    void queryClient.prefetchQuery({
-                      queryKey: queryKeys.ranking.period(period),
-                      queryFn: () => fetchLeaderboardPeriodData(period),
-                      staleTime: hasRecentCompletion ? 0 : RANKING_STALE_MS,
-                    });
-                  }
-                }
-
-                if (item.href === "/profile" && user) {
-                  void queryClient.prefetchQuery({
-                    queryKey: queryKeys.profile.section("core", user.id),
-                    queryFn: fetchProfileCoreData,
-                    staleTime: PROFILE_STALE_MS,
-                  });
-                  void queryClient.prefetchQuery({
-                    queryKey: queryKeys.profile.section("stats", user.id),
-                    queryFn: fetchProfileStatsData,
-                    staleTime: hasRecentCompletion ? 0 : PROFILE_STALE_MS,
-                  });
-                }
-              }}
+              onClick={(e) => handleNavClick(item.href, e)}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "relative flex flex-col items-center gap-0.5 rounded-[20px] pb-1.5 pt-[7px] text-[10.5px] font-semibold transition-colors duration-200",
+                active ? "text-background" : "text-muted-foreground hover:text-foreground"
+              )}
+              style={{ width: TAB_WIDTH }}
             >
-              <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center leading-none sm:h-11 sm:w-11 [--bottom-nav-icon:28px] sm:[--bottom-nav-icon:34px]"
+              <motion.span
+                aria-hidden
+                whileTap={{ scale: 0.85 }}
+                className="material-symbols-outlined relative text-2xl"
+                style={{ fontVariationSettings: `'FILL' ${active ? 1 : 0}, 'wght' 500` }}
               >
-                <motion.span
-                  whileTap={{ scale: 0.85 }}
-                  className={cn(
-                    "material-symbols-outlined leading-none transition-colors",
-                    active ? "text-brand" : "text-muted-foreground"
-                  )}
-                  style={{
-                    fontSize: "var(--bottom-nav-icon)",
-                    fontVariationSettings: "'FILL' 1, 'wght' 500, 'opsz' 28",
-                  }}
-                >
-                  {item.icon}
-                </motion.span>
-              </div>
-              <span
-                className={cn(
-                  "max-w-full -translate-y-0.5 truncate px-0.5 pb-px text-center text-xs font-medium leading-tight transition-colors sm:text-sm",
-                  active ? "text-brand" : "text-muted-foreground"
-                )}
-              >
-                {label}
-              </span>
+                {item.icon}
+              </motion.span>
+              <span className="relative max-w-full truncate px-1">{label}</span>
             </Link>
           );
         })}
-      </div>
+      </motion.div>
     </nav>
   );
 }

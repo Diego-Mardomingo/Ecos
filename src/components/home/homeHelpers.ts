@@ -17,55 +17,10 @@ export const ABOUT_HOW_TO_PLAY_ICONS = [
   "emoji_events",
   "skip_next",
 ] as const;
-export const PREVIOUS_DAYS_FILTER_STORAGE_KEY = "ecos-previous-days-filter";
-export const HOME_MONTHS_OPEN_STORAGE_KEY = "ecos-home-months-open";
-export const HOME_VIEW_MODE_STORAGE_KEY = "ecos-home-view-mode";
-export const HOME_SORT_ORDER_STORAGE_KEY = "ecos-home-sort-order";
 export const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
+/** Mes que se estaba viendo en el calendario del archivo (sessionStorage). */
+export const HOME_ARCHIVE_MONTH_STORAGE_KEY = "ecos-home-archive-month";
 
-export type PreviousDaysPrefs = {
-  openMonths?: Set<string>;
-  filterYear?: number;
-  filterMonth?: number;
-  viewMode?: "list" | "grid";
-  sortOrder?: "asc" | "desc";
-};
-
-/** Lee de una vez las preferencias de la sección de días anteriores. Cada clave va en
- *  su propio try: un valor corrupto no debe impedir restaurar los demás. */
-export function readPreviousDaysPrefs(): PreviousDaysPrefs {
-  const prefs: PreviousDaysPrefs = {};
-  try {
-    const raw = sessionStorage.getItem(HOME_MONTHS_OPEN_STORAGE_KEY);
-    const arr = raw ? (JSON.parse(raw) as string[]) : null;
-    if (Array.isArray(arr) && arr.length > 0) prefs.openMonths = new Set(arr);
-  } catch {
-    /* ignore */
-  }
-  try {
-    const raw = sessionStorage.getItem(PREVIOUS_DAYS_FILTER_STORAGE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as { filterYear?: number | null; filterMonth?: number | null };
-      if (typeof p.filterYear === "number") prefs.filterYear = p.filterYear;
-      if (typeof p.filterMonth === "number") prefs.filterMonth = p.filterMonth;
-    }
-  } catch {
-    /* ignore */
-  }
-  try {
-    const raw = sessionStorage.getItem(HOME_VIEW_MODE_STORAGE_KEY);
-    if (raw === "list" || raw === "grid") prefs.viewMode = raw;
-  } catch {
-    /* ignore */
-  }
-  try {
-    const raw = sessionStorage.getItem(HOME_SORT_ORDER_STORAGE_KEY);
-    if (raw === "asc" || raw === "desc") prefs.sortOrder = raw;
-  } catch {
-    /* ignore */
-  }
-  return prefs;
-}
 /**
  * Solo red de seguridad si la API devolviera nextMonth de forma errónea.
  * El histórico real termina cuando nextMonth es null.
@@ -81,16 +36,6 @@ export const HOME_PREFETCH_STRATEGY: "sequential" | "full-parallel" =
   process.env.NEXT_PUBLIC_HOME_PREFETCH_STRATEGY === "sequential"
     ? "sequential"
     : "full-parallel";
-/** Colores para días anteriores en orden: rojo, azul, verde (bucle) */
-const PREVIOUS_DAY_COLORS = [
-  "hsl(0, 55%, 40%)",   /* rojo */
-  "hsl(200, 50%, 40%)", /* azul */
-  "hsl(140, 45%, 35%)", /* verde */
-] as const;
-
-/** Prioridad en next/image solo para las primeras carátulas del histórico (equilibrio con LCP). */
-export const HOME_COVER_IMAGE_PRIORITY_COUNT = 16;
-
 export function titleCaseWords(input: string): string {
   return input
     .split(" ")
@@ -176,10 +121,6 @@ export function mergeInProgressPreferringMoreGuesses(
     }
   }
   return out;
-}
-
-export function previousDayColor(gameNumber: number): string {
-  return PREVIOUS_DAY_COLORS[(gameNumber - 1) % 3];
 }
 
 export async function runBatched<T>(

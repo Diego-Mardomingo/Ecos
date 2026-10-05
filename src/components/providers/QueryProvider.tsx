@@ -2,21 +2,38 @@
 
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { QueryClientProvider, onlineManager } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { QueryClientProvider, onlineManager, type QueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createQueryClient } from "@/lib/createQueryClient";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { QUERY_CACHE_STORAGE_KEY, shouldPersistQuery } from "@/lib/queryPersist";
 
-export function QueryProvider({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => createQueryClient());
-  const [persistReady, setPersistReady] = useState(false);
+/**
+ * En el navegador, un único QueryClient para toda la vida de la pestaña.
+ *
+ * Si se creara dentro del componente, se perdería cada vez que el proveedor se vuelve a montar, y
+ * eso pasa más de lo que parece: al cambiar de idioma, Next rehace todo lo que cuelga de
+ * `[locale]/layout.tsx` (el segmento cambia de valor), y al pasar de la app al panel de admin se
+ * monta otro `QueryProvider`. Con la caché nueva volvían los esqueletos y las peticiones.
+ *
+ * En el servidor sí se crea uno por render: compartirlo mezclaría datos entre peticiones.
+ * El vaciado al cambiar de usuario no depende de esto: lo hace `AuthProvider`.
+ */
+let browserQueryClient: QueryClient | undefined;
 
-  useEffect(() => {
-    /* Persist needs mount: localStorage is only available on the client. */
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional post-mount switch to PersistQueryClientProvider
-    setPersistReady(true);
-  }, []);
+function getQueryClient(): QueryClient {
+  if (typeof window === "undefined") return createQueryClient();
+  browserQueryClient ??= createQueryClient();
+  return browserQueryClient;
+}
+
+export function QueryProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = getQueryClient();
+  /* La persistencia necesita localStorage, así que espera a hidratar. En un remontaje posterior
+     (cambio de idioma) ya es `true` desde el primer render y no se alterna de proveedor, que
+     volvería a montar todo el árbol una segunda vez. */
+  const persistReady = useIsMounted();
 
   useEffect(() => {
     return onlineManager.setEventListener((setOnline) => {
