@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Selección diaria: elige 1 canción para el juego del día siguiente (visible a las 00:00 Madrid).
-Ejecutar 1x/día ~22:00 Madrid (GitHub Action). Crea el juego del día siguiente si falta;
-si el cron llega tarde y ya es medianoche en Madrid, rellena primero el día en curso.
+Selección diaria: mantiene creados los juegos de hoy y de los DAYS_AHEAD días siguientes (Madrid).
+Ejecutar 1x/día (GitHub Action). En régimen normal cada ejecución crea el juego de pasado mañana;
+si el cron se salta días, rellena en orden todos los huecos, empezando por el día en curso.
 
 Pool elegible: preview_url + preview_duration_seconds >= MIN_PREVIEW_SECONDS + spotify_playlist_id en
 ecos_spotify_playlists con is_active = true.
@@ -40,6 +40,8 @@ except ImportError:
 
 MADRID = ZoneInfo("Europe/Madrid")
 ROTATION_DAYS = 14
+# Días por delante de hoy que deben tener juego creado (ver get_pending_game_dates).
+DAYS_AHEAD = 2
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
 # Pool elegible: preview medido >= este umbral (s) y playlist activa en ecos_spotify_playlists
 MIN_PREVIEW_SECONDS = 29.0
@@ -90,14 +92,15 @@ def get_special_genre(genre: str | None, playlist_name: str | None) -> str | Non
 
 
 def get_pending_game_dates(supabase: Client, now_madrid: datetime) -> list[str]:
-    """TODOS los días en [hoy, mañana] (Madrid) sin juego, en orden.
+    """TODOS los días en [hoy, hoy + DAYS_AHEAD] (Madrid) sin juego, en orden.
 
-    Crítico: si el cron se salta un día (GitHub cron es best-effort), hay que rellenar
-    tanto el día en curso como el siguiente para no dejar la web sin juego y para que
-    el desfase no se arrastre indefinidamente.
+    Crítico: el cron de GitHub es best-effort y llega con horas de retraso (hasta pasada la
+    medianoche de Madrid, lo que dejó la web sin juego el 06/10/2026). Con un solo día de margen,
+    un retraso así basta para que a las 00:00 no exista el juego. Con dos, una ejecución tardía
+    sigue llegando con más de 24 h de colchón.
     """
     pending: list[str] = []
-    for offset in (0, 1):
+    for offset in range(DAYS_AHEAD + 1):
         candidate = (now_madrid.date() + timedelta(days=offset)).isoformat()
         r_existing = supabase.table("ecos_games").select("id").eq("date", candidate).limit(1).execute()
         if not r_existing.data:
@@ -254,12 +257,12 @@ def main() -> None:
 
     pending_dates = get_pending_game_dates(supabase, now_madrid)
     if not pending_dates:
-        log.info("Ya existen juegos para hoy y mañana en Madrid, nada que hacer")
+        log.info("Ya existen juegos para hoy y los %d días siguientes en Madrid, nada que hacer", DAYS_AHEAD)
         try:
             supabase.table("ecos_system_logs").insert({
                 "job_type": "daily_game",
                 "status": "success",
-                "summary": "Juegos ya existían para hoy y mañana",
+                "summary": f"Juegos ya existían para hoy y los {DAYS_AHEAD} días siguientes",
                 "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
                 "details": {"skipped": True, "madrid_now": now_madrid.isoformat()},
             }).execute()
