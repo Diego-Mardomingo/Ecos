@@ -32,8 +32,13 @@ alter table public.ecos_system_logs       enable row level security;
 create policy ecos_songs_read on public.ecos_songs
   for select to public using (true);
 
+-- ecos_games, en cambio, solo hasta hoy en Madrid. Hasta oct. 2026 era using(true) y el reto de
+-- mañana (que el selector crea con dos días de antelación) se leía entero por REST con la anon
+-- key: `ecos_games?date=gt.<hoy>&select=ecos_songs(title,preview_url)`. Las RPC de ranking son
+-- SECURITY DEFINER y el admin usa service role, así que no les afecta.
 create policy ecos_games_read on public.ecos_games
-  for select to public using (true);
+  for select to public
+  using (date <= (now() at time zone 'Europe/Madrid')::date);
 
 create policy ecos_spotify_playlists_read on public.ecos_spotify_playlists
   for select to public using (true);
@@ -47,14 +52,21 @@ create policy ecos_spotify_playlists_read on public.ecos_spotify_playlists
 -- ecos_profiles_restrict_role_column_update.
 -- ---------------------------------------------------------------------------------------------
 
-create policy ecos_profiles_read on public.ecos_profiles
-  for select to public using (true);
+-- Lectura: solo la fila propia, y anon nada (ver el revoke de select más abajo). Hasta oct. 2026
+-- era using(true) para public: cualquiera leía el nombre real de Google y el `role` de todos.
+-- Toda lectura con el cliente de cookies es de la propia fila (proxy, requireAdmin, profile/*,
+-- api/profile, api/push/status); el ranking va por las RPC SECURITY DEFINER. La comprobación de
+-- username ocupado de api/profile ya no ve filas ajenas: la cubre ecos_profiles_username_key.
+create policy ecos_profiles_own_read on public.ecos_profiles
+  for select to authenticated using ((select auth.uid()) = user_id);
 
 create policy ecos_profiles_own_insert on public.ecos_profiles
   for insert to authenticated with check (auth.uid() = user_id);
 
 create policy ecos_profiles_own_write on public.ecos_profiles
-  for update to public using (auth.uid() = user_id);
+  for update to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------------------------
 -- Partida: cada usuario solo ve lo suyo
@@ -125,6 +137,7 @@ create policy authenticated_insert_own_report on public.ecos_reports
 --
 -- El parche de agosto recortó solo UPDATE; el INSERT siguió incluyendo `role` hasta octubre de
 -- 2026, así que una cuenta sin fila de perfil podía insertarse role = 'admin'. Los dos van juntos.
+revoke select on public.ecos_profiles from anon;
 revoke insert on public.ecos_profiles from anon, authenticated;
 grant insert (
   user_id,
@@ -159,9 +172,9 @@ revoke all on public.ecos_feedback from anon, authenticated;
 -- con service_role (validate-guess, skip-attempt, game-progress). Ningún cliente de navegador
 -- debe poder ejecutarlas.
 --
--- Las RPC de lectura (get_leaderboard_by_period, get_leaderboard_period_summaries,
--- get_user_ranking_stats, get_user_avg_guesses, ecos_search_songs) siguen abiertas a propósito:
--- se llaman con el cliente de cookies.
+-- Las RPC de lectura del ranking y la búsqueda (get_leaderboard_by_period,
+-- get_leaderboard_period_summaries, ecos_search_songs) siguen abiertas a propósito: se llaman con
+-- el cliente de cookies, también sin sesión.
 -- ---------------------------------------------------------------------------------------------
 
 revoke execute on function public.ecos_guess_and_finalize_score(
@@ -180,3 +193,11 @@ revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean
 revoke execute on function public.ecos_handle_new_user() from public, anon, authenticated;
 revoke execute on function public.run_daily_game_selector_at_midnight_spain()
   from public, anon, authenticated;
+
+-- Estadísticas personales: solo con sesión, y cada función comprueba dentro que p_user_id sea
+-- auth.uid() (si no, devuelve vacío / 0). Hasta oct. 2026 cualquiera con la anon key leía las
+-- de cualquier usuario. Todos los usos piden las del propio user.id (lib/queries/users.ts).
+revoke execute on function public.get_user_ranking_stats(uuid) from public, anon;
+revoke execute on function public.get_user_avg_guesses(uuid) from public, anon;
+grant execute on function public.get_user_ranking_stats(uuid) to authenticated, service_role;
+grant execute on function public.get_user_avg_guesses(uuid) to authenticated, service_role;

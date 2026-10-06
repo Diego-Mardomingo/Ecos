@@ -226,7 +226,7 @@ alter table public.ecos_spotify_playlists add constraint ecos_spotify_playlists_
 
 alter table public.ecos_system_logs add constraint ecos_system_logs_pkey PRIMARY KEY (id);
 alter table public.ecos_system_logs add constraint ecos_system_logs_job_type_check
-  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text])));
+  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text])));
 alter table public.ecos_system_logs add constraint ecos_system_logs_status_check
   CHECK ((status = ANY (ARRAY['success'::text, 'partial'::text, 'failure'::text])));
 

@@ -119,10 +119,12 @@ CREATE OR REPLACE FUNCTION public.get_user_avg_guesses(p_user_id uuid)
  RETURNS real
  LANGUAGE sql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   SELECT COALESCE(AVG(guesses_used)::real, 0)
   FROM ecos_scores
-  WHERE user_id = p_user_id;
+  WHERE user_id = p_user_id
+    AND p_user_id = auth.uid();
 $function$;
 
 -- ---------------------------------------------------------------------------------------------
@@ -141,6 +143,7 @@ CREATE OR REPLACE FUNCTION public.ecos_update_leaderboard(p_user_id uuid, p_poin
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 BEGIN
   INSERT INTO ecos_leaderboard (user_id, total_points, games_played, games_won, streak, last_played)
@@ -168,6 +171,7 @@ CREATE OR REPLACE FUNCTION public.ecos_update_leaderboard(p_user_id uuid, p_poin
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   madrid_date date;
