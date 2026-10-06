@@ -8,9 +8,4 @@ export {
   RankingHistorySkeleton,
   RankingHistoryListContentSkeleton,
 } from "./ranking-history-skeleton";
-export {
-  PlayGameCompletedDetailSkeleton,
-  PlayGameInProgressDetailSkeleton,
-} from "./play-game-detail-skeletons";
-export { PlayGameRouteLoading } from "./PlayGameRouteLoading";
 export { RankingDetailSkeleton } from "./ranking-detail-skeleton";
