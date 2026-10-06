@@ -120,8 +120,20 @@ create policy authenticated_insert_own_report on public.ecos_reports
 -- segunda, para no depender de que la política esté bien escrita.
 -- ---------------------------------------------------------------------------------------------
 
--- ecos_profiles: sin UPDATE de tabla, que arrastraría la columna `role`. Solo las columnas que
--- escribe la app con el cliente del propio usuario (api/profile y api/push/status).
+-- ecos_profiles: sin INSERT ni UPDATE de tabla, que arrastrarían la columna `role`. Solo las
+-- columnas que escribe la app con el cliente del propio usuario (api/profile y api/push/status).
+--
+-- El parche de agosto recortó solo UPDATE; el INSERT siguió incluyendo `role` hasta octubre de
+-- 2026, así que una cuenta sin fila de perfil podía insertarse role = 'admin'. Los dos van juntos.
+revoke insert on public.ecos_profiles from anon, authenticated;
+grant insert (
+  user_id,
+  username,
+  avatar_url,
+  show_avatar_in_rankings,
+  updated_at
+) on public.ecos_profiles to authenticated;
+
 revoke update on public.ecos_profiles from anon, authenticated;
 grant update (
   user_id,
@@ -134,3 +146,37 @@ grant update (
 
 -- ecos_feedback: solo service role.
 revoke all on public.ecos_feedback from anon, authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- Privilegios de funciones
+--
+-- Postgres concede EXECUTE a PUBLIC al crear una función, y anon/authenticated lo heredan aunque
+-- no aparezcan en el ACL. Revocar solo a anon y authenticated no basta: hay que incluir PUBLIC.
+--
+-- Incidente (oct. 2026): estas funciones son SECURITY DEFINER y no comprueban auth.uid(), así que
+-- cualquiera con la anon key podía llamar a /rest/v1/rpc/... y escribir la puntuación de cualquier
+-- usuario con los puntos que quisiera, saltándose validate-guess entero. La app solo las llama
+-- con service_role (validate-guess, skip-attempt, game-progress). Ningún cliente de navegador
+-- debe poder ejecutarlas.
+--
+-- Las RPC de lectura (get_leaderboard_by_period, get_leaderboard_period_summaries,
+-- get_user_ranking_stats, get_user_avg_guesses, ecos_search_songs) siguen abiertas a propósito:
+-- se llaman con el cliente de cookies.
+-- ---------------------------------------------------------------------------------------------
+
+revoke execute on function public.ecos_guess_and_finalize_score(
+  uuid, uuid, integer, text, boolean, boolean, boolean, integer, integer, boolean, integer, boolean
+) from public, anon, authenticated;
+revoke execute on function public.ecos_finalize_game_score(
+  uuid, uuid, integer, integer, boolean, boolean, integer, boolean
+) from public, anon, authenticated;
+revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean, integer)
+  from public, anon, authenticated;
+revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean, integer, boolean)
+  from public, anon, authenticated;
+
+-- Solo trigger (on auth.users) y pg_cron: nadie las llama por la API. Un trigger no comprueba
+-- EXECUTE al dispararse, así que el alta de usuarios no se ve afectada.
+revoke execute on function public.ecos_handle_new_user() from public, anon, authenticated;
+revoke execute on function public.run_daily_game_selector_at_midnight_spain()
+  from public, anon, authenticated;
