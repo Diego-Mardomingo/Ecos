@@ -1,10 +1,13 @@
 import { routing } from "@/i18n/routing";
 
-/** Ruta con prefijo de locale solo si no es el locale por defecto (next-intl as-needed). */
+/**
+ * Ruta con prefijo de locale solo si no es el locale por defecto (next-intl as-needed).
+ * La raíz en inglés es `/en`, no `/en/`, que costaría una redirección más.
+ */
 export function localizedPath(locale: string, pathname: string): string {
   const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
   if (locale === routing.defaultLocale) return path;
-  return `/${locale}${path}`;
+  return path === "/" ? `/${locale}` : `/${locale}${path}`;
 }
 
 /**

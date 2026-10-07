@@ -21,6 +21,10 @@ export async function resolvePostLoginPath(
   locale: string
 ): Promise<string> {
   const targetPath = target.split(/[?#]/, 1)[0];
+  // Volver a /login con sesión ya iniciada sería un bucle de redirecciones (`?redirect=/login`).
+  if (matchesLocalizedRoute(targetPath, "/login")) {
+    return resolvePostLoginPath(supabase, userId, localizedPath(locale, "/"), locale);
+  }
   if (matchesLocalizedRoute(targetPath, "/profile/complete")) return target;
 
   const { data: profile, error } = await supabase
