@@ -1,0 +1,5 @@
+# Selector diario (select-daily-game.py) y comprobación de juegos (check-games.py).
+# Topes de serie mayor: una 3.x no se instala sola en el cron sin que nadie la pruebe.
+supabase>=2.32,<3
+# zoneinfo necesita la base de zonas horarias; Linux ya la trae, Windows no.
+tzdata; sys_platform == "win32"

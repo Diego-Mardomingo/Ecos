@@ -1,2 +1,6 @@
-supabase>=2.0.0
-pywebpush>=2.0.0
+# Notificaciones diarias (send-daily-notifications.py).
+# Topes de serie mayor: una mayor nueva no se instala sola en el cron sin que nadie la pruebe.
+supabase>=2.32,<3
+pywebpush>=2.5,<3
+# zoneinfo necesita la base de zonas horarias; Linux ya la trae, Windows no.
+tzdata; sys_platform == "win32"

@@ -1,5 +1,5 @@
 # Red de seguridad del repo: no hay tests, así que lint + typecheck + build son la única
-# comprobación automática. Los otros tres workflows son jobs de datos (crons), no CI.
+# comprobación automática. Los demás workflows son jobs de datos (crons), no CI.
 name: CI
 
 on:
@@ -7,20 +7,25 @@ on:
     branches: [master]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    # Versión fijada: ubuntu-latest pasa a Ubuntu 26 desde el 19/10/2026.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Lee la versión de `packageManager` en package.json.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
