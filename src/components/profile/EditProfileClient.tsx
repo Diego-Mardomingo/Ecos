@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { localizedPath } from "@/lib/i18n/localizedPath";
@@ -144,7 +144,7 @@ export function EditProfileClient({ profile }: Props) {
             className="hidden"
             onChange={handleAvatarChange}
           />
-          <motion.button
+          <m.button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             whileTap={{ scale: 0.95 }}
@@ -179,7 +179,7 @@ export function EditProfileClient({ profile }: Props) {
                 add_a_photo
               </span>
             </span>
-          </motion.button>
+          </m.button>
           <p className="mt-3 text-sm font-medium">{t("avatar")}</p>
           <button
             type="button"
@@ -216,7 +216,7 @@ export function EditProfileClient({ profile }: Props) {
                 dejaba a escala 0 en el HTML del servidor. Sigue animando al cambiar. */}
             <AnimatePresence initial={false}>
               {looksValid && (
-                <motion.span
+                <m.span
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0, opacity: 0 }}
@@ -226,7 +226,7 @@ export function EditProfileClient({ profile }: Props) {
                   style={{ fontVariationSettings: "'FILL' 1" }}
                 >
                   check_circle
-                </motion.span>
+                </m.span>
               )}
             </AnimatePresence>
           </div>
@@ -252,7 +252,7 @@ export function EditProfileClient({ profile }: Props) {
 
         <AnimatePresence>
           {error && (
-            <motion.p
+            <m.p
               role="alert"
               initial={{ opacity: 0, y: -6, height: 0 }}
               animate={{ opacity: 1, y: 0, height: "auto" }}
@@ -261,11 +261,11 @@ export function EditProfileClient({ profile }: Props) {
             >
               <span aria-hidden className="material-symbols-outlined text-lg">error</span>
               {error}
-            </motion.p>
+            </m.p>
           )}
         </AnimatePresence>
 
-        <motion.button
+        <m.button
           type="button"
           onClick={handleSave}
           disabled={updateProfile.isPending || uploading}
@@ -282,7 +282,7 @@ export function EditProfileClient({ profile }: Props) {
             <span aria-hidden className="material-symbols-outlined text-xl">check</span>
           )}
           {updateProfile.isPending ? t("saving") : t("save")}
-        </motion.button>
+        </m.button>
       </div>
     </div>
   );

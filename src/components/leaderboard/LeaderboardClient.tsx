@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import {
   fetchLeaderboardPeriodData,
@@ -188,7 +188,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
         onTouchEnd={handleTouchEnd}
       >
         <AnimatePresence mode="wait" initial={false} custom={direction}>
-          <motion.div
+          <m.div
             key={activeTab}
             custom={direction}
             initial={{ opacity: 0, x: direction * 24 }}
@@ -252,7 +252,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
                 t={t}
               />
             )}
-          </motion.div>
+          </m.div>
         </AnimatePresence>
         {/* Relleno táctil: con pocas filas, el hueco bajo la lista debe seguir disparando el swipe */}
         <div className="min-h-0 w-full flex-1" aria-hidden />

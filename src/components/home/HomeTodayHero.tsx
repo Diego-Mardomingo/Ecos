@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -139,7 +139,7 @@ export function HomeTodayHero({
   return (
     <section className={ENTER}>
       {/* Contenedor estático: en iOS Safari, transform (p. ej. whileTap) en el mismo nodo que
-          rounded + overflow-hidden rompe el recorte; el motion.div va dentro sin border-radius en
+          rounded + overflow-hidden rompe el recorte; el m.div va dentro sin border-radius en
           el padre animado. */}
       <div
         className={cn(
@@ -149,7 +149,7 @@ export function HomeTodayHero({
             : "shadow-[0_20px_50px_-28px_color-mix(in_srgb,var(--brand)_55%,transparent)]"
         )}
       >
-        <motion.div
+        <m.div
           whileTap={{ scale: 0.985 }}
           // framer hace enfocable (tabindex=0) lo que lleva `whileTap`. Esta tarjeta no tiene rol
           // ni nombre y el botón de dentro hace lo mismo: fuera del orden de tabulación (UX-13).
@@ -319,7 +319,7 @@ export function HomeTodayHero({
 
           {/* Acciones */}
           <div className={cn(RISE, "flex items-center gap-2.5")} style={riseDelay(2)}>
-            <motion.button
+            <m.button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -343,8 +343,8 @@ export function HomeTodayHero({
                 {completed ? "visibility" : "play_arrow"}
               </span>
               {completed ? t("viewResult") : inProgress ? t("continuePlaying") : t("playNow")}
-            </motion.button>
-            <motion.button
+            </m.button>
+            <m.button
               type="button"
               onClick={onShare}
               whileTap={{ scale: 0.88, rotate: -8 }}
@@ -359,9 +359,9 @@ export function HomeTodayHero({
               <span aria-hidden className="material-symbols-outlined text-xl">
                 ios_share
               </span>
-            </motion.button>
+            </m.button>
           </div>
-        </motion.div>
+        </m.div>
       </div>
     </section>
   );

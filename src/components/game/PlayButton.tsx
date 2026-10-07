@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -70,7 +70,7 @@ export function PlayButton({
           <span aria-hidden className="ecos-ping absolute inset-0 rounded-full bg-brand/25 [animation-delay:0.8s]" />
         </>
       )}
-      <motion.button
+      <m.button
         type="button"
         onClick={state === "retry" ? onRetry : onClick}
         disabled={!enabled}
@@ -89,7 +89,7 @@ export function PlayButton({
         )}
       >
         <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span
+          <m.span
             key={state}
             initial={{ scale: 0.3, opacity: 0, rotate: -90 }}
             animate={{ scale: 1, opacity: 1, rotate: 0 }}
@@ -123,9 +123,9 @@ export function PlayButton({
                 <path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
               </svg>
             )}
-          </motion.span>
+          </m.span>
         </AnimatePresence>
-      </motion.button>
+      </m.button>
     </div>
   );
 }

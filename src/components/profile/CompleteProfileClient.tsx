@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -109,7 +109,7 @@ export function CompleteProfileClient() {
             />
             <AnimatePresence>
               {looksValid && (
-                <motion.span
+                <m.span
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0, opacity: 0 }}
@@ -119,13 +119,13 @@ export function CompleteProfileClient() {
                   style={{ fontVariationSettings: "'FILL' 1" }}
                 >
                   check_circle
-                </motion.span>
+                </m.span>
               )}
             </AnimatePresence>
           </div>
           <AnimatePresence initial={false}>
             {error ? (
-              <motion.p
+              <m.p
                 key="error"
                 role="alert"
                 initial={{ opacity: 0, y: -4 }}
@@ -134,14 +134,14 @@ export function CompleteProfileClient() {
                 className="px-1 text-sm font-medium text-destructive"
               >
                 {error}
-              </motion.p>
+              </m.p>
             ) : (
-              <motion.p key="hint" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="px-1 text-xs text-muted-foreground">
+              <m.p key="hint" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="px-1 text-xs text-muted-foreground">
                 {t("usernameInvalid")}
-              </motion.p>
+              </m.p>
             )}
           </AnimatePresence>
-          <motion.button
+          <m.button
             type="submit"
             disabled={updateProfile.isPending}
             whileTap={{ scale: 0.97 }}
@@ -152,7 +152,7 @@ export function CompleteProfileClient() {
             {!updateProfile.isPending && (
               <span aria-hidden className="material-symbols-outlined text-xl">arrow_forward</span>
             )}
-          </motion.button>
+          </m.button>
         </form>
       </div>
     </div>

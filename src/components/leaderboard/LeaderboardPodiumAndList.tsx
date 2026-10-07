@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { cn } from "@/lib/utils";
@@ -172,14 +172,14 @@ function PodiumColumn({
         style={{ animationDelay: `${(layout.delay + 0.25) * 1000}ms` }}
       >
         {position === 1 && (
-          <motion.span
+          <m.span
             aria-hidden
             animate={{ y: [0, -4, 0], rotate: [-6, 6, -6] }}
             transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
             className="absolute -top-7 text-2xl drop-shadow"
           >
             👑
-          </motion.span>
+          </m.span>
         )}
         <Avatar className={cn("ring-[3px] ring-offset-2 ring-offset-background", layout.avatar, medal.ring, medal.glow)}>
           <AvatarImage src={entry.profiles?.avatar_url} />

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { useSearchSongs } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -359,7 +359,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
 
       <AnimatePresence>
         {isExpanded && (
-          <motion.ul
+          <m.ul
             ref={listboxRef}
             id={listboxId}
             role="listbox"
@@ -446,7 +446,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
                 </li>
               );
             })}
-          </motion.ul>
+          </m.ul>
         )}
       </AnimatePresence>
 

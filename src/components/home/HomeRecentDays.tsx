@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
 import type { InProgressProgress } from "@/lib/hooks/queries";
@@ -72,7 +72,7 @@ export function HomeRecentDays({
               className="shrink-0 snap-start animate-in fade-in slide-in-from-right-6 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards"
               style={{ animationDelay: `${150 + i * 50}ms` }}
             >
-              <motion.div
+              <m.div
                 whileHover={{ y: -4 }}
                 whileTap={{ scale: 0.96 }}
                 // framer hace enfocable (tabindex=0) lo que lleva `whileTap`: sin esto, cada
@@ -137,7 +137,7 @@ export function HomeRecentDays({
                     <p className="text-xs text-muted-foreground">{t("notPlayedYet")}</p>
                   )}
                 </Link>
-              </motion.div>
+              </m.div>
             </div>
           );
         })}

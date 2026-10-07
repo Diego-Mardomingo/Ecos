@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useNotifications } from "@/lib/hooks/useNotifications";
@@ -110,13 +110,13 @@ export function NotificationsModal({ offer = false }: { offer?: boolean }) {
         </div>
         <DialogHeader className="relative items-center text-center sm:text-center">
           {/* Campana que se balancea al abrir, como si sonara. */}
-          <motion.div
+          <m.div
             initial={{ scale: 0.5, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: "spring", stiffness: 380, damping: 18 }}
             className="mb-2 flex size-16 items-center justify-center rounded-3xl bg-brand/15 ring-1 ring-brand/30"
           >
-            <motion.span
+            <m.span
               aria-hidden
               animate={{ rotate: [0, -18, 15, -10, 6, 0] }}
               transition={{ delay: 0.3, duration: 0.9, ease: "easeInOut" }}
@@ -124,8 +124,8 @@ export function NotificationsModal({ offer = false }: { offer?: boolean }) {
               style={{ fontVariationSettings: "'FILL' 1" }}
             >
               notifications_active
-            </motion.span>
-          </motion.div>
+            </m.span>
+          </m.div>
           <DialogTitle className="text-xl">{t("resultOfferTitle")}</DialogTitle>
           <DialogDescription className="text-center">{t("modalDescription")}</DialogDescription>
         </DialogHeader>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle, memo } from "react";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export interface AudioPlayerHandle {
@@ -453,7 +453,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
 
       {/* El contenido es una ligadura de Material Symbols ("stop" / "play_arrow"), que el lector
           de pantalla leeria literalmente: va oculta y el nombre lo da el aria-label. */}
-      <motion.button
+      <m.button
         type="button"
         onClick={togglePlay}
         whileTap={{ scale: 0.92 }}
@@ -484,7 +484,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
             progress_activity
           </span>
         )}
-      </motion.button>
+      </m.button>
     </div>
   );
 };

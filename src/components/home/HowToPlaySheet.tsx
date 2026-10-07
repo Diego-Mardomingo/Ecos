@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { motion, type Variants } from "framer-motion";
+import { m, type Variants } from "framer-motion";
 import { ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import { BASE_SCORES } from "@/lib/scoring";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
@@ -45,20 +45,20 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
       description={t("aboutAccessibilitySummary")}
       hideDescription
       footer={
-        <motion.button
+        <m.button
           type="button"
           onClick={() => onOpenChange(false)}
           whileTap={{ scale: 0.97 }}
           className="flex h-[52px] w-full items-center justify-center rounded-2xl bg-brand text-[15px] font-bold text-primary-foreground shadow-[0_12px_30px_-14px_var(--brand)]"
         >
           {t("gotIt")}
-        </motion.button>
+        </m.button>
       }
     >
-      <motion.div variants={stagger} initial="hidden" animate="show" className="flex flex-col gap-6">
+      <m.div variants={stagger} initial="hidden" animate="show" className="flex flex-col gap-6">
         {/* Qué es. Tinte de la marca sobre el fondo de la hoja, no un negro fijo: así casa con el
             tema claro igual que con el oscuro. */}
-        <motion.section
+        <m.section
           variants={rise}
           className="relative isolate overflow-hidden rounded-3xl border border-brand/20 bg-brand/[0.07] px-5 pb-5 pt-4"
         >
@@ -74,12 +74,12 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
           </div>
           <p className="mt-3 font-display text-xl font-bold tracking-[-0.02em]">{t("aboutTagline")}</p>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t("aboutBody")}</p>
-        </motion.section>
+        </m.section>
 
         {/* El fragmento crece. Fichas iguales en vez de barras de altura proporcional: de 1 s a 30 s
             hay demasiado salto para dibujarlo a escala, y comprimido (raíz cuadrada) el de 1 s
             quedaba como una pastilla aplastada. El crecimiento lo cuenta el medidor de cada ficha. */}
-        <motion.section variants={rise}>
+        <m.section variants={rise}>
           <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             {t("howToPlayClipTitle")}
           </h3>
@@ -87,7 +87,7 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
             {ATTEMPT_DURATIONS.map((seconds, i) => {
               const isLast = i === ATTEMPT_DURATIONS.length - 1;
               return (
-                <motion.li
+                <m.li
                   key={seconds}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -105,7 +105,7 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
                     {ATTEMPT_DURATIONS.map((_, j) => (
                       <span key={j} className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                         {j <= i ? (
-                          <motion.span
+                          <m.span
                             className="block h-full origin-left rounded-full bg-brand"
                             initial={{ scaleX: 0 }}
                             animate={{ scaleX: 1 }}
@@ -115,14 +115,14 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
                       </span>
                     ))}
                   </span>
-                </motion.li>
+                </m.li>
               );
             })}
           </ol>
-        </motion.section>
+        </m.section>
 
         {/* Pasos */}
-        <motion.section variants={rise}>
+        <m.section variants={rise}>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             {t("howToPlayTitle")}
           </h3>
@@ -130,7 +130,7 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
             {/* Hilo que une los pasos, por detrás de los iconos. */}
             <span aria-hidden className="absolute bottom-6 left-5 top-6 w-px bg-gradient-to-b from-brand/50 via-border to-transparent" />
             {steps.map((step, i) => (
-              <motion.li
+              <m.li
                 key={i}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -149,13 +149,13 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
                   <p className="text-[15px] font-semibold leading-snug">{step.title}</p>
                   <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{step.desc}</p>
                 </div>
-              </motion.li>
+              </m.li>
             ))}
           </ol>
-        </motion.section>
+        </m.section>
 
         {/* Puntos */}
-        <motion.section variants={rise}>
+        <m.section variants={rise}>
           <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             {t("howToPlayPointsTitle")}
           </h3>
@@ -168,7 +168,7 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
                     {t("howToPlayAttempt", { n: i + 1 })}
                   </span>
                   <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <motion.span
+                    <m.span
                       className="block h-full rounded-full bg-brand"
                       initial={{ width: 0 }}
                       animate={{ width: `${(points / MAX_POINTS) * 100}%` }}
@@ -182,8 +182,8 @@ export function HowToPlaySheet({ open, onOpenChange }: { open: boolean; onOpenCh
               );
             })}
           </ul>
-        </motion.section>
-      </motion.div>
+        </m.section>
+      </m.div>
     </BottomSheet>
   );
 }

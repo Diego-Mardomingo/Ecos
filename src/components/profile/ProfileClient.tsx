@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { Link, useRouter } from "@/i18n/navigation";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
@@ -195,7 +195,7 @@ export function ProfileClient({ initialData }: Props) {
           <div className="relative size-24 shrink-0">
             <svg viewBox="0 0 100 100" className="size-full -rotate-90" aria-hidden>
               <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="9" className="text-foreground/10" />
-              <motion.circle
+              <m.circle
                 cx="50"
                 cy="50"
                 r="42"
@@ -343,7 +343,7 @@ function StreakTile({
   return (
     <div className="relative overflow-hidden rounded-3xl border border-border bg-card p-4">
       <div aria-hidden className={cn("absolute -right-6 -top-6 size-24 rounded-full bg-gradient-to-br to-transparent blur-xl", accent)} />
-      <motion.span
+      <m.span
         aria-hidden
         animate={flicker ? { scale: [1, 1.12, 0.96, 1.08, 1], rotate: [0, -4, 3, -2, 0] } : undefined}
         transition={flicker ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : undefined}
@@ -351,7 +351,7 @@ function StreakTile({
         style={{ fontVariationSettings: "'FILL' 1" }}
       >
         {icon}
-      </motion.span>
+      </m.span>
       <p className="relative mt-2 text-3xl font-bold leading-none tracking-tight">
         <AnimatedNumber value={value} format={formatNumber} delay={0.4} />
         <span className="ml-1 text-sm font-medium text-muted-foreground">{suffix}</span>

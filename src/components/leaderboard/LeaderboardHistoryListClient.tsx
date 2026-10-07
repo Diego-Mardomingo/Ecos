@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { format, parse } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
@@ -99,7 +99,7 @@ export function LeaderboardHistoryListClient({ initialSummaries }: Props) {
           <p className="py-12 text-center text-sm text-muted-foreground">{t("historyEmpty")}</p>
         ) : (
           <AnimatePresence mode="wait" initial={false}>
-            <motion.div
+            <m.div
               key={granularity}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -147,7 +147,7 @@ export function LeaderboardHistoryListClient({ initialSummaries }: Props) {
                   ))}
                 </div>
               )}
-            </motion.div>
+            </m.div>
           </AnimatePresence>
         )}
       </div>
@@ -177,7 +177,7 @@ function WinnerCard({
   const name = rankingDisplayName(row.winner_display_name, t("playerFallback"));
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -221,6 +221,6 @@ function WinnerCard({
           <p className="relative mt-3 text-sm text-muted-foreground">{t("historyNoDataPeriod")}</p>
         )}
       </Link>
-    </motion.div>
+    </m.div>
   );
 }

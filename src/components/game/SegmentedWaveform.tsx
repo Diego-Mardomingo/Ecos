@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useImperativeHandle, useMemo, useRef, type Ref } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
 import {
@@ -350,7 +350,7 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
                       )}
                     />
                   ) : isCurrent ? (
-                    <motion.span
+                    <m.span
                       layoutId={`${seed}-current-attempt`}
                       transition={{ type: "spring", stiffness: 380, damping: 32 }}
                       className="absolute inset-0 rounded-full bg-brand/70 shadow-[0_0_10px_var(--brand)]"

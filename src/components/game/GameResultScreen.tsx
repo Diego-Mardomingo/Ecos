@@ -3,7 +3,7 @@
 import { memo, useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import Image from "next/image";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { Link } from "@/i18n/navigation";
@@ -312,7 +312,7 @@ function ResultScreen({
           </div>
         </div>
 
-        <motion.button
+        <m.button
           type="button"
           onClick={audio.loaded ? audio.toggle : undefined}
           aria-label={audio.playing ? t("stopSong") : t("listenSong")}
@@ -333,7 +333,7 @@ function ResultScreen({
             aria-hidden
             className="absolute inset-0 translate-x-[120%] animate-in bg-[linear-gradient(105deg,transparent_35%,rgba(255,255,255,0.35)_50%,transparent_65%)] slide-in-from-left-[240%] animation-duration-900 ease-in-out [--tw-animation-delay:600ms] fill-mode-backwards"
           />
-        </motion.button>
+        </m.button>
 
         <div className="absolute -bottom-4 -right-4 z-10">
           <PlayButton
@@ -430,7 +430,7 @@ function ResultScreen({
 
       {/* Compartir */}
       <div className={cn(RISE, "w-full")} style={riseDelay(3)}>
-        <motion.button
+        <m.button
           type="button"
           onClick={handleShare}
           whileHover={{ scale: 1.015 }}
@@ -438,7 +438,7 @@ function ResultScreen({
           className="ecos-shimmer flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand text-[15px] font-bold text-primary-foreground shadow-[0_14px_36px_-14px_var(--brand)]"
         >
           <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
+            <m.span
               key={shareCopied ? "copied" : "share"}
               initial={{ y: 14, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -450,9 +450,9 @@ function ResultScreen({
                 {shareCopied ? "check" : "ios_share"}
               </span>
               {shareCopied ? t("shareCopied") : t("shareResult")}
-            </motion.span>
+            </m.span>
           </AnimatePresence>
-        </motion.button>
+        </m.button>
       </div>
 
       {/* Banner de invitado — CTA para registrarse */}

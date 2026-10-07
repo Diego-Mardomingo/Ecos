@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import Script from "next/script";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Link } from "@/i18n/navigation";
@@ -197,7 +197,7 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
 
       <div className="mx-auto w-full max-w-sm animate-in space-y-3 pt-8 fade-in slide-in-from-bottom-6 animation-duration-500 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] [--tw-animation-delay:450ms] fill-mode-backwards">
         {/* Botón Google (fallback cuando One Tap no se muestra) */}
-        <motion.button
+        <m.button
           onClick={handleGoogleSignIn}
           disabled={loading}
           whileTap={{ scale: 0.97 }}
@@ -211,7 +211,7 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
             <GoogleIcon />
           )}
           {loading ? t("signingIn") : t("signInWithGoogle")}
-        </motion.button>
+        </m.button>
         <Link
           href="/"
           className="flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"

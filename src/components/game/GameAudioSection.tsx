@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion, useAnimate } from "framer-motion";
+import { AnimatePresence, m, useReducedMotionConfig } from "framer-motion";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import {
   SegmentedWaveform,
@@ -84,7 +84,9 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const waveformRef = useRef<SegmentedWaveformHandle | null>(null);
-  const [cardScope, animateCard] = useAnimate<HTMLDivElement>();
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  /** Lo que diga `MotionConfig` (`prefers-reduced-motion`): la sacudida es de transformación. */
+  const reduceMotion = useReducedMotionConfig();
   const song = game.ecos_songs;
   const currentAttempt = Math.min(guesses.length + 1, maxAttempts);
 
@@ -105,6 +107,10 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
    * Sacudida de la tarjeta al fallar o saltar: el intento nuevo se ve en la lista, pero el
    * gesto dice "no" sin tener que leerla. Va en un efecto porque reacciona a un cambio de datos
    * (llega un intento), no a un evento de esta sección.
+   *
+   * Con la Web Animations API y no con el `useAnimate` de framer-motion, que arrastraba todo su
+   * motor de animación a la carga inicial de la partida (PERF-07). Mismos fotogramas y la misma
+   * curva `easeOut` de framer en cada tramo.
    */
   const lastGuessCountRef = useRef(guesses.length);
   useEffect(() => {
@@ -112,13 +118,16 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
     lastGuessCountRef.current = guesses.length;
     if (guesses.length <= previous) return;
     const last = guesses[guesses.length - 1];
-    if (!last || last.correct || !cardScope.current) return;
-    void animateCard(
-      cardScope.current,
-      { x: [0, -10, 9, -6, 4, -2, 0] },
-      { duration: 0.45, ease: "easeOut" }
+    const card = cardRef.current;
+    if (!last || last.correct || !card || reduceMotion) return;
+    card.animate(
+      [0, -10, 9, -6, 4, -2, 0].map((x) => ({
+        transform: `translateX(${x}px)`,
+        easing: "cubic-bezier(0, 0, 0.58, 1)",
+      })),
+      { duration: 450 }
     );
-  }, [guesses, animateCard, cardScope]);
+  }, [guesses, reduceMotion]);
 
   return (
     <div
@@ -158,7 +167,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 
       {/* Tarjeta de la onda */}
       <div
-        ref={cardScope}
+        ref={cardRef}
         className={cn(
           "relative overflow-hidden rounded-3xl border border-border bg-card transition-[padding]",
           KEYBOARD_TRANSITION,
@@ -183,7 +192,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
             {t("attemptOfMax", { attempt: currentAttempt, max: maxAttempts })}
           </p>
           <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
+            <m.span
               key={audioDuration}
               initial={{ scale: 0.6, opacity: 0, y: 6 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -193,7 +202,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
             >
               <span aria-hidden className="material-symbols-outlined text-sm">graphic_eq</span>
               {t("fragmentSeconds", { seconds: audioDuration })}
-            </motion.span>
+            </m.span>
           </AnimatePresence>
         </div>
 

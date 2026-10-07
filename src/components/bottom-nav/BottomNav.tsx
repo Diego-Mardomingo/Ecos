@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useProfileCore } from "@/lib/hooks/queries";
@@ -50,7 +50,7 @@ export function BottomNav() {
             como la nav es `position: fixed`, el salto de scroll al cambiar de ruta se colaba en la
             animación y la pastilla llegaba «desde abajo de la pantalla» (medido: 537 px). Con las
             pestañas de ancho fijo, la posición se calcula y el scroll no interviene. */}
-        <motion.span
+        <m.span
           aria-hidden
           initial={false}
           animate={{ x: Math.max(0, activeIndex) * (TAB_WIDTH + TAB_GAP), opacity: activeIndex >= 0 ? 1 : 0 }}
@@ -76,7 +76,7 @@ export function BottomNav() {
               )}
               style={{ width: TAB_WIDTH }}
             >
-              <motion.span
+              <m.span
                 aria-hidden
                 whileTap={{ scale: 0.85 }}
                 // framer hace enfocable (tabindex=0) lo que lleva `whileTap`, y esto es un icono
@@ -86,7 +86,7 @@ export function BottomNav() {
                 style={{ fontVariationSettings: `'FILL' ${active ? 1 : 0}, 'wght' 500` }}
               >
                 {item.icon}
-              </motion.span>
+              </m.span>
               <span className="relative max-w-full truncate px-1">{label}</span>
             </Link>
           );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -99,7 +99,7 @@ export function SegmentedControl<T extends string>({
             )}
           >
             {active && (
-              <motion.span
+              <m.span
                 layoutId={`${indicatorId}-indicator`}
                 aria-hidden
                 className="absolute inset-0 rounded-full bg-brand shadow-[0_4px_14px_-4px_var(--brand)]"
