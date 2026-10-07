@@ -1,12 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-
-/** Los argumentos de una server action llegan del cliente: hay que validarlos igual que un body. */
-const IdSchema = z.string().uuid();
+import { IdSchema } from "../_lib/schemas";
 
 const INVALID_ID = { error: "Identificador no válido" } as const;
 
