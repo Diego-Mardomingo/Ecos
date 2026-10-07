@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import createIntlMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
@@ -13,6 +13,8 @@ function enPrefixedPath(pathname: string, path: string): string {
   return pathname.startsWith("/en/") ? `/en${path}` : path;
 }
 
+type CookieToSet = { name: string; value: string; options: CookieOptions };
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -20,8 +22,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const intlResponse = intlMiddleware(request);
-  const response = intlResponse ?? NextResponse.next({ request });
+  // Lo que el refresco de la sesión pide escribir. Va a dos sitios:
+  // - A la petición, para que los Server Components de esta misma petición lean ya el token
+  //   nuevo. Si leyeran el viejo, `getUser()` volvería a refrescar con un refresh token que
+  //   este proxy acaba de gastar, y lo que obtuvieran no se podría guardar (un Server Component
+  //   no puede escribir cookies).
+  // - A la respuesta que se devuelva al final, sea cual sea: también las redirecciones y el
+  //   404 de /admin. Si no, el navegador se queda con el token gastado.
+  const cookiesToSet: CookieToSet[] = [];
+  let cacheHeaders: Record<string, string> = {};
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,17 +40,29 @@ export async function proxy(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
+        // `headers` (Cache-Control: no-store…) lo pasa @supabase/ssr 0.12; la 0.9 no. Una
+        // respuesta con cookies de sesión no debe quedarse en ninguna caché compartida.
+        setAll(cookies, headers?: Record<string, string>) {
+          for (const cookie of cookies) {
+            if (cookie.value) request.cookies.set(cookie.name, cookie.value);
+            else request.cookies.delete(cookie.name);
+            cookiesToSet.push(cookie);
+          }
+          if (headers) cacheHeaders = { ...cacheHeaders, ...headers };
         },
       },
     }
   );
+
+  const withSession = (response: NextResponse): NextResponse => {
+    for (const { name, value, options } of cookiesToSet) {
+      response.cookies.set(name, value, options);
+    }
+    for (const [key, value] of Object.entries(cacheHeaders)) {
+      response.headers.set(key, value);
+    }
+    return response;
+  };
 
   const {
     data: { user },
@@ -50,7 +71,7 @@ export async function proxy(request: NextRequest) {
   const isAdminPath = matchesLocalizedRoute(pathname, "/admin");
   if (isAdminPath) {
     if (!user) {
-      return new NextResponse(null, { status: 404 });
+      return withSession(new NextResponse(null, { status: 404 }));
     }
     // Mismo criterio que requireAdmin(): el rol de Ecos vive en ecos_profiles.role. No usar la
     // RPC is_admin(), que consulta la tabla de la otra aplicación (ver requireAdmin.ts).
@@ -62,7 +83,7 @@ export async function proxy(request: NextRequest) {
       .eq("user_id", user.id)
       .single();
     if (profile?.role !== "admin") {
-      return new NextResponse(null, { status: 404 });
+      return withSession(new NextResponse(null, { status: 404 }));
     }
   }
 
@@ -72,7 +93,7 @@ export async function proxy(request: NextRequest) {
   if (isProtected && !user) {
     const loginUrl = new URL(enPrefixedPath(pathname, "/login"), request.url);
     loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
+    return withSession(NextResponse.redirect(loginUrl));
   }
 
   const isCompleteProfilePath = matchesLocalizedRoute(pathname, "/profile/complete");
@@ -88,11 +109,13 @@ export async function proxy(request: NextRequest) {
         request.url
       );
       completeUrl.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(completeUrl);
+      return withSession(NextResponse.redirect(completeUrl));
     }
   }
 
-  return response;
+  // next-intl va después de getUser() a propósito: copia las cabeceras de la petición al crear
+  // su respuesta, y así esa copia ya lleva las cookies refrescadas.
+  return withSession(intlMiddleware(request));
 }
 
 export const config = {
