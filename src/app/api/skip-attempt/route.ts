@@ -3,14 +3,13 @@ import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { loadPlayableGame, submitAttempt } from "@/lib/ecos-finalize-helpers";
 import { readJsonBody } from "@/lib/api/body-limit";
+import { SKIPPED_GUESS_TEXT } from "@/lib/server-attempt";
 import { z } from "zod";
 
 const SkipSchema = z.object({
   gameId: z.string().uuid(),
   attemptNumber: z.number().int().min(1).max(6),
 });
-
-const SKIP_TEXT = "skipped";
 
 /** Un salto es un intento fallido sin respuesta: ni título, ni artista, ni álbum. */
 const SKIP_EVALUATION = { correct: false, correctArtist: false, correctAlbum: false };
@@ -51,7 +50,7 @@ export async function POST(request: NextRequest) {
       gameId: parsed.data.gameId,
       gameDate: gameResult.game.date,
       clientAttempt: parsed.data.attemptNumber,
-      guessText: SKIP_TEXT,
+      guessText: SKIPPED_GUESS_TEXT,
       evaluation: SKIP_EVALUATION,
     });
 

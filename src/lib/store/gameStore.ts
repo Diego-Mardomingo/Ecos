@@ -1,14 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { MAX_ATTEMPTS } from "@/lib/server-attempt";
+import { MAX_ATTEMPTS, SKIPPED_GUESS_TEXT } from "@/lib/server-attempt";
 
 export type GamePhase = "idle" | "playing" | "won" | "lost";
 
-/**
- * Texto con el que se guarda un intento saltado, en `ecos_guesses.guess_text` y en el progreso
- * local. Lo escribe también `/api/skip-attempt`.
- */
-export const SKIPPED_GUESS_TEXT = "skipped";
+/** Texto de un intento saltado; definido en `server-attempt.ts` (lo usa también el servidor). */
+export { SKIPPED_GUESS_TEXT };
 
 export interface GuessEntry {
   text: string;

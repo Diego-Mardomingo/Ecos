@@ -1,5 +1,12 @@
 export const MAX_ATTEMPTS = 6;
 
+/**
+ * Texto con el que se guarda un intento saltado, en `ecos_guesses.guess_text` y en el progreso
+ * local. Vive aquí, y no en `gameStore`, para que `/api/skip-attempt` lo use sin cargar el store
+ * del cliente; `gameStore` lo reexporta.
+ */
+export const SKIPPED_GUESS_TEXT = "skipped";
+
 /** Fila mínima de `ecos_guesses` necesaria para decidir el número de intento. */
 export interface ExistingGuessRow {
   attempt_number: number;
