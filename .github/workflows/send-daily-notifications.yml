@@ -1,10 +1,21 @@
-# Notificacion push diaria a las 15:00 UTC para usuarios que aun no
-# han completado el reto del dia.
+# Notificación push diaria a quien aún no ha completado el reto del día.
+#
+# GitHub Actions solo entiende UTC: 11:23 UTC son las 12:23 en Madrid en invierno (CET) y las
+# 13:23 en verano (CEST). La hora no es la que se quiere, es la que sale de restar un retraso:
+# los crons de Actions llegan tarde. Medido sobre 35 ejecuciones (septiembre-octubre de 2026) con
+# el cron anterior, a las 15:00 UTC: mediana +2 h, p90 +4,8 h, máximo +6,8 h, y la del 05/10
+# salió a las 23:47 de Madrid con un texto que dice «estás a tiempo». Con 11:23 UTC:
+#   - sin retraso: 12:23 / 13:23 (nunca antes de las 12:00);
+#   - mediana: ~14:30 / 15:30; p90: ~17:15 / 18:15;
+#   - peor caso medido: ~19:10 / 20:10, todavía dentro de la ventana 12:00-21:00 de Madrid.
+# Si aun así llegara fuera de ventana, el script no envía y lo deja como `partial` en
+# ecos_system_logs (check-games.py lo avisa). El minuto 23 evita la hora en punto, que es cuando
+# más se retrasa Actions.
 name: Daily Notifications
 
 on:
   schedule:
-    - cron: "0 15 * * *"
+    - cron: "23 11 * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,10 +43,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements-notifications.txt
 
+      # El lanzamiento manual no aplica la ventana horaria: sirve para probar a cualquier hora.
       - name: Send daily notifications
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: python scripts/send-daily-notifications.py
+        run: python scripts/send-daily-notifications.py ${{ github.event_name == 'workflow_dispatch' && '--sin-ventana' || '' }}
