@@ -49,8 +49,13 @@
 :root {
   --radius: 0.5rem;
 
-  --brand:              #059669;
-  --brand-dim:          #047857;
+  /*
+   * Un escalón más oscuro que el emerald-600 original (#059669 / #047857), que no llegaba a 4,5:1:
+   * texto claro sobre el verde 3,6:1 y verde sobre el fondo 3,5:1. Con este, 5,2:1 y 5,1:1.
+   * Solo el tema claro; el oscuro ya pasaba.
+   */
+  --brand:              #047857;
+  --brand-dim:          #065f46;
   --background:         #f4f6f5;
   --foreground:         #111827;
   --card:               #ffffff;
