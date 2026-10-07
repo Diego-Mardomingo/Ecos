@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils";
  * - Sonando: dos ondas expansivas desfasadas (`.ecos-ping`).
  * - El icono cambia girando y escalando entre play, stop y carga.
  *
+ * - Si el audio no ha cargado, en vez de girar para siempre: «reintentar» cuando la carga ha
+ *   fallado (`failed` + `onRetry`), o desactivado sin spinner cuando la canción no tiene audio
+ *   (`unavailable`) (UX-06).
+ *
  * Los iconos son SVG y van con `key` por estado. Con el glifo de Material Symbols, iOS Safari
  * dejaba rasterizado el anterior debajo del nuevo cuando solo cambiaba el texto del nodo (el
  * botón vive en una capa de composición); sustituir el nodo entero lo evita.
@@ -20,16 +24,43 @@ export function PlayButton({
   onClick,
   size = 80,
   labels,
+  failed = false,
+  unavailable = false,
+  onRetry,
   className,
 }: {
   playing: boolean;
   loaded: boolean;
   onClick: () => void;
   size?: number;
-  labels: { play: string; stop: string; loading: string };
+  labels: { play: string; stop: string; loading: string; retry?: string; unavailable?: string };
+  /** La carga del audio ha fallado: el botón pasa a reintentar. */
+  failed?: boolean;
+  /** La canción no tiene audio: nada que cargar ni que reintentar. */
+  unavailable?: boolean;
+  onRetry?: () => void;
   className?: string;
 }) {
-  const state = !loaded ? "loading" : playing ? "stop" : "play";
+  const state = unavailable
+    ? "unavailable"
+    : failed && onRetry
+      ? "retry"
+      : !loaded
+        ? "loading"
+        : playing
+          ? "stop"
+          : "play";
+  const enabled = state === "play" || state === "stop" || state === "retry";
+  const label =
+    state === "retry"
+      ? (labels.retry ?? labels.loading)
+      : state === "unavailable"
+        ? (labels.unavailable ?? labels.play)
+        : state === "loading"
+          ? labels.loading
+          : state === "stop"
+            ? labels.stop
+            : labels.play;
 
   return (
     <div className={cn("relative shrink-0", className)} style={{ width: size, height: size }}>
@@ -41,17 +72,19 @@ export function PlayButton({
       )}
       <motion.button
         type="button"
-        onClick={onClick}
-        disabled={!loaded}
-        whileHover={loaded ? { scale: 1.06 } : undefined}
-        whileTap={loaded ? { scale: 0.9 } : undefined}
+        onClick={state === "retry" ? onRetry : onClick}
+        disabled={!enabled}
+        whileHover={enabled ? { scale: 1.06 } : undefined}
+        whileTap={enabled ? { scale: 0.9 } : undefined}
         transition={{ type: "spring", stiffness: 500, damping: 25 }}
-        aria-label={state === "loading" ? labels.loading : state === "stop" ? labels.stop : labels.play}
+        aria-label={label}
         className={cn(
           "relative flex size-full items-center justify-center rounded-full transition-colors duration-300",
-          loaded
+          state === "play" || state === "stop"
             ? "bg-brand text-primary-foreground"
-            : "cursor-not-allowed bg-muted text-muted-foreground",
+            : state === "retry"
+              ? "bg-muted text-foreground ring-1 ring-destructive/40"
+              : "cursor-not-allowed bg-muted text-muted-foreground",
           state === "play" && "ecos-breathe"
         )}
       >
@@ -65,9 +98,20 @@ export function PlayButton({
             className="flex items-center justify-center"
             aria-hidden
           >
-            {state === "play" ? (
+            {state === "play" || state === "unavailable" ? (
               <svg viewBox="0 0 24 24" className="translate-x-[6%]" style={{ width: size * 0.4, height: size * 0.4 }}>
                 <path d="M7 4.8v14.4a1 1 0 0 0 1.5.86l11.3-7.2a1 1 0 0 0 0-1.72L8.5 3.94A1 1 0 0 0 7 4.8Z" fill="currentColor" />
+              </svg>
+            ) : state === "retry" ? (
+              <svg viewBox="0 0 24 24" style={{ width: size * 0.38, height: size * 0.38 }}>
+                <path
+                  d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             ) : state === "stop" ? (
               <svg viewBox="0 0 24 24" style={{ width: size * 0.34, height: size * 0.34 }}>

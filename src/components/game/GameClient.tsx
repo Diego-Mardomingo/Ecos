@@ -15,6 +15,9 @@ import { type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { GuessInput } from "@/components/guess-input/GuessInput";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ApiError,
+  applyConfirmedProgressCaches,
+  fetchFreshGameProgress,
   useSkipAttemptMutation,
   useValidateGuessMutation,
   useGameProgressById,
@@ -24,11 +27,16 @@ import {
 import { evaluateGuess } from "@/lib/guess-match";
 import {
   ATTEMPT_DURATIONS,
+  SKIPPED_GUESS_TEXT,
   useGameStore,
   type GamePhase,
   type GuessEntry,
 } from "@/lib/store/gameStore";
-import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
+import {
+  isTerminalProgress,
+  useGameProgressStore,
+  type GameProgress,
+} from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { toast } from "sonner";
@@ -43,10 +51,14 @@ import { ResultGameView } from "@/components/game/GameResultScreen";
 import { GameBackdrop } from "@/components/game/GameBackdrop";
 import { GameHeader } from "@/components/game/GameHeader";
 import {
+  confirmMove,
   lostProgress,
   nonWinningOptimistic,
   playingProgress,
+  songSnapshot,
+  wonOptimistic,
   wonProgress,
+  type ServerMoveResult,
 } from "@/components/game/gameProgressSnapshots";
 
 /** Ventana corta para ignorar dobles taps accidentales en “Saltar intento”. */
@@ -54,15 +66,75 @@ const SKIP_BUTTON_DOUBLE_TAP_GUARD_MS = 500;
 const CONFETTI_COLORS_DARK = ["#2bee79", "#ffffff", "#0a2015"] as const;
 const CONFETTI_COLORS_LIGHT = ["#059669", "#ffffff", "#f8fafc"] as const;
 
-interface EcosPerfMetrics {
-  playFirstPaintMs: number[];
-  playProgressSyncMs: number[];
-  playMountAtMs: number | null;
-}
-
 interface Props {
   game: GameWithSong;
   userId: string | null; // null = invitado
+}
+
+/**
+ * `canvas-confetti` se carga aquí y no arriba: solo se usa al acertar, así que como import
+ * estático viajaba en el chunk inicial de /play para algo que la mayoría de las cargas no llega a
+ * ejecutar. Va sin await para no retrasar nada de lo que viene después —la animación es adorno,
+ * el resto es el estado de la partida— y con catch vacío porque quedarse sin confeti no es un
+ * error que merezca molestar al usuario.
+ */
+function launchConfetti(resolvedTheme: string | undefined) {
+  void import("canvas-confetti")
+    .then(({ default: confetti }) => {
+      confetti({
+        particleCount: 120,
+        spread: 80,
+        origin: { y: 0.6 },
+        colors:
+          resolvedTheme === "dark" ? [...CONFETTI_COLORS_DARK] : [...CONFETTI_COLORS_LIGHT],
+      });
+    })
+    .catch(() => {
+      /* sin confeti; la partida sigue */
+    });
+}
+
+/**
+ * Entre el progreso guardado en este dispositivo y el del servidor, cuál manda al cargar la
+ * partida: la terminada antes que la que sigue en curso, y si no, la que tenga más intentos.
+ */
+function resolveAuthoritativeProgress(
+  localProgress: GameProgress | null,
+  serverProgress: GameProgress | null
+): GameProgress | null {
+  if (!localProgress) return serverProgress;
+  if (!serverProgress) return localProgress;
+
+  const localCompleted = isTerminalProgress(localProgress);
+  const serverCompleted = isTerminalProgress(serverProgress);
+
+  if (serverCompleted && !localCompleted) return serverProgress;
+  if (localCompleted && !serverCompleted) return localProgress;
+  if (serverCompleted && localCompleted) {
+    const sLen = serverProgress.guesses?.length ?? 0;
+    const lLen = localProgress.guesses?.length ?? 0;
+    if (sLen > lLen) return serverProgress;
+    if (lLen > sLen) return localProgress;
+    return serverProgress;
+  }
+
+  return serverProgress.guesses.length >= localProgress.guesses.length
+    ? serverProgress
+    : localProgress;
+}
+
+/**
+ * Clave del aviso cuando una jugada no se ha podido guardar. Nunca el texto crudo del servidor,
+ * que llega en inglés («Unauthorized», «Failed to fetch»…) (UX-05).
+ */
+function failedMoveMessageKey(
+  error: unknown,
+  decisive: boolean
+): "sessionExpiredError" | "networkError" | "saveResultError" | "saveAttemptError" {
+  if (error instanceof ApiError && error.status === 401) return "sessionExpiredError";
+  // `fetch` rechaza con TypeError cuando no hay red o se corta la conexión.
+  if (error instanceof TypeError) return "networkError";
+  return decisive ? "saveResultError" : "saveAttemptError";
 }
 
 export function GameClient({ game, userId }: Props) {
@@ -110,40 +182,8 @@ export function GameClient({ game, userId }: Props) {
     }
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const key = "ecos_play_nav_start_ms";
-    const rawStart = sessionStorage.getItem(key);
-    if (!rawStart) return;
-    const navStart = Number(rawStart);
-    if (!Number.isFinite(navStart)) {
-      sessionStorage.removeItem(key);
-      return;
-    }
-    const elapsedMs = Math.max(0, performance.now() - navStart);
-    sessionStorage.removeItem(key);
-
-    const metricsRef = window as Window & {
-      __ecosPerfMetrics?: EcosPerfMetrics;
-    };
-    if (!metricsRef.__ecosPerfMetrics) {
-      metricsRef.__ecosPerfMetrics = {
-        playFirstPaintMs: [],
-        playProgressSyncMs: [],
-        playMountAtMs: null,
-      };
-    }
-    metricsRef.__ecosPerfMetrics.playFirstPaintMs.push(elapsedMs);
-    metricsRef.__ecosPerfMetrics.playMountAtMs = performance.now();
-
-    if (process.env.NODE_ENV === "development") {
-      console.info("[perf] Play first paint (ms):", Math.round(elapsedMs));
-    }
-  }, []);
-
   const {
     phase,
-    currentAttempt,
     maxAttempts,
     guesses,
     audioDuration,
@@ -151,9 +191,9 @@ export function GameClient({ game, userId }: Props) {
     correctAttempt,
     startGame,
     loadProgress,
+    setSnapshot,
     addGuess,
-    revertLastGuessAfterFailedSync,
-    revertWinAfterFailedSync,
+    patchGuess,
     setWon,
     setLost,
     gameId,
@@ -164,8 +204,7 @@ export function GameClient({ game, userId }: Props) {
   const hasLocalDecisiveProgress =
     (localStoredProgress?.phase === "playing" &&
       (localStoredProgress.guesses?.length ?? 0) > 0) ||
-    localStoredProgress?.phase === "won" ||
-    localStoredProgress?.phase === "lost";
+    isTerminalProgress(localStoredProgress);
 
   const initialDataGameProgress = useMemo((): GameProgressData | undefined => {
     if (isGuest) return undefined;
@@ -188,48 +227,46 @@ export function GameClient({ game, userId }: Props) {
     localStoredProgress
   );
   const gameAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
-  /** Evita segundo intento/salto mientras la sync con el servidor está en curso. */
-  const syncInFlightRef = useRef(false);
   const lastSkipTapAtRef = useRef(0);
   /** Última partida para la que se ejecutó el bootstrap; al cambiar `game.id` debe repetirse. */
   const bootstrappedGameIdRef = useRef<string | null>(null);
   const lastServerSyncRef = useRef<string | null>(null);
 
-  const resolveAuthoritativeProgress = useCallback(
-    (
-      localProgress: GameProgress | null,
-      serverProgress: GameProgress | null
-    ): GameProgress | null => {
-      if (!localProgress) return serverProgress;
-      if (!serverProgress) return localProgress;
+  /**
+   * Cola de envíos del jugador autenticado (PDATA-01). Cada jugada se pinta al instante y su
+   * petición sale cuando ha contestado la anterior: en serie, porque el servidor numera los
+   * intentos según los que ya tiene guardados.
+   *
+   * Antes, mientras una jugada se sincronizaba (varios segundos), cualquier otro intento o salto
+   * se descartaba sin avisar. Ahora se encola.
+   */
+  const submitQueueRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * Generación de la cola por partida. Sube cuando una jugada falla o cuando el servidor obliga a
+   * recargar la partida: las jugadas que esperaban detrás ya no son válidas y se descartan sin
+   * enviarse (la pantalla ya ha vuelto al último estado bueno).
+   */
+  const queueEpochRef = useRef<Record<string, number>>({});
+  /**
+   * Envíos sin terminar por partida. Es estado, no ref, porque la reconciliación con el servidor
+   * tiene que esperar a que llegue a cero y volver a mirar entonces.
+   */
+  const [pendingByGame, setPendingByGame] = useState<Record<string, number>>({});
+  const hasPendingSubmits = (pendingByGame[game.id] ?? 0) > 0;
 
-      const localCompleted =
-        localProgress.phase === "won" || localProgress.phase === "lost";
-      const serverCompleted =
-        serverProgress.phase === "won" || serverProgress.phase === "lost";
-
-      if (serverCompleted && !localCompleted) return serverProgress;
-      if (localCompleted && !serverCompleted) return localProgress;
-      if (serverCompleted && localCompleted) {
-        const sLen = serverProgress.guesses?.length ?? 0;
-        const lLen = localProgress.guesses?.length ?? 0;
-        if (sLen > lLen) return serverProgress;
-        if (lLen > sLen) return localProgress;
-        return serverProgress;
-      }
-
-      return serverProgress.guesses.length >= localProgress.guesses.length
-        ? serverProgress
-        : localProgress;
-    },
-    []
-  );
+  /** Arranca la partida en el store si todavía no está en esta. */
+  const ensureGameStarted = useCallback(() => {
+    const state = useGameStore.getState();
+    if (state.gameId !== game.id || state.phase === "idle") {
+      startGame(game.id, game.date);
+    }
+  }, [game.id, game.date, startGame]);
 
   const authoritativeProgress = useMemo(() => {
     if (isGuest) return null;
     const serverProgress = serverProgressData?.progress ?? null;
     return resolveAuthoritativeProgress(localStoredProgress, serverProgress);
-  }, [isGuest, serverProgressData, localStoredProgress, resolveAuthoritativeProgress]);
+  }, [isGuest, serverProgressData, localStoredProgress]);
 
   // Al cambiar de ruta /play/[id] sin desmontar, alinear estado local y permitir re-bootstrap.
   useLayoutEffect(() => {
@@ -257,39 +294,26 @@ export function GameClient({ game, userId }: Props) {
       return;
     }
 
-    if (localStoredProgress && (localStoredProgress.phase === "won" || localStoredProgress.phase === "lost")) {
+    if (isTerminalProgress(localStoredProgress)) {
       setLoadedProgress(localStoredProgress);
       return;
     }
 
-    if (!isGuest && !hasLocalDecisiveProgress) {
-      if (gameId !== game.id || phase === "idle") {
-        startGame(game.id, game.date);
-      }
-      setLoadedProgress(null);
-      return;
-    }
-
-    if (gameId !== game.id || phase === "idle") {
-      startGame(game.id, game.date);
-    }
+    ensureGameStarted();
     setLoadedProgress(null);
-  }, [
-    game.id,
-    game.date,
-    gameId,
-    phase,
-    loadProgress,
-    localStoredProgress,
-    startGame,
-    isGuest,
-    hasLocalDecisiveProgress,
-  ]);
+  }, [game.id, game.date, loadProgress, localStoredProgress, ensureGameStarted]);
 
   // Revalidación en background para autenticados: reconcilia sin bloquear la UI.
   useEffect(() => {
     if (isGuest) return;
     if (!serverProgressData) return;
+    /**
+     * Con jugadas sin confirmar, la caché va por detrás de lo que se ve (las que esperan en cola
+     * aún no han aplicado su cambio optimista) y aplicarla quitaría de la pantalla jugadas que
+     * siguen en camino. Se reconcilia cuando la cola se vacía: este efecto depende de
+     * `hasPendingSubmits` y vuelve a correr entonces.
+     */
+    if (hasPendingSubmits) return;
 
     const serverProgress = serverProgressData.progress ?? null;
     const authoritative = resolveAuthoritativeProgress(localStoredProgress, serverProgress);
@@ -302,28 +326,9 @@ export function GameClient({ game, userId }: Props) {
     if (lastServerSyncRef.current === signature) return;
     lastServerSyncRef.current = signature;
 
-    if (typeof window !== "undefined") {
-      const metricsRef = window as Window & {
-        __ecosPerfMetrics?: EcosPerfMetrics;
-      };
-      if (!metricsRef.__ecosPerfMetrics) {
-        metricsRef.__ecosPerfMetrics = {
-          playFirstPaintMs: [],
-          playProgressSyncMs: [],
-          playMountAtMs: null,
-        };
-      }
-      const mountAt = metricsRef.__ecosPerfMetrics.playMountAtMs;
-      const syncElapsed =
-        mountAt != null ? Math.max(0, performance.now() - mountAt) : 0;
-      metricsRef.__ecosPerfMetrics.playProgressSyncMs.push(syncElapsed);
-    }
-
     if (!authoritative) {
       removeProgress(game.id);
-      if (gameId !== game.id || phase === "idle") {
-        startGame(game.id, game.date);
-      }
+      ensureGameStarted();
       setLoadedProgress(null);
       return;
     }
@@ -340,332 +345,336 @@ export function GameClient({ game, userId }: Props) {
       return;
     }
 
-    if (authoritative.phase === "won" || authoritative.phase === "lost") {
+    if (isTerminalProgress(authoritative)) {
       setLoadedProgress(authoritative);
       return;
     }
 
-    if (gameId !== game.id || phase === "idle") {
-      startGame(game.id, game.date);
-    }
+    ensureGameStarted();
     setLoadedProgress(null);
   }, [
     game.id,
     game.date,
-    gameId,
     isGuest,
+    hasPendingSubmits,
     loadProgress,
     localStoredProgress,
-    phase,
     removeProgress,
-    resolveAuthoritativeProgress,
     saveProgress,
     serverProgressData,
-    startGame,
+    ensureGameStarted,
   ]);
 
   const isStoreGameAligned = gameId === game.id;
   const effectivePhase: GamePhase = isStoreGameAligned ? phase : "idle";
-  const effectiveCurrentAttempt = isStoreGameAligned ? currentAttempt : 1;
-  const effectiveGuesses = isStoreGameAligned ? guesses : [];
   const effectiveAudioDuration = isStoreGameAligned ? audioDuration : ATTEMPT_DURATIONS[0];
+  const effectiveGuesses = isStoreGameAligned ? guesses : [];
   const effectiveFinalScore = isStoreGameAligned ? finalScore : null;
   const effectiveCorrectAttempt = isStoreGameAligned ? correctAttempt : null;
 
   useEffect(() => {
     if (isGuest || hasLocalDecisiveProgress) return;
     if (!isServerProgressError) return;
-    if (gameId !== game.id || phase === "idle") {
-      startGame(game.id, game.date);
-    }
+    ensureGameStarted();
     setLoadedProgress(null);
-  }, [
-    isGuest,
-    hasLocalDecisiveProgress,
-    isServerProgressError,
-    game.id,
-    game.date,
-    gameId,
-    phase,
-    startGame,
-  ]);
+  }, [isGuest, hasLocalDecisiveProgress, isServerProgressError, ensureGameStarted]);
+
+  /** Estado de la partida si es esta la que está en el store; si no, `null`. */
+  const playingStateNow = () => {
+    const state = useGameStore.getState();
+    if (state.gameId !== game.id || state.phase !== "playing") return null;
+    return state;
+  };
+
+  // ------------------------------------------------------------------------------------------
+  // Invitado: todo local, no hay nada que sincronizar.
+  // ------------------------------------------------------------------------------------------
 
   /**
-   * Registra un intento que no gana, en modo invitado. Todo local: no hay nada que sincronizar.
+   * Registra un intento que no gana, en modo invitado.
    *
    * Era el mismo bloque en la rama de fallo de `handleGuess` y en el botón de saltar; la única
    * diferencia entre ambos era la entrada del intento.
    */
-  const applyGuestAttempt = useCallback(
-    (entry: GuessEntry) => {
-      addGuess(entry);
-      if (effectiveCurrentAttempt >= maxAttempts) {
-        setLost();
-        // Se lee después de setLost, como hacían los dos sitios originales.
-        saveProgress(
-          lostProgress({ game, guesses: useGameStore.getState().guesses })
-        );
-      } else {
-        saveProgress(
-          playingProgress({ game, guesses: useGameStore.getState().guesses })
-        );
-      }
-    },
-    [addGuess, effectiveCurrentAttempt, maxAttempts, setLost, saveProgress, game]
-  );
+  const applyGuestAttempt = (entry: GuessEntry) => {
+    addGuess(entry);
+    if (entry.attemptNumber >= maxAttempts) {
+      setLost();
+      // Se lee después de setLost, como hacían los dos sitios originales.
+      saveProgress(lostProgress({ game, guesses: useGameStore.getState().guesses }));
+    } else {
+      saveProgress(playingProgress({ game, guesses: useGameStore.getState().guesses }));
+    }
+  };
+
+  const applyGuestWin = (entry: GuessEntry) => {
+    addGuess(entry);
+    const { totalPoints } = calculateScore(entry.attemptNumber, 0);
+    setWon(entry.attemptNumber, totalPoints);
+    saveProgress(
+      wonProgress({
+        game,
+        score: totalPoints,
+        guesses: useGameStore.getState().guesses,
+        correctAttempt: entry.attemptNumber,
+      })
+    );
+  };
+
+  // ------------------------------------------------------------------------------------------
+  // Autenticado: se pinta al momento y se envía en cola.
+  // ------------------------------------------------------------------------------------------
+
+  const changePending = (gid: string, delta: number) => {
+    setPendingByGame((prev) => ({ ...prev, [gid]: Math.max(0, (prev[gid] ?? 0) + delta) }));
+  };
+
+  const bumpQueueEpoch = (gid: string) => {
+    queueEpochRef.current[gid] = (queueEpochRef.current[gid] ?? 0) + 1;
+  };
 
   /**
-   * Registra un intento que no gana, en modo autenticado, y lo sincroniza.
-   *
-   * El andamiaje era idéntico en la rama de fallo de `handleGuess` y en el botón de saltar:
-   * marcar sync en curso, apuntar el intento, cerrar la partida si agota los seis, capturar los
-   * intentos para el payload optimista, y en caso de error avisar y revertir. Lo único propio de
-   * cada sitio es la mutación, que se pasa como `submit`.
-   *
-   * `submit` corre **antes** del guardado final a propósito: la rama de fallo reconcilia dentro
-   * los flags de artista/álbum que devuelve el servidor, y `lostProgress` lee los intentos del
-   * store ya reconciliados.
+   * Encola el envío de una jugada. `submit` es la petición; si falla (el servidor no la ha
+   * aceptado, o no se sabe porque se cortó la red) se llama a `onFail`. Un error **después** de
+   * que el servidor la aceptara no la revierte nunca: se registra y la reconciliación lo corrige.
    */
-  const runSyncedAttempt = useCallback(
-    (
-      entry: GuessEntry,
-      submit: (ctx: {
-        lostNow: boolean;
-        optimisticGuesses: GuessEntry[];
-      }) => Promise<void>
-    ) => {
-      syncInFlightRef.current = true;
-      const lostNow = effectiveCurrentAttempt >= maxAttempts;
-      addGuess(entry);
-      if (lostNow) {
-        setLost();
-      }
-      const optimisticGuesses = [...useGameStore.getState().guesses];
-
-      void (async () => {
+  const enqueueSubmit = (
+    gid: string,
+    submit: () => Promise<ServerMoveResult>,
+    onAccepted: (server: ServerMoveResult) => Promise<void> | void,
+    onFail: (error: unknown) => void
+  ) => {
+    const epoch = queueEpochRef.current[gid] ?? 0;
+    changePending(gid, 1);
+    submitQueueRef.current = submitQueueRef.current.then(async () => {
+      try {
+        if ((queueEpochRef.current[gid] ?? 0) !== epoch) return;
+        let server: ServerMoveResult;
         try {
-          await submit({ lostNow, optimisticGuesses });
-          if (lostNow) {
-            saveProgress(
-              lostProgress({ game, guesses: useGameStore.getState().guesses })
-            );
-          }
+          server = await submit();
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : t("saveResultError"));
-          revertLastGuessAfterFailedSync();
-        } finally {
-          syncInFlightRef.current = false;
-        }
-      })();
-    },
-    [
-      addGuess,
-      effectiveCurrentAttempt,
-      maxAttempts,
-      setLost,
-      saveProgress,
-      game,
-      t,
-      revertLastGuessAfterFailedSync,
-    ]
-  );
-
-  const handleGuess = useCallback(
-    (song: EcosSong) => {
-      if (effectivePhase !== "playing") return;
-      if (!isGuest && syncInFlightRef.current) return;
-
-      const guessText = `${song.title} - ${song.artist_name}`;
-      // Misma regla que /api/validate-guess (src/lib/guess-match.ts).
-      const {
-        correct: isCorrect,
-        correctArtist,
-        correctAlbum,
-      } = evaluateGuess(song, game.ecos_songs);
-
-      if (isCorrect) {
-        /**
-         * `canvas-confetti` se carga aquí y no arriba: solo se usa al acertar, así que como
-         * import estático viajaba en el chunk inicial de /play para algo que la mayoría de las
-         * cargas no llega a ejecutar. Va sin await para no retrasar nada de lo que viene después
-         * —la animación es adorno, el resto es el estado de la partida— y con catch vacío porque
-         * quedarse sin confeti no es un error que merezca molestar al usuario.
-         */
-        void import("canvas-confetti")
-          .then(({ default: confetti }) => {
-            confetti({
-              particleCount: 120,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors:
-                resolvedTheme === "dark"
-                  ? [...CONFETTI_COLORS_DARK]
-                  : [...CONFETTI_COLORS_LIGHT],
-            });
-          })
-          .catch(() => {
-            /* sin confeti; la partida sigue */
-          });
-
-        const guessEntry = {
-          text: guessText,
-          correct: true,
-          attemptNumber: effectiveCurrentAttempt,
-        };
-        addGuess(guessEntry);
-
-        if (isGuest) {
-          const { totalPoints } = calculateScore(effectiveCurrentAttempt, 0);
-          setWon(effectiveCurrentAttempt, totalPoints);
-          saveProgress(
-            wonProgress({
-              game,
-              score: totalPoints,
-              guesses: useGameStore.getState().guesses,
-              correctAttempt: effectiveCurrentAttempt,
-            })
-          );
-        } else {
-          syncInFlightRef.current = true;
-          const optimisticScore = calculateScore(effectiveCurrentAttempt, 0).totalPoints;
-          setWon(effectiveCurrentAttempt, optimisticScore);
-
-          void (async () => {
-            try {
-              const data = await validateGuessMutation.mutateAsync({
-                userId,
-                gameId: game.id,
-                event: "gameCompleted",
-                song: {
-                  title: game.ecos_songs.title,
-                  artist_name: game.ecos_songs.artist_name,
-                  cover_url: game.ecos_songs.cover_url,
-                },
-                request: {
-                  gameId: game.id,
-                  userId: userId!,
-                  attemptNumber: effectiveCurrentAttempt,
-                  guessText,
-                  songId: song.id,
-                  guessArtistName: song.artist_name,
-                  guessAlbumTitle: song.album_title ?? undefined,
-                  finalize: true,
-                },
-                optimistic: {
-                  type: "completion",
-                  won: true,
-                  score: optimisticScore,
-                  completedProgress: {
-                    gameDate: game.date,
-                    guesses: [...useGameStore.getState().guesses],
-                        correctAttempt: effectiveCurrentAttempt,
-                  },
-                },
-              });
-              const serverPoints = data.totalPoints ?? optimisticScore;
-              if (serverPoints !== optimisticScore) {
-                setWon(effectiveCurrentAttempt, serverPoints);
-              }
-              saveProgress(
-                wonProgress({
-                  game,
-                  score: serverPoints,
-                  guesses: useGameStore.getState().guesses,
-                  correctAttempt: effectiveCurrentAttempt,
-                })
-              );
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : t("saveResultError"));
-              revertWinAfterFailedSync();
-            } finally {
-              syncInFlightRef.current = false;
-            }
-          })();
-        }
-      } else {
-        const guessEntry: GuessEntry = {
-          text: guessText,
-          correct: false,
-          correctArtist,
-          correctAlbum,
-          attemptNumber: effectiveCurrentAttempt,
-        };
-
-        if (isGuest) {
-          applyGuestAttempt(guessEntry);
+          onFail(error);
           return;
         }
-
-        runSyncedAttempt(guessEntry, async ({ lostNow, optimisticGuesses }) => {
-          const data = await validateGuessMutation.mutateAsync({
-            userId,
-            gameId: game.id,
-            event: lostNow ? "gameCompleted" : "attemptSaved",
-            song: {
-              title: game.ecos_songs.title,
-              artist_name: game.ecos_songs.artist_name,
-              cover_url: game.ecos_songs.cover_url,
-            },
-            request: {
-              gameId: game.id,
-              userId: userId!,
-              attemptNumber: effectiveCurrentAttempt,
-              guessText,
-              songId: song.id,
-              guessArtistName: song.artist_name,
-              guessAlbumTitle: song.album_title ?? undefined,
-              finalize: lostNow,
-            },
-            optimistic: nonWinningOptimistic({
-              game,
-              lostNow,
-              guesses: optimisticGuesses,
-            }),
-          });
-
-          // El servidor manda sobre los flags de artista/álbum: si difieren, se corrige el
-          // último intento en el store antes de que `lostProgress` lo lea.
-          const srvA = data.correctArtist ?? correctArtist;
-          const srvB = data.correctAlbum ?? correctAlbum;
-          if (srvA !== guessEntry.correctArtist || srvB !== guessEntry.correctAlbum) {
-            const gs = useGameStore.getState().guesses;
-            const last = gs[gs.length - 1];
-            if (last && last.text === guessText && !last.correct) {
-              useGameStore.setState({
-                guesses: [
-                  ...gs.slice(0, -1),
-                  { ...last, correctArtist: srvA, correctAlbum: srvB },
-                ],
-              });
-            }
-          }
-        });
+        try {
+          await onAccepted(server);
+        } catch (error) {
+          console.error("[partida] reconciliando una jugada ya guardada:", error);
+        }
+      } finally {
+        changePending(gid, -1);
       }
-    },
-    [
-      effectivePhase,
-      game,
+    });
+  };
+
+  /** Deja la partida exactamente como la tiene el servidor (store, progreso local y resultado). */
+  const adoptServerProgress = (moveGame: GameWithSong, progress: GameProgress | null) => {
+    if (!progress) {
+      removeProgress(moveGame.id);
+      startGame(moveGame.id, moveGame.date);
+      setLoadedProgress(null);
+      return;
+    }
+    saveProgress(progress);
+    setSnapshot(moveGame.id, moveGame.date, progress);
+    setLoadedProgress(isTerminalProgress(progress) ? progress : null);
+  };
+
+  /** Lo que se hace con la respuesta del servidor a una jugada aceptada. */
+  const reconcileAcceptedMove = async (
+    moveGame: GameWithSong,
+    moveUserId: string,
+    entry: GuessEntry,
+    optimisticScore: number | null,
+    optimisticGuesses: GuessEntry[],
+    server: ServerMoveResult
+  ) => {
+    const isCurrentGame = () => useGameStore.getState().gameId === moveGame.id;
+    const baseGuesses = isCurrentGame() ? useGameStore.getState().guesses : optimisticGuesses;
+    const result = confirmMove({
+      game: moveGame,
+      previousGuesses: baseGuesses.filter((g) => g.attemptNumber < entry.attemptNumber),
+      entry,
+      optimisticScore,
+      server,
+    });
+
+    if (result.kind === "adopt-server") {
+      // Lo que quede en cola se calculó sobre una partida que no es la del servidor.
+      bumpQueueEpoch(moveGame.id);
+      const fresh = await fetchFreshGameProgress(queryClient, moveGame.id).catch(() => null);
+      if (fresh && isCurrentGame()) adoptServerProgress(moveGame, fresh.progress);
+      return;
+    }
+
+    const { progress } = result;
+    saveProgress(progress);
+    applyConfirmedProgressCaches(queryClient, {
+      userId: moveUserId,
+      gameId: moveGame.id,
+      song: songSnapshot(moveGame),
+      progress,
+    });
+    if (!isCurrentGame()) return;
+
+    if (result.verdictChanged) {
+      // El servidor dice otra cosa que el cliente sobre si era la canción: lo que se ve pasa a
+      // ser lo guardado, y lo que se jugara detrás ya no tiene sentido.
+      bumpQueueEpoch(moveGame.id);
+      setSnapshot(moveGame.id, moveGame.date, progress);
+      setLoadedProgress(isTerminalProgress(progress) ? progress : null);
+      return;
+    }
+
+    const { correctArtist, correctAlbum } = result.entry;
+    if (correctArtist !== entry.correctArtist || correctAlbum !== entry.correctAlbum) {
+      patchGuess(entry.attemptNumber, { correctArtist, correctAlbum });
+    }
+    if (progress.phase === "won" && progress.score !== useGameStore.getState().finalScore) {
+      setWon(entry.attemptNumber, progress.score ?? 0);
+    }
+  };
+
+  /** Una jugada que el servidor no ha aceptado: aviso, y la partida vuelve a antes de ella. */
+  const handleFailedMove = (
+    moveGame: GameWithSong,
+    entry: GuessEntry,
+    decisive: boolean,
+    error: unknown
+  ) => {
+    bumpQueueEpoch(moveGame.id);
+    toast.error(t(failedMoveMessageKey(error, decisive)));
+    const state = useGameStore.getState();
+    if (state.gameId === moveGame.id) {
+      setSnapshot(moveGame.id, moveGame.date, {
+        guesses: state.guesses.filter((g) => g.attemptNumber < entry.attemptNumber),
+        phase: "playing",
+        score: null,
+      });
+    }
+    // Si el servidor sí la guardó y lo que se perdió fue la respuesta, el refetch la trae de
+    // vuelta y la reconciliación la vuelve a pintar.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.game.progress(moveGame.id) });
+  };
+
+  /**
+   * Jugada del usuario autenticado: intento (`songId`) o salto (`songId === null`). Acierto,
+   * fallo y salto comparten aquí el mismo camino; antes había uno para el acierto y otro para el
+   * resto, con la petición a `validate-guess` escrita dos veces.
+   */
+  const playAuthenticatedMove = (entry: GuessEntry, songId: string | null) => {
+    if (!userId) return;
+    const moveGame = game;
+    const attempt = entry.attemptNumber;
+    const decisive = entry.correct || attempt >= maxAttempts;
+
+    addGuess(entry);
+    let optimisticScore: number | null = null;
+    if (entry.correct) {
+      optimisticScore = calculateScore(attempt, 0).totalPoints;
+      setWon(attempt, optimisticScore);
+    } else if (decisive) {
+      setLost();
+    }
+    const optimisticGuesses = [...useGameStore.getState().guesses];
+
+    const base = {
       userId,
-      isGuest,
-      effectiveCurrentAttempt,
-      addGuess,
-      setWon,
-      saveProgress,
-      resolvedTheme,
-      revertWinAfterFailedSync,
-      validateGuessMutation,
-      t,
-      applyGuestAttempt,
-      runSyncedAttempt,
-    ]
-  );
+      gameId: moveGame.id,
+      event: decisive ? ("gameCompleted" as const) : ("attemptSaved" as const),
+      song: songSnapshot(moveGame),
+      optimistic:
+        optimisticScore != null
+          ? wonOptimistic({
+              game: moveGame,
+              score: optimisticScore,
+              guesses: optimisticGuesses,
+              correctAttempt: attempt,
+            })
+          : nonWinningOptimistic({ game: moveGame, lostNow: decisive, guesses: optimisticGuesses }),
+    };
+
+    enqueueSubmit(
+      moveGame.id,
+      () =>
+        songId
+          ? validateGuessMutation.mutateAsync({
+              ...base,
+              request: {
+                gameId: moveGame.id,
+                userId,
+                attemptNumber: attempt,
+                guessText: entry.text,
+                songId,
+              },
+            })
+          : skipAttemptMutation.mutateAsync({
+              ...base,
+              request: { gameId: moveGame.id, attemptNumber: attempt },
+            }),
+      (server) =>
+        reconcileAcceptedMove(
+          moveGame,
+          userId,
+          entry,
+          optimisticScore,
+          optimisticGuesses,
+          server
+        ),
+      (error) => handleFailedMove(moveGame, entry, decisive, error)
+    );
+  };
+
+  const handleGuess = (song: EcosSong) => {
+    const state = playingStateNow();
+    if (!state) return;
+    const attempt = state.currentAttempt;
+
+    const guessText = `${song.title} - ${song.artist_name}`;
+    // Misma regla que /api/validate-guess (src/lib/guess-match.ts).
+    const { correct, correctArtist, correctAlbum } = evaluateGuess(song, game.ecos_songs);
+
+    if (correct) {
+      launchConfetti(resolvedTheme);
+      const entry: GuessEntry = { text: guessText, correct: true, attemptNumber: attempt };
+      if (isGuest) applyGuestWin(entry);
+      else playAuthenticatedMove(entry, song.id);
+      return;
+    }
+
+    const entry: GuessEntry = {
+      text: guessText,
+      correct: false,
+      correctArtist,
+      correctAlbum,
+      attemptNumber: attempt,
+    };
+    if (isGuest) applyGuestAttempt(entry);
+    else playAuthenticatedMove(entry, song.id);
+  };
+
+  const handleSkip = () => {
+    gameAudioPlayerRef.current?.stopIfPlaying();
+    const state = playingStateNow();
+    if (!state) return;
+
+    // El guard de doble tap va antes de bifurcar: aplica igual a invitado y autenticado.
+    const now = Date.now();
+    if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
+    lastSkipTapAtRef.current = now;
+
+    const skipEntry: GuessEntry = {
+      text: SKIPPED_GUESS_TEXT,
+      correct: false,
+      attemptNumber: state.currentAttempt,
+    };
+
+    if (isGuest) applyGuestAttempt(skipEntry);
+    else playAuthenticatedMove(skipEntry, null);
+  };
 
   const terminalFromAuthoritative =
-    !isGuest &&
-    authoritativeProgress &&
-    (authoritativeProgress.phase === "won" || authoritativeProgress.phase === "lost")
-      ? authoritativeProgress
-      : null;
+    !isGuest && isTerminalProgress(authoritativeProgress) ? authoritativeProgress : null;
 
   if (!isGuest && !hasLocalDecisiveProgress && isServerProgressPending) {
     return (
@@ -688,16 +697,14 @@ export function GameClient({ game, userId }: Props) {
   const isResultView =
     effectivePhase === "won" ||
     effectivePhase === "lost" ||
-    (loadedProgress &&
-      (loadedProgress.phase === "won" || loadedProgress.phase === "lost")) ||
+    isTerminalProgress(loadedProgress) ||
     terminalFromAuthoritative !== null;
 
   if (isResultView) {
     const loadedForResult = terminalFromAuthoritative ?? loadedProgress;
 
     const localHasTerminalResult = effectivePhase === "won" || effectivePhase === "lost";
-    const loadedHasTerminalResult =
-      loadedForResult?.phase === "won" || loadedForResult?.phase === "lost";
+    const loadedHasTerminalResult = isTerminalProgress(loadedForResult);
     const loadedGuessesCount = loadedForResult?.guesses.length ?? 0;
     const localGuessesCount = effectiveGuesses.length;
     const localResultLooksRicher =
@@ -743,50 +750,6 @@ export function GameClient({ game, userId }: Props) {
     );
   }
 
-  const handleSkip = () => {
-    gameAudioPlayerRef.current?.stopIfPlaying();
-    if (effectivePhase !== "playing") return;
-    if (!isGuest && syncInFlightRef.current) return;
-
-    // El guard de doble tap va antes de bifurcar: aplica igual a invitado y autenticado.
-    const now = Date.now();
-    if (now - lastSkipTapAtRef.current < SKIP_BUTTON_DOUBLE_TAP_GUARD_MS) return;
-    lastSkipTapAtRef.current = now;
-
-    const skipEntry: GuessEntry = {
-      text: "skipped",
-      correct: false,
-      attemptNumber: effectiveCurrentAttempt,
-    };
-
-    if (isGuest || !userId) {
-      applyGuestAttempt(skipEntry);
-      return;
-    }
-
-    runSyncedAttempt(skipEntry, async ({ lostNow, optimisticGuesses }) => {
-      await skipAttemptMutation.mutateAsync({
-        userId,
-        gameId: game.id,
-        event: lostNow ? "gameCompleted" : "attemptSaved",
-        song: {
-          title: game.ecos_songs.title,
-          artist_name: game.ecos_songs.artist_name,
-          cover_url: game.ecos_songs.cover_url,
-        },
-        request: {
-          gameId: game.id,
-          attemptNumber: effectiveCurrentAttempt,
-        },
-        optimistic: nonWinningOptimistic({
-          game,
-          lostNow,
-          guesses: optimisticGuesses,
-        }),
-      });
-    });
-  };
-
   return (
     <div className="relative flex flex-col bg-background">
       <GameBackdrop />
@@ -799,7 +762,9 @@ export function GameClient({ game, userId }: Props) {
             type="button"
             onClick={handleSkip}
             whileTap={{ scale: 0.92 }}
-            className="group flex h-10 items-center gap-1 rounded-full border border-border bg-card/70 pl-3 pr-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground"
+            // El pseudo-elemento amplía la zona táctil a 44 px de alto sin cambiar el aspecto
+            // (el botón mide 40) (UX-12).
+            className="group relative flex h-10 items-center gap-1 rounded-full border border-border bg-card/70 pl-3 pr-2.5 text-sm font-semibold text-muted-foreground transition-colors before:absolute before:inset-x-0 before:-inset-y-0.5 before:content-[''] hover:border-brand/40 hover:text-foreground"
           >
             {t("skip")}
             <span aria-hidden className="material-symbols-outlined text-xl transition-transform duration-200 group-hover:translate-x-0.5 group-active:translate-x-1">
@@ -830,4 +795,3 @@ export function GameClient({ game, userId }: Props) {
     </div>
   );
 }
-

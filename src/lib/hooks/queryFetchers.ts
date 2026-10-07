@@ -15,6 +15,47 @@ import type {
  * necesita algunos de ellos, y `queries.ts` necesita el parcheado.
  */
 
+/**
+ * Respuesta no-ok de una route handler. Lleva el código HTTP para que quien la muestre pueda
+ * elegir un mensaje traducido (sesión caducada, error del servidor…) en vez de enseñar el texto
+ * en inglés que devuelve la API.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/**
+ * Envía JSON y devuelve el JSON de la respuesta. Si no es ok lanza `ApiError` con el `error` del
+ * cuerpo o, si no lo hay, con `fallbackMessage`. El cuerpo se lee con tolerancia: un 502 de la
+ * plataforma llega en HTML, y antes eso acababa en un `SyntaxError` como mensaje de error.
+ */
+export async function postJson<T>(
+  url: string,
+  body: unknown,
+  fallbackMessage: string,
+  method: "POST" | "PATCH" = "POST"
+): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => null)) as (T & { error?: unknown }) | null;
+  if (!res.ok) {
+    throw new ApiError(
+      typeof data?.error === "string" ? data.error : fallbackMessage,
+      res.status
+    );
+  }
+  return (data ?? {}) as T;
+}
+
 export async function fetchProfileCoreData(): Promise<ProfileCoreData> {
   const res = await fetch("/api/profile/core");
   if (!res.ok) throw new Error("Failed to fetch profile core");

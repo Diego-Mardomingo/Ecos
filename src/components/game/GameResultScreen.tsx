@@ -1,25 +1,17 @@
 "use client";
 
-import { memo, useCallback, useId, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import Image from "next/image";
-import { toast } from "sonner";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Link } from "@/i18n/navigation";
-import { useReportGameMutation, type ReportGameInput } from "@/lib/hooks/queries";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
+import { localizedPath } from "@/lib/i18n/localizedPath";
 import { useNavigateBackToHome } from "@/lib/navigation/useNavigateBackToHome";
 import type { GameWithSong } from "@/lib/queries/games";
+import { MAX_ATTEMPTS } from "@/lib/server-attempt";
 import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import type { GamePhase, GuessEntry } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
@@ -28,6 +20,8 @@ import { PreviousAttempts } from "@/components/game/GameAttemptsList";
 import { GameBackdrop } from "@/components/game/GameBackdrop";
 import { GameHeader } from "@/components/game/GameHeader";
 import { PlayButton } from "@/components/game/PlayButton";
+import { ReportSongDialog, ReportSongTrigger } from "@/components/game/ReportSongDialog";
+import { useLoginHref } from "@/components/game/useLoginHref";
 import {
   SegmentedWaveform,
   type SegmentedWaveformHandle,
@@ -44,22 +38,8 @@ import {
 
 /** Duración máxima del preview en pantalla de resultado (segundos completos) */
 const FULL_PREVIEW_SECONDS = 30;
-const ALL_SEGMENTS = 6;
-
-const REPORT_REASON_IDS = [
-  "bad_audio",
-  "wrong_video",
-  "intro_problem",
-  "explicit_content",
-  "other",
-] as const;
-const REPORT_REASON_KEYS: Record<(typeof REPORT_REASON_IDS)[number], string> = {
-  bad_audio: "report.reasonBadAudio",
-  wrong_video: "report.reasonWrongVideo",
-  intro_problem: "report.reasonIntroProblem",
-  explicit_content: "report.reasonExplicit",
-  other: "report.reasonOther",
-};
+/** En el resultado la onda se ve entera: un tramo por intento. */
+const ALL_SEGMENTS = MAX_ATTEMPTS;
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -97,6 +77,7 @@ const ResultGameView = memo(function ResultGameView({
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  const [audioFailed, setAudioFailed] = useState(false);
   /** Segundo completo transcurrido: el reloj solo cambia una vez por segundo. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
@@ -116,6 +97,10 @@ const ResultGameView = memo(function ResultGameView({
 
   const seek = useCallback((seconds: number) => {
     resultAudioPlayerRef.current?.seekTo(seconds);
+  }, []);
+
+  const retryAudio = useCallback(() => {
+    resultAudioPlayerRef.current?.retry();
   }, []);
 
   return (
@@ -138,6 +123,9 @@ const ResultGameView = memo(function ResultGameView({
             audio={{
               playing: audioPlaying,
               loaded: audioLoaded,
+              failed: audioFailed,
+              unavailable: !song.preview_url,
+              retry: retryAudio,
               elapsedSeconds,
               toggle: togglePlay,
               seek,
@@ -153,6 +141,7 @@ const ResultGameView = memo(function ResultGameView({
         onTimeUpdate={handleAudioTimeUpdate}
         onPlayingChange={setAudioPlaying}
         onLoadedChange={setAudioLoaded}
+        onErrorChange={setAudioFailed}
         onEnded={() => {
           handleAudioTimeUpdate(0);
           setTimeout(() => handleAudioTimeUpdate(0), 150);
@@ -190,6 +179,9 @@ function ResultScreen({
   audio: {
     playing: boolean;
     loaded: boolean;
+    failed: boolean;
+    unavailable: boolean;
+    retry: () => void;
     elapsedSeconds: number;
     toggle: () => void;
     seek: (seconds: number) => void;
@@ -209,19 +201,15 @@ function ResultScreen({
   const metaYear = releaseYearFromReleaseDate(song.release_date);
   const metaGenre = song.genre?.trim();
   const songMeta = [metaAlbum, metaYear, metaGenre].filter(Boolean) as string[];
-  const [reportOpen, setReportOpen] = useState(false);
-  const [reportReason, setReportReason] = useState<string>("");
-  const [reportDesc, setReportDesc] = useState("");
-  const reportDescId = useId();
-  const [reportSent, setReportSent] = useState(false);
-  const reportMutation = useReportGameMutation();
   const [shareCopied, setShareCopied] = useState(false);
   const navigateBackToHome = useNavigateBackToHome();
+  const loginHref = useLoginHref();
 
   const handleShare = async () => {
     const shareUrl =
       typeof window !== "undefined"
-        ? `${window.location.origin}/${locale}/play/${gameId}`
+        ? // Sin prefijo en español (`localePrefix: "as-needed"`): con `/es/` costaba un 307 (SEO-06).
+          `${window.location.origin}${localizedPath(locale, `/play/${gameId}`)}`
         : "";
     const title = won
       ? t("shareTitleWon", {
@@ -282,27 +270,6 @@ function ResultScreen({
         }
       }
     }
-  };
-
-  const handleReport = () => {
-    if (!reportReason) return;
-    reportMutation.mutate(
-      {
-        gameId,
-        songId: song.id,
-        reason: reportReason as ReportGameInput["reason"],
-        description: reportDesc.trim() || undefined,
-      },
-      {
-        onSuccess: () => {
-          setReportSent(true);
-          setReportOpen(false);
-        },
-        onError: () => {
-          toast.error(tc("error"));
-        },
-      }
-    );
   };
 
   return (
@@ -373,7 +340,16 @@ function ResultScreen({
             loaded={audio.loaded}
             onClick={audio.toggle}
             size={60}
-            labels={{ play: t("listenSong"), stop: t("stopSong"), loading: t("loadingAudio") }}
+            labels={{
+              play: t("listenSong"),
+              stop: t("stopSong"),
+              loading: t("loadingAudio"),
+              retry: t("retryAudio"),
+              unavailable: t("noAudio"),
+            }}
+            failed={audio.failed}
+            unavailable={audio.unavailable}
+            onRetry={audio.retry}
           />
         </div>
       </motion.div>
@@ -491,7 +467,7 @@ function ResultScreen({
           </div>
           <p className="relative mb-4 text-xs leading-relaxed text-muted-foreground">{t("guestResultDescription")}</p>
           <Link
-            href={`/login?redirect=/play`}
+            href={loginHref}
             className="relative flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground text-sm font-bold text-background transition-transform active:scale-[0.97]"
           >
             <span aria-hidden className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -533,80 +509,7 @@ function ResultScreen({
 
       {!isGuest && (
         <motion.div variants={rise}>
-          <Dialog open={reportOpen} onOpenChange={setReportOpen}>
-            <DialogTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                <span aria-hidden className="material-symbols-outlined text-base">flag</span>
-                {t("report.reportProblemWithSong")}
-              </button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{t("report.dialogTitle")}</DialogTitle>
-                <DialogDescription className="sr-only">{t("report.reportProblemWithSong")}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                {reportSent ? (
-                  <p className="text-sm text-muted-foreground">{t("report.thankYou")}</p>
-                ) : (
-                  <>
-                    {/* fieldset/legend en vez de un <p> suelto: asi el lector de pantalla
-                        sabe a que pregunta responde cada radio. El etiquetado de cada opcion
-                        ya era correcto, porque el <label> envuelve al input. */}
-                    <fieldset>
-                      <legend className="mb-2 text-sm font-medium">{t("report.reasonLabel")}</legend>
-                      <div className="space-y-2">
-                        {REPORT_REASON_IDS.map((id) => (
-                          <label
-                            key={id}
-                            className={cn(
-                              "flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
-                              reportReason === id ? "border-brand/50 bg-brand/8" : "border-border hover:bg-muted/60"
-                            )}
-                          >
-                            <input
-                              type="radio"
-                              name="reason"
-                              value={id}
-                              checked={reportReason === id}
-                              onChange={() => setReportReason(id)}
-                              className="h-4 w-4 accent-[var(--brand)]"
-                            />
-                            <span className="text-sm">{t(REPORT_REASON_KEYS[id])}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                    {reportReason === "other" && (
-                      <div>
-                        {/* El label no tenia htmlFor ni el textarea id, asi que no estaban
-                            asociados: el campo se anunciaba sin nombre. */}
-                        <label htmlFor={reportDescId} className="mb-1 block text-sm font-medium">
-                          {t("report.descriptionLabel")}
-                        </label>
-                        <textarea
-                          id={reportDescId}
-                          value={reportDesc}
-                          onChange={(e) => setReportDesc(e.target.value)}
-                          placeholder={t("report.descriptionPlaceholder")}
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                          rows={3}
-                        />
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleReport}
-                      disabled={!reportReason || reportMutation.isPending}
-                      className="w-full rounded-full bg-brand py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50"
-                    >
-                      {reportMutation.isPending ? t("report.sending") : t("report.submit")}
-                    </button>
-                  </>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
+          <ReportSongDialog gameId={gameId} songId={song.id} trigger={<ReportSongTrigger />} />
         </motion.div>
       )}
     </motion.div>

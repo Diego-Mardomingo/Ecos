@@ -10,10 +10,6 @@ const ReportSchema = z.object({
   songId: z.string().uuid(),
   reason: z.enum([
     "bad_audio",
-    // Vestigio del vídeo de YouTube, que ya no existe. Se sigue aceptando mientras la UI lo
-    // ofrezca, pero se guarda como «other» (ver abajo). Cuando la opción desaparezca del diálogo
-    // de reporte, quitar también esta línea.
-    "wrong_video",
     "intro_problem",
     "explicit_content",
     "other",
@@ -58,8 +54,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const { gameId, songId, description } = parsed.data;
-    const reason = parsed.data.reason === "wrong_video" ? "other" : parsed.data.reason;
+    const { gameId, songId, reason, description } = parsed.data;
 
     const serviceSupabase = createServiceClient();
     const since = new Date(Date.now() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
