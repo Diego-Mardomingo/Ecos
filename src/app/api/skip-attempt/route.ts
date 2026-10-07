@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { loadPlayableGame, submitAttempt } from "@/lib/ecos-finalize-helpers";
 import { readJsonBody } from "@/lib/api/body-limit";
@@ -62,7 +61,6 @@ export async function POST(request: NextRequest) {
       // Ya cerrada: idempotente, sin añadir filas ni repuntuar (un error revertiría el estado en
       // el cliente).
       case "already-finalized":
-        if (outcome.repaired) revalidateTag("games", "max");
         return NextResponse.json({
           ok: true,
           attemptNumber: outcome.attemptNumber,
@@ -73,7 +71,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, attemptNumber: outcome.attemptNumber });
 
       case "finalized":
-        revalidateTag("games", "max");
         return NextResponse.json({ ok: true, attemptNumber: outcome.attemptNumber });
     }
   } catch (err) {

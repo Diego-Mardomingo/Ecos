@@ -252,7 +252,7 @@ export interface AttemptInput {
 
 export type AttemptOutcome =
   /** La partida ya estaba cerrada: no se ha escrito nada nuevo ni se ha vuelto a puntuar. */
-  | { kind: "already-finalized"; attemptNumber: number; totalPoints: number; repaired: boolean }
+  | { kind: "already-finalized"; attemptNumber: number; totalPoints: number }
   /** Intento intermedio guardado; la partida sigue abierta. */
   | { kind: "recorded"; attemptNumber: number }
   /** Intento guardado y partida cerrada (acierto o sexto intento) en la misma transacción. */
@@ -283,7 +283,6 @@ export async function submitAttempt(
       kind: "already-finalized",
       attemptNumber: state.score.guesses_used,
       totalPoints: state.score.points ?? 0,
-      repaired: false,
     };
   }
 
@@ -301,7 +300,6 @@ export async function submitAttempt(
       kind: "already-finalized",
       attemptNumber: stored.attemptNumber,
       totalPoints: scoreResult.totalPoints,
-      repaired: true,
     };
   }
 
