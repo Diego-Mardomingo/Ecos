@@ -29,7 +29,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-surface: var(--surface);
 
   /* Tokens de marca ECOS — resuelven por tema (:root / .dark) */
   --color-brand: var(--brand);
@@ -70,11 +69,6 @@
   --border:             #d1dcd7;
   --input:              #d1dcd7;
   --ring:               var(--brand);
-  --surface:            #ffffff;
-
-  /* Acentos “tipo tema oscuro”: iconos sobre portadas / textos en superficies oscuras (hero hoy) */
-  --ecos-bright-brand:       #2bee79;
-  --ecos-bright-destructive: oklch(0.704 0.191 22.216);
 }
 
 /* ---- DARK THEME (acentos sin cambios respecto al diseño anterior) ---- */
@@ -99,10 +93,6 @@
   --border:             rgba(255,255,255,0.08);
   --input:              rgba(255,255,255,0.10);
   --ring:               var(--brand);
-  --surface:            #181b1d;
-
-  --ecos-bright-brand:       var(--brand);
-  --ecos-bright-destructive: var(--destructive);
 }
 
 @layer base {
@@ -208,9 +198,6 @@
 
 /* Safe area para dispositivos con notch */
 @layer utilities {
-  .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
@@ -222,18 +209,7 @@
  * resuelve en el compositor sin pasar por React ni por el hilo principal.
  */
 @layer utilities {
-  /** Halo de marca: el brillo que acompaña a los elementos activos. */
-  .ecos-glow {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent),
-      0 8px 32px -8px color-mix(in srgb, var(--brand) 55%, transparent);
-  }
-
-  /** Barra de ecualizador: oscila en vertical desde la base. Duración y retardo, por barra. */
-  .ecos-eq-bar {
-    transform-origin: 50% 100%;
-    animation: ecos-eq var(--eq-duration, 1.1s) ease-in-out var(--eq-delay, 0s) infinite alternate;
-  }
+  /** Barra de ecualizador: oscila en vertical desde el centro. Duración y retardo, por barra. */
   .ecos-eq-bar-center {
     transform-origin: 50% 50%;
     animation: ecos-eq var(--eq-duration, 1.1s) ease-in-out var(--eq-delay, 0s) infinite alternate;
