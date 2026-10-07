@@ -1,8 +1,36 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { animate, useReducedMotion } from "framer-motion";
+import { cubicBezier, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
+
+/** Misma curva de salida que el resto de entradas de la app. */
+const EASE_OUT = cubicBezier(0.22, 1, 0.36, 1);
+
+/**
+ * Interpola de `from` a `to` en `duration` segundos, tras `delay`, y llama a `onUpdate` en cada
+ * fotograma (el último, con `to` exacto). Devuelve la función para pararlo.
+ *
+ * Sustituye al `animate()` de framer-motion, que arrastraba a la carga inicial de la home, el
+ * ranking y el perfil todo su motor de animación solo para contar un número (PERF-07).
+ */
+function tween(from: number, to: number, duration: number, delay: number, onUpdate: (v: number) => void) {
+  let raf = 0;
+  let start: number | null = null;
+  const step = (now: number) => {
+    if (start === null) start = now;
+    const t = Math.min(1, (now - start) / (duration * 1000));
+    onUpdate(t === 1 ? to : from + (to - from) * EASE_OUT(t));
+    if (t < 1) raf = requestAnimationFrame(step);
+  };
+  const timer = window.setTimeout(() => {
+    raf = requestAnimationFrame(step);
+  }, delay * 1000);
+  return () => {
+    window.clearTimeout(timer);
+    cancelAnimationFrame(raf);
+  };
+}
 
 /**
  * Número que cuenta hasta su valor: desde `from` al montar, y desde el valor anterior cuando
@@ -12,8 +40,8 @@ import { cn } from "@/lib/utils";
  * actualizaciones por segundo durante casi un segundo, y con estado cada una sería un render.
  * React solo pinta el texto inicial; a partir de ahí el nodo es del efecto.
  *
- * Con `prefers-reduced-motion` salta al valor final sin animar. `MotionConfig` no cubre el
- * `animate()` imperativo, así que se comprueba aquí.
+ * Con `prefers-reduced-motion` salta al valor final sin animar. Esto no pasa por `MotionConfig`,
+ * así que se comprueba aquí.
  */
 export function AnimatedNumber({
   value,
@@ -52,17 +80,11 @@ export function AnimatedNumber({
       el.textContent = format(value);
       return;
     }
-    const controls = animate(start, value, {
-      duration,
-      delay,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (v) => {
-        const rounded = Math.round(v);
-        shownRef.current = rounded;
-        el.textContent = format(rounded);
-      },
+    return tween(start, value, duration, delay, (v) => {
+      const rounded = Math.round(v);
+      shownRef.current = rounded;
+      el.textContent = format(rounded);
     });
-    return () => controls.stop();
   }, [value, from, duration, delay, format, reduceMotion]);
 
   return (

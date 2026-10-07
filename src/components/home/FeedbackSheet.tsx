@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useSubmitFeedbackMutation } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
@@ -117,7 +117,7 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
             </button>
           </div>
         ) : (
-          <motion.button
+          <m.button
             type="submit"
             form={`${typeGroupId}-form`}
             disabled={!canSend}
@@ -132,13 +132,13 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
               </span>
             )}
             {submitFeedback.isPending ? t("reportSending") : t("reportSubmit")}
-          </motion.button>
+          </m.button>
         )
       }
     >
       <AnimatePresence mode="wait" initial={false}>
         {success ? (
-          <motion.div
+          <m.div
             key="success"
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -149,7 +149,7 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           >
             <span className="relative grid size-20 place-items-center">
               <span aria-hidden className="ecos-ping absolute inset-0 rounded-full bg-brand/30 [animation-iteration-count:2]" />
-              <motion.span
+              <m.span
                 initial={{ scale: 0, rotate: -40 }}
                 animate={{ scale: 1, rotate: 0 }}
                 transition={{ delay: 0.1, type: "spring", stiffness: 420, damping: 16 }}
@@ -158,12 +158,12 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                 <span aria-hidden className="material-symbols-outlined text-[44px]" style={{ fontVariationSettings: "'wght' 700" }}>
                   check
                 </span>
-              </motion.span>
+              </m.span>
             </span>
             <p className="mt-5 font-display text-xl font-bold tracking-[-0.02em]">{t("reportSuccess")}</p>
-          </motion.div>
+          </m.div>
         ) : (
-          <motion.form
+          <m.form
             key="form"
             id={`${typeGroupId}-form`}
             onSubmit={handleSubmit}
@@ -197,14 +197,14 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                       )}
                     >
                       {active && (
-                        <motion.span
+                        <m.span
                           layoutId={`${typeGroupId}-active`}
                           aria-hidden
                           className="absolute inset-0 rounded-2xl bg-brand/10"
                           transition={{ type: "spring", stiffness: 500, damping: 36 }}
                         />
                       )}
-                      <motion.span
+                      <m.span
                         aria-hidden
                         animate={active ? { scale: [1, 1.25, 1], rotate: [0, -10, 0] } : { scale: 1 }}
                         transition={{ duration: 0.35 }}
@@ -212,7 +212,7 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                         style={{ fontVariationSettings: `'FILL' ${active ? 1 : 0}` }}
                       >
                         {option.icon}
-                      </motion.span>
+                      </m.span>
                       <span className="relative">{t(option.labelKey)}</span>
                     </button>
                   );
@@ -266,7 +266,7 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
 
             <AnimatePresence>
               {status === "error" && (
-                <motion.p
+                <m.p
                   role="alert"
                   initial={{ opacity: 0, y: -6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -275,10 +275,10 @@ export function FeedbackSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                 >
                   <span aria-hidden className="material-symbols-outlined text-lg">error</span>
                   {t("reportError")}
-                </motion.p>
+                </m.p>
               )}
             </AnimatePresence>
-          </motion.form>
+          </m.form>
         )}
       </AnimatePresence>
     </BottomSheet>

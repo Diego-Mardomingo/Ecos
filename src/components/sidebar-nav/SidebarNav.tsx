@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store/authStore";
@@ -51,7 +51,7 @@ export function SidebarNav() {
           {/* Pastilla de la pestaña activa: una sola, desplazada en Y hasta su fila. Mismo motivo que
               en `BottomNav`: un `layoutId` mide posiciones de página, y en una barra `sticky` el
               salto de scroll al cambiar de ruta se colaba en la animación. */}
-          <motion.span
+          <m.span
             aria-hidden
             initial={false}
             animate={{ y: Math.max(0, activeIndex) * (ITEM_HEIGHT + ITEM_GAP), opacity: activeIndex >= 0 ? 1 : 0 }}

@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
 import type { InProgressProgress } from "@/lib/hooks/queries";
@@ -65,13 +65,19 @@ export function HomeRecentDays({
         {days.map((day, i) => {
           const d = deriveHomeDayFromHistory(day, userId, inProgressByGameId[day.id], byGameId);
           return (
-            <div key={day.id} className="shrink-0 snap-start">
-              <motion.div
-                initial={{ opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15 + i * 0.05, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            // Entrada en CSS (no oculta la tarjeta en el HTML del servidor, PERF-04); el hover y el
+            // toque siguen en framer, en el nodo de dentro.
+            <div
+              key={day.id}
+              className="shrink-0 snap-start animate-in fade-in slide-in-from-right-6 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards"
+              style={{ animationDelay: `${150 + i * 50}ms` }}
+            >
+              <m.div
                 whileHover={{ y: -4 }}
                 whileTap={{ scale: 0.96 }}
+                // framer hace enfocable (tabindex=0) lo que lleva `whileTap`: sin esto, cada
+                // tarjeta eran dos paradas de tabulación, este div sin nombre y el enlace (UX-13).
+                tabIndex={-1}
               >
                 <Link
                   href={`/play/${day.id}`}
@@ -131,7 +137,7 @@ export function HomeRecentDays({
                     <p className="text-xs text-muted-foreground">{t("notPlayedYet")}</p>
                   )}
                 </Link>
-              </motion.div>
+              </m.div>
             </div>
           );
         })}

@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { format, parseISO, startOfWeek } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Link } from "@/i18n/navigation";
@@ -97,7 +97,7 @@ export function HomeProgress({
   }, [completedGames, period, todayDate]);
 
   const stats = rankingStats[RANKING_KEY[period]];
-  const m = medal(stats.rank);
+  const medalStyle = medal(stats.rank);
   const maxCount = Math.max(1, ...dist);
   const pointsLabel = period === "week" ? t("pointsWeek") : period === "month" ? t("pointsMonth") : t("pointsGlobal");
 
@@ -120,7 +120,7 @@ export function HomeProgress({
                 )}
               >
                 {active && (
-                  <motion.span
+                  <m.span
                     layoutId={`${tabsId}-pill`}
                     aria-hidden
                     className="absolute inset-0 rounded-lg bg-foreground"
@@ -146,17 +146,17 @@ export function HomeProgress({
           </p>
         </div>
         <div className="flex min-w-[82px] flex-col items-center gap-0.5 rounded-2xl bg-muted px-3 py-2.5">
-          <motion.span
-            key={m.icon + m.color}
+          <m.span
+            key={medalStyle.icon + medalStyle.color}
             initial={{ scale: 0.5, rotate: -20 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 16 }}
             aria-hidden
-            className={cn("material-symbols-outlined text-2xl", m.color)}
+            className={cn("material-symbols-outlined text-2xl", medalStyle.color)}
             style={{ fontVariationSettings: "'FILL' 1" }}
           >
-            {m.icon}
-          </motion.span>
+            {medalStyle.icon}
+          </m.span>
           <b className="font-display text-2xl font-extrabold tracking-[-0.03em] tabular-nums">
             {stats.rank != null ? (
               <>
@@ -195,16 +195,16 @@ export function HomeProgress({
           {dist.map((count, i) => (
             <div key={i} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
               <AnimatePresence mode="popLayout" initial={false}>
-                <motion.span
+                <m.span
                   key={`${period}-${count}`}
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: count > 0 ? 1 : 0, y: 0 }}
                   className="font-mono text-[10px] font-semibold tabular-nums text-muted-foreground"
                 >
                   {count}
-                </motion.span>
+                </m.span>
               </AnimatePresence>
-              <motion.i
+              <m.i
                 initial={{ height: "6%" }}
                 animate={{ height: `${Math.max(6, (count / maxCount) * 70)}%` }}
                 transition={{ delay: 0.05 + i * 0.04, type: "spring", stiffness: 220, damping: 22 }}
@@ -229,11 +229,8 @@ export function HomeProgress({
 export function HomeGuestCard() {
   const t = useTranslations("home");
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-    >
+    // Entrada en CSS: con framer llegaba con `opacity:0` en el HTML del servidor (PERF-04).
+    <section className="animate-in fade-in slide-in-from-bottom-3 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] [--tw-animation-delay:120ms] fill-mode-backwards">
       <Link
         href="/login"
         className="group relative flex items-center gap-3 overflow-hidden rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/12 via-card to-card px-4 py-4 transition-[border-color,transform] duration-200 hover:border-brand/50 active:scale-[0.98]"
@@ -251,6 +248,6 @@ export function HomeGuestCard() {
           arrow_forward
         </span>
       </Link>
-    </motion.section>
+    </section>
   );
 }

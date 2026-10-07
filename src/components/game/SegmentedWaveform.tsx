@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useImperativeHandle, useMemo, useRef, type Ref } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
 import {
@@ -339,15 +339,18 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
               <div key={i} className="flex flex-col items-center gap-1.5" style={{ flex: `${SEGMENT_WEIGHTS[i]} 1 0` }}>
                 <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
                   {kind ? (
-                    <motion.span
+                    // Crece desde la izquierda con una transición desde `@starting-style` y no con
+                    // framer: así no llega con `scaleX(0)` en el HTML del servidor (PERF-04). Donde
+                    // no se soporte, aparece ya lleno.
+                    <span
                       key={kind}
-                      initial={{ scaleX: 0 }}
-                      animate={{ scaleX: 1 }}
-                      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-                      className={cn("absolute inset-0 origin-left rounded-full", ATTEMPT_KIND_STYLES[kind].solid)}
+                      className={cn(
+                        "absolute inset-0 origin-left rounded-full transition-[scale] duration-450 ease-[cubic-bezier(0.22,1,0.36,1)] starting:scale-x-0",
+                        ATTEMPT_KIND_STYLES[kind].solid
+                      )}
                     />
                   ) : isCurrent ? (
-                    <motion.span
+                    <m.span
                       layoutId={`${seed}-current-attempt`}
                       transition={{ type: "spring", stiffness: 380, damping: 32 }}
                       className="absolute inset-0 rounded-full bg-brand/70 shadow-[0_0_10px_var(--brand)]"

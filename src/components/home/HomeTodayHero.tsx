@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { motion, type Variants } from "framer-motion";
+import { m } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -33,15 +33,18 @@ import {
 
 const MAX_ATTEMPTS = 6;
 
-const stagger: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.06, delayChildren: 0.05 } },
-};
-
-const rise: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
-};
+/**
+ * Entradas en CSS y no en framer-motion: con framer, el HTML del servidor llegaba con
+ * `opacity:0` y la tarjeta (el LCP de la home) no se veía hasta hidratar (PERF-04). La animación
+ * CSS corre desde el primer pintado, sin esperar al JS. `prefers-reduced-motion` la anula desde
+ * `globals.css`.
+ */
+const ENTER =
+  "animate-in fade-in slide-in-from-bottom-4 zoom-in-98 animation-duration-550 [--tw-ease:cubic-bezier(0.22,1,0.36,1)]";
+/** Cada bloque de la tarjeta sube un poco después del anterior (el antiguo `staggerChildren`). */
+const RISE =
+  "animate-in fade-in slide-in-from-bottom-[10px] animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards";
+const riseDelay = (step: number) => ({ animationDelay: `${50 + step * 60}ms` });
 
 /**
  * Ondas de la funda: senoides finas en diagonal. Se calculan una vez al cargar el módulo y se
@@ -134,13 +137,9 @@ export function HomeTodayHero({
     : { label: inProgress ? t("heroStickerInProgress") : t("heroStickerToday"), foil: true };
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 16, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-    >
+    <section className={ENTER}>
       {/* Contenedor estático: en iOS Safari, transform (p. ej. whileTap) en el mismo nodo que
-          rounded + overflow-hidden rompe el recorte; el motion.div va dentro sin border-radius en
+          rounded + overflow-hidden rompe el recorte; el m.div va dentro sin border-radius en
           el padre animado. */}
       <div
         className={cn(
@@ -150,20 +149,17 @@ export function HomeTodayHero({
             : "shadow-[0_20px_50px_-28px_color-mix(in_srgb,var(--brand)_55%,transparent)]"
         )}
       >
-        <motion.div
-          variants={stagger}
-          initial="hidden"
-          animate="show"
+        <m.div
           whileTap={{ scale: 0.985 }}
+          // framer hace enfocable (tabindex=0) lo que lleva `whileTap`. Esta tarjeta no tiene rol
+          // ni nombre y el botón de dentro hace lo mismo: fuera del orden de tabulación (UX-13).
+          tabIndex={-1}
           onMouseEnter={onPrefetch}
           onClick={onPlay}
           className="@container relative flex cursor-pointer flex-col gap-4 p-[18px]"
         >
           {/* Funda + disco */}
-          <motion.div
-            variants={rise}
-            className="relative [--s:min(216px,64cqw)]"
-          >
+          <div className={cn(RISE, "relative [--s:min(216px,64cqw)]")} style={riseDelay(0)}>
             {/* Vinilo, detrás de la funda */}
             <div
               className="absolute z-0 transition-transform duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
@@ -283,11 +279,11 @@ export function HomeTodayHero({
                 </span>
               </div>
             )}
-          </motion.div>
+          </div>
 
           {/* Texto */}
           {completed ? (
-            <motion.div variants={rise} className="flex items-end justify-between gap-3">
+            <div className={cn(RISE, "flex items-end justify-between gap-3")} style={riseDelay(1)}>
               <div className="min-w-0">
                 <p
                   className={cn(
@@ -306,9 +302,9 @@ export function HomeTodayHero({
                 {artist ? <p className="mt-0.5 line-clamp-1 text-[13px] text-muted-foreground">{artist}</p> : null}
               </div>
               <AttemptsStrip slots={slots} current={-1} className="mb-1.5" />
-            </motion.div>
+            </div>
           ) : (
-            <motion.div variants={rise} className="flex flex-col gap-2.5">
+            <div className={cn(RISE, "flex flex-col gap-2.5")} style={riseDelay(1)}>
               <h2 className="font-display text-[28px] font-extrabold leading-none tracking-[-0.035em]">
                 {inProgress ? t.rich("heroTitleInProgress", { em }) : t.rich("heroTitleNew", { em })}
               </h2>
@@ -318,12 +314,12 @@ export function HomeTodayHero({
                   <span>{t("heroAttemptsLeft", { count: attemptsLeft })}</span>
                 </div>
               )}
-            </motion.div>
+            </div>
           )}
 
           {/* Acciones */}
-          <motion.div variants={rise} className="flex items-center gap-2.5">
-            <motion.button
+          <div className={cn(RISE, "flex items-center gap-2.5")} style={riseDelay(2)}>
+            <m.button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -347,8 +343,8 @@ export function HomeTodayHero({
                 {completed ? "visibility" : "play_arrow"}
               </span>
               {completed ? t("viewResult") : inProgress ? t("continuePlaying") : t("playNow")}
-            </motion.button>
-            <motion.button
+            </m.button>
+            <m.button
               type="button"
               onClick={onShare}
               whileTap={{ scale: 0.88, rotate: -8 }}
@@ -363,11 +359,11 @@ export function HomeTodayHero({
               <span aria-hidden className="material-symbols-outlined text-xl">
                 ios_share
               </span>
-            </motion.button>
-          </motion.div>
-        </motion.div>
+            </m.button>
+          </div>
+        </m.div>
       </div>
-    </motion.section>
+    </section>
   );
 }
 

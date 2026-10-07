@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useProfileCore } from "@/lib/hooks/queries";
@@ -39,11 +39,10 @@ export function BottomNav() {
       aria-label={t("mainLabel")}
       className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(1rem,env(safe-area-inset-bottom))] min-[670px]:hidden"
     >
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.25 }}
-        className="pointer-events-auto relative flex items-center rounded-[26px] border border-border p-1.5 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.35)] backdrop-blur-[18px] backdrop-saturate-[1.4]"
+      {/* El fundido de entrada va en CSS: con framer, la barra llegaba con `opacity:0` en el HTML
+          del servidor y no se veía hasta hidratar (PERF-04). */}
+      <div
+        className="pointer-events-auto relative flex animate-in items-center rounded-[26px] border border-border p-1.5 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.35)] backdrop-blur-[18px] backdrop-saturate-[1.4] fade-in animation-duration-250"
         style={{ background: "color-mix(in srgb, var(--card) 80%, transparent)", gap: TAB_GAP }}
       >
         {/* Pastilla de la pestaña activa. Una sola, desplazada en X hasta su pestaña, en vez de un
@@ -51,7 +50,7 @@ export function BottomNav() {
             como la nav es `position: fixed`, el salto de scroll al cambiar de ruta se colaba en la
             animación y la pastilla llegaba «desde abajo de la pantalla» (medido: 537 px). Con las
             pestañas de ancho fijo, la posición se calcula y el scroll no interviene. */}
-        <motion.span
+        <m.span
           aria-hidden
           initial={false}
           animate={{ x: Math.max(0, activeIndex) * (TAB_WIDTH + TAB_GAP), opacity: activeIndex >= 0 ? 1 : 0 }}
@@ -77,19 +76,22 @@ export function BottomNav() {
               )}
               style={{ width: TAB_WIDTH }}
             >
-              <motion.span
+              <m.span
                 aria-hidden
                 whileTap={{ scale: 0.85 }}
+                // framer hace enfocable (tabindex=0) lo que lleva `whileTap`, y esto es un icono
+                // dentro del enlace: una parada de tabulación vacía de más (UX-13).
+                tabIndex={-1}
                 className="material-symbols-outlined relative text-2xl"
                 style={{ fontVariationSettings: `'FILL' ${active ? 1 : 0}, 'wght' 500` }}
               >
                 {item.icon}
-              </motion.span>
+              </m.span>
               <span className="relative max-w-full truncate px-1">{label}</span>
             </Link>
           );
         })}
-      </motion.div>
+      </div>
     </nav>
   );
 }

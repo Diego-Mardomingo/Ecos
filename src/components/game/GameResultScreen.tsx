@@ -3,7 +3,7 @@
 import { memo, useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
-import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import Image from "next/image";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { Link } from "@/i18n/navigation";
@@ -42,17 +42,19 @@ const FULL_PREVIEW_SECONDS = 30;
 /** En el resultado la onda se ve entera: un tramo por intento. */
 const ALL_SEGMENTS = MAX_ATTEMPTS;
 
-const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+/**
+ * La revelación va en CSS y no en framer-motion: con framer, una partida ya terminada llegaba en
+ * el HTML del servidor con la carátula y todo el resultado a `opacity:0`, y no se veía hasta
+ * hidratar (PERF-04). Las animaciones CSS corren desde el primer pintado. Mismos tiempos y curvas
+ * que tenían; los muelles se imitan con una curva con rebote. `prefers-reduced-motion` las anula
+ * desde `globals.css`.
+ */
+const EASE_OUT = "[--tw-ease:cubic-bezier(0.22,1,0.36,1)]";
+const EASE_SPRING = "[--tw-ease:cubic-bezier(0.34,1.56,0.64,1)]";
 
-const sequence: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.08, delayChildren: 0.45 } },
-};
-
-const rise: Variants = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE_OUT } },
-};
+/** Cada bloque sube después del anterior (el antiguo `staggerChildren` de 0,08 s tras 0,45 s). */
+const RISE = cn("animate-in fade-in slide-in-from-bottom-4 animation-duration-500 fill-mode-backwards", EASE_OUT);
+const riseDelay = (step: number) => ({ animationDelay: `${450 + step * 80}ms` });
 
 function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -272,27 +274,27 @@ function ResultScreen({
     }
   };
 
+  /** Turno de las acciones en el escalonado: el banner de invitado, si sale, va antes. */
+  const actionsStep = isGuest ? 5 : 4;
+
   return (
-    <motion.div
-      variants={sequence}
-      initial="hidden"
-      animate="show"
-      className="flex min-h-full flex-col items-center gap-6 px-5 pb-12 pt-6 text-center"
-    >
+    <div className="flex min-h-full flex-col items-center gap-6 px-5 pb-12 pt-6 text-center">
       {/* Carátula + vinilo. El grupo se desplaza a la izquierda a la vez que el vinilo asoma por la
           derecha, para que el conjunto siga centrado. */}
-      <motion.div
-        initial={{ x: 0 }}
-        animate={{ x: "-17%" }}
-        transition={{ delay: 0.55, type: "spring", stiffness: 140, damping: 20 }}
-        className="relative size-[200px] shrink-0"
+      <div
+        className={cn(
+          "relative size-[200px] shrink-0 -translate-x-[17%]",
+          "animate-in slide-in-from-right-[17%] animation-duration-800 [--tw-animation-delay:550ms] fill-mode-backwards",
+          EASE_OUT
+        )}
       >
-        <motion.div
+        <div
           aria-hidden
-          initial={{ x: 0, opacity: 0 }}
-          animate={{ x: "36%", opacity: 1 }}
-          transition={{ delay: 0.55, type: "spring", stiffness: 140, damping: 20 }}
-          className="absolute inset-[4%] rounded-full shadow-[0_18px_40px_-12px_rgba(0,0,0,0.7)]"
+          className={cn(
+            "absolute inset-[4%] translate-x-[36%] rounded-full shadow-[0_18px_40px_-12px_rgba(0,0,0,0.7)]",
+            "animate-in fade-in slide-in-from-left-[36%] animation-duration-800 [--tw-animation-delay:550ms] fill-mode-backwards",
+            EASE_OUT
+          )}
         >
           <div
             className="ecos-vinyl ecos-spin-slow relative size-full rounded-full"
@@ -307,17 +309,18 @@ function ResultScreen({
             </div>
             <div className="absolute inset-[47.5%] rounded-full bg-background" />
           </div>
-        </motion.div>
+        </div>
 
-        <motion.button
+        <m.button
           type="button"
           onClick={audio.loaded ? audio.toggle : undefined}
           aria-label={audio.playing ? t("stopSong") : t("listenSong")}
-          initial={{ scale: 0.82, opacity: 0, rotate: -6, filter: "blur(14px)" }}
-          animate={{ scale: 1, opacity: 1, rotate: 0, filter: "blur(0px)" }}
           whileTap={{ scale: 0.97 }}
-          transition={{ duration: 0.7, ease: EASE_OUT }}
-          className="group relative block size-full overflow-hidden rounded-2xl shadow-[0_24px_50px_-16px_rgba(0,0,0,0.75)] ring-1 ring-white/10"
+          className={cn(
+            "group relative block size-full overflow-hidden rounded-2xl shadow-[0_24px_50px_-16px_rgba(0,0,0,0.75)] ring-1 ring-white/10",
+            "animate-in fade-in zoom-in-82 spin-in-[-6deg] blur-in-14 animation-duration-700",
+            EASE_OUT
+          )}
         >
           {song.cover_url ? (
             <Image src={song.cover_url} alt={song.title} fill className="object-cover" sizes="200px" priority />
@@ -325,14 +328,11 @@ function ResultScreen({
             <div className="size-full bg-gradient-to-br from-brand/30 to-card" />
           )}
           {/* Brillo diagonal que cruza la carátula una vez al revelarse. */}
-          <motion.span
+          <span
             aria-hidden
-            initial={{ x: "-120%" }}
-            animate={{ x: "120%" }}
-            transition={{ delay: 0.6, duration: 0.9, ease: "easeInOut" }}
-            className="absolute inset-0 bg-[linear-gradient(105deg,transparent_35%,rgba(255,255,255,0.35)_50%,transparent_65%)]"
+            className="absolute inset-0 translate-x-[120%] animate-in bg-[linear-gradient(105deg,transparent_35%,rgba(255,255,255,0.35)_50%,transparent_65%)] slide-in-from-left-[240%] animation-duration-900 ease-in-out [--tw-animation-delay:600ms] fill-mode-backwards"
           />
-        </motion.button>
+        </m.button>
 
         <div className="absolute -bottom-4 -right-4 z-10">
           <PlayButton
@@ -352,10 +352,10 @@ function ResultScreen({
             onRetry={audio.retry}
           />
         </div>
-      </motion.div>
+      </div>
 
       {/* Veredicto + canción */}
-      <motion.div variants={rise} className="mt-2 flex w-full flex-col items-center gap-2">
+      <div className={cn(RISE, "mt-2 flex w-full flex-col items-center gap-2")} style={riseDelay(0)}>
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ring-1",
@@ -375,22 +375,24 @@ function ResultScreen({
         {songMeta.length > 0 ? (
           <ul className="mt-1 flex flex-wrap justify-center gap-1.5" aria-label={[t("resultAlbum"), t("resultYear"), t("resultGenre")].join(", ")}>
             {songMeta.map((item, i) => (
-              <motion.li
+              <li
                 key={item}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.75 + i * 0.06, type: "spring", stiffness: 420, damping: 24 }}
-                className="max-w-full truncate rounded-full border border-border bg-card/70 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur"
+                style={{ animationDelay: `${750 + i * 60}ms` }}
+                className={cn(
+                  "max-w-full truncate rounded-full border border-border bg-card/70 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur",
+                  "animate-in fade-in zoom-in-80 animation-duration-400 fill-mode-backwards",
+                  EASE_SPRING
+                )}
               >
                 {item}
-              </motion.li>
+              </li>
             ))}
           </ul>
         ) : null}
-      </motion.div>
+      </div>
 
       {/* Onda: la canción entera, con los tramos coloreados por cómo fue cada intento. */}
-      <motion.div variants={rise} className="w-full rounded-3xl border border-border bg-card/80 p-4 backdrop-blur">
+      <div className={cn(RISE, "w-full rounded-3xl border border-border bg-card/80 p-4 backdrop-blur")} style={riseDelay(1)}>
         <SegmentedWaveform
           ref={waveformRef}
           seed={gameId}
@@ -406,10 +408,10 @@ function ResultScreen({
           <span>{formatClock(audio.elapsedSeconds)}</span>
           <span>{formatClock(FULL_PREVIEW_SECONDS)}</span>
         </div>
-      </motion.div>
+      </div>
 
       {/* Puntuación */}
-      <motion.div variants={rise} className="flex flex-col items-center">
+      <div className={cn(RISE, "flex flex-col items-center")} style={riseDelay(2)}>
         {won ? (
           <>
             <p className="flex items-baseline gap-1.5 text-5xl font-bold tracking-tight text-brand">
@@ -423,11 +425,11 @@ function ResultScreen({
         ) : (
           <p className="max-w-xs text-base font-medium text-muted-foreground">{t("playAgainTomorrow")}</p>
         )}
-      </motion.div>
+      </div>
 
       {/* Compartir */}
-      <motion.div variants={rise} className="w-full">
-        <motion.button
+      <div className={cn(RISE, "w-full")} style={riseDelay(3)}>
+        <m.button
           type="button"
           onClick={handleShare}
           whileHover={{ scale: 1.015 }}
@@ -435,7 +437,7 @@ function ResultScreen({
           className="ecos-shimmer flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand text-[15px] font-bold text-primary-foreground shadow-[0_14px_36px_-14px_var(--brand)]"
         >
           <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
+            <m.span
               key={shareCopied ? "copied" : "share"}
               initial={{ y: 14, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -447,16 +449,19 @@ function ResultScreen({
                 {shareCopied ? "check" : "ios_share"}
               </span>
               {shareCopied ? t("shareCopied") : t("shareResult")}
-            </motion.span>
+            </m.span>
           </AnimatePresence>
-        </motion.button>
-      </motion.div>
+        </m.button>
+      </div>
 
       {/* Banner de invitado — CTA para registrarse */}
       {isGuest && (
-        <motion.div
-          variants={rise}
-          className="relative w-full overflow-hidden rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/15 via-card to-card p-5 text-left"
+        <div
+          className={cn(
+            RISE,
+            "relative w-full overflow-hidden rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/15 via-card to-card p-5 text-left"
+          )}
+          style={riseDelay(4)}
         >
           <div aria-hidden className="absolute -right-10 -top-10 size-32 rounded-full bg-brand/20 blur-2xl" />
           <div className="relative mb-2 flex items-center gap-2">
@@ -475,11 +480,11 @@ function ResultScreen({
             </span>
             {t("signInWithGoogle")}
           </Link>
-        </motion.div>
+        </div>
       )}
 
       {/* Acciones */}
-      <motion.div variants={rise} className="grid w-full grid-cols-2 gap-3">
+      <div className={cn(RISE, "grid w-full grid-cols-2 gap-3")} style={riseDelay(actionsStep)}>
         <Link
           href="/ranking"
           className="group flex h-12 items-center justify-center gap-2 rounded-full border border-border bg-card/70 text-sm font-semibold backdrop-blur transition-[border-color,transform] hover:border-brand/40 active:scale-[0.97]"
@@ -499,24 +504,24 @@ function ResultScreen({
           </span>
           {t("backToHome")}
         </Link>
-      </motion.div>
+      </div>
 
       {guesses.length > 0 && (
-        <motion.div variants={rise} className="w-full text-left">
+        <div className={cn(RISE, "w-full text-left")} style={riseDelay(actionsStep + 1)}>
           <PreviousAttempts guesses={guesses} title={t("yourAttempts")} className="mt-0" />
-        </motion.div>
+        </div>
       )}
 
       {!isGuest && (
-        <motion.div variants={rise}>
+        <div className={RISE} style={riseDelay(actionsStep + (guesses.length > 0 ? 2 : 1))}>
           <ReportSongDialog gameId={gameId} songId={song.id} trigger={<ReportSongTrigger />} />
-        </motion.div>
+        </div>
       )}
 
       {/* «¿Te avisamos mañana?»: único sitio donde se ofrece activar las notificaciones (UX-07).
           Solo con sesión; con el contador de descartes en 3 ya no vuelve a salir. */}
       {!isGuest && <NotificationsModal offer />}
-    </motion.div>
+    </div>
   );
 }
 

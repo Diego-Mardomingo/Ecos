@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { motion } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 
@@ -50,11 +49,13 @@ export function PageHeader({
           </Link>
         ) : null}
 
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-          className={cn("min-w-0 flex-1", isSubpage && "text-center")}
+        {/* Entrada en CSS y no en framer-motion: así el título no llega con `opacity:0` en el HTML
+            del servidor (PERF-04). */}
+        <div
+          className={cn(
+            "min-w-0 flex-1 animate-in fade-in slide-in-from-bottom-[6px] animation-duration-350 [--tw-ease:cubic-bezier(0.22,1,0.36,1)]",
+            isSubpage && "text-center"
+          )}
         >
           {eyebrow && !isSubpage ? (
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand">{eyebrow}</p>
@@ -70,7 +71,7 @@ export function PageHeader({
           {subtitle ? (
             <p className={cn("truncate text-muted-foreground", isSubpage ? "text-xs" : "text-sm")}>{subtitle}</p>
           ) : null}
-        </motion.div>
+        </div>
 
         {/* Con volver, el hueco derecho iguala al botón para que el título quede centrado. */}
         {action ? (

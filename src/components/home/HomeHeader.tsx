@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
-import { motion } from "framer-motion";
 import { HowToPlaySheet } from "@/components/home/HowToPlaySheet";
 import { FeedbackSheet } from "@/components/home/FeedbackSheet";
 import { SettingsSheet } from "@/components/home/SettingsSheet";
@@ -30,14 +29,11 @@ export function HomeHeader() {
       style={{ background: "color-mix(in srgb, var(--background) 78%, transparent)" }}
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        <motion.div
-          initial={{ scale: 0.6, rotate: -12, opacity: 0 }}
-          animate={{ scale: 1, rotate: 0, opacity: 1 }}
-          transition={{ type: "spring", stiffness: 420, damping: 22 }}
-          className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand/15 ring-1 ring-brand/30"
-        >
+        {/* Entrada en CSS, no en framer-motion: así el logo no llega oculto en el HTML del servidor
+            (PERF-04). La curva con rebote imita el muelle que tenía. */}
+        <div className="relative flex size-9 shrink-0 animate-in items-center justify-center overflow-hidden rounded-xl bg-brand/15 ring-1 ring-brand/30 fade-in zoom-in-60 -spin-in-12 animation-duration-500 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)]">
           <Image src="/ecos_icon_v2_192.png" alt="" width={36} height={36} className="object-contain" sizes="36px" />
-        </motion.div>
+        </div>
         <span className="font-display text-[23px] font-extrabold leading-none tracking-[-0.04em]">
           {tc("appName").toLowerCase()}
         </span>

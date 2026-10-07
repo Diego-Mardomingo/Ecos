@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import Image from "next/image";
-import { AnimatePresence, motion, type PanInfo } from "framer-motion";
+import { AnimatePresence, m, type PanInfo } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import { getEffectiveGameDate, shiftMonthKey } from "@/lib/date-utils";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
@@ -138,11 +138,11 @@ function HomeArchive({
   }, [previousDays, inProgressByGameId, userId, byGameId]);
 
   // --- Mes a la vista ------------------------------------------------------------------------
-  const [y, m] = month.split("-").map(Number);
-  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const leadingBlanks = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7; // lunes = 0
-  const monthLabel = capitalize(format(new Date(y, m - 1, 1), "LLLL yyyy", { locale: dateFnsLocale }));
-  const monthName = format(new Date(y, m - 1, 1), "LLLL", { locale: dateFnsLocale });
+  const [y, mo] = month.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const leadingBlanks = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7; // lunes = 0
+  const monthLabel = capitalize(format(new Date(y, mo - 1, 1), "LLLL yyyy", { locale: dateFnsLocale }));
+  const monthName = format(new Date(y, mo - 1, 1), "LLLL", { locale: dateFnsLocale });
 
   type Cell = {
     date: string;
@@ -246,7 +246,7 @@ function HomeArchive({
         <div className="flex items-center justify-between px-1 pb-3">
           <div className="relative min-w-0 overflow-hidden">
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
-              <motion.div
+              <m.div
                 key={month}
                 custom={direction}
                 initial={{ y: direction * 14, opacity: 0 }}
@@ -258,7 +258,7 @@ function HomeArchive({
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {t("monthSummaryCount", { played, total: monthGames.length, hits })}
                 </p>
-              </motion.div>
+              </m.div>
             </AnimatePresence>
           </div>
           {/* Donut: % de acierto del mes (acertadas sobre terminadas) */}
@@ -270,7 +270,7 @@ function HomeArchive({
           >
             <svg width="44" height="44" className="-rotate-90" aria-hidden>
               <circle cx="22" cy="22" r="18" fill="none" strokeWidth="5" className="stroke-border" />
-              <motion.circle
+              <m.circle
                 cx="22"
                 cy="22"
                 r="18"
@@ -298,7 +298,7 @@ function HomeArchive({
           ))}
         </div>
 
-        <motion.div
+        <m.div
           onPanStart={() => {
             pannedRef.current = true;
           }}
@@ -312,7 +312,7 @@ function HomeArchive({
           style={{ touchAction: "pan-y" }}
         >
           <AnimatePresence initial={false} custom={direction} mode="popLayout">
-            <motion.div
+            <m.div
               key={month}
               custom={direction}
               initial={{ x: direction * 48, opacity: 0 }}
@@ -347,9 +347,9 @@ function HomeArchive({
                   onPrefetch={cell.game ? () => prefetchPlayRoute(cell.game!.id) : undefined}
                 />
               ))}
-            </motion.div>
+            </m.div>
           </AnimatePresence>
-        </motion.div>
+        </m.div>
 
         <ul className="flex flex-wrap gap-x-3 gap-y-1.5 px-1 pt-3 text-[11px] text-muted-foreground">
           <LegendItem swatch={<i className="size-2.5 rounded-[3px] bg-[#2bee79]" />} label={t("legendWonAttempt")} />
@@ -362,7 +362,7 @@ function HomeArchive({
       {/* Ficha del día seleccionado */}
       <AnimatePresence mode="popLayout" initial={false}>
         {selectedCell && (selectedCell.game || selectedCell.isToday) ? (
-          <motion.div
+          <m.div
             key={selectedCell.date}
             initial={{ opacity: 0, y: 8, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -378,19 +378,18 @@ function HomeArchive({
               onOpen={() => (selectedCell.isToday ? onPlayToday() : openGame(selectedCell))}
               onScrollTop={() => window.scrollTo({ top: 0, behavior: "smooth" })}
             />
-          </motion.div>
+          </m.div>
         ) : null}
       </AnimatePresence>
 
       {/* Aviso de pendientes del mes */}
       {pending.length > 0 && (
-        <motion.button
+        // Entrada en CSS para no llegar con `opacity:0` en el HTML del servidor (PERF-04).
+        <m.button
           type="button"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => openGame([...pending].reverse()[0])}
-          className="mt-2.5 flex w-full items-center gap-2.5 rounded-2xl bg-brand/10 px-3.5 py-3 text-left text-[13px] font-semibold"
+          className="mt-2.5 flex w-full animate-in items-center gap-2.5 rounded-2xl bg-brand/10 px-3.5 py-3 text-left text-[13px] font-semibold fade-in slide-in-from-bottom-[6px] animation-duration-300 [--tw-ease:cubic-bezier(0.22,1,0.36,1)]"
         >
           <span aria-hidden className="material-symbols-outlined text-xl text-brand" style={{ fontVariationSettings: "'FILL' 1" }}>
             headphones
@@ -400,7 +399,7 @@ function HomeArchive({
             {t("detailPlay")}
             <span aria-hidden className="material-symbols-outlined text-lg">chevron_right</span>
           </em>
-        </motion.button>
+        </m.button>
       )}
     </section>
   );
@@ -588,7 +587,7 @@ function DayDetail({
       </>
     );
     action = (
-      <motion.button
+      <m.button
         type="button"
         onClick={onOpen}
         whileTap={{ scale: 0.94 }}
@@ -596,7 +595,7 @@ function DayDetail({
       >
         <span aria-hidden className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
         {playing ? t("detailContinue") : t("detailPlay")}
-      </motion.button>
+      </m.button>
     );
   }
 
@@ -621,7 +620,7 @@ function MonthNavButton({
   onClick: () => void;
 }) {
   return (
-    <motion.button
+    <m.button
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -630,7 +629,7 @@ function MonthNavButton({
       className="grid size-8 place-items-center rounded-[10px] border border-border bg-card text-foreground transition-opacity disabled:pointer-events-none disabled:opacity-30"
     >
       <span aria-hidden className="material-symbols-outlined text-xl">{icon}</span>
-    </motion.button>
+    </m.button>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,12 @@ import type { LeaderboardEntryRow as LeaderboardEntry } from "@/lib/queries/user
  *
  * El podio ya enseña a los tres primeros, así que la lista empieza en el cuarto: antes se
  * repetían los tres arriba y abajo.
+ *
+ * Las entradas van en CSS y no en framer-motion: con framer, el podio y las filas llegaban con
+ * `opacity:0` en el HTML del servidor y no se veían hasta hidratar (PERF-04).
  */
+
+const EASE_OUT = "[--tw-ease:cubic-bezier(0.22,1,0.36,1)]";
 
 type RankingT = {
   (key: string): string;
@@ -91,15 +96,15 @@ export function LeaderboardPodiumAndList({
             const isMe = entry.user_id === currentUserId;
             const name = isMe ? t("youLabel") : getDisplayName(entry);
             return (
-              <motion.li
+              <li
                 key={entry.user_id}
                 id={leaderboardRowId(entry.user_id)}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
                 // Tope al escalonado: con 50 filas, las últimas tardarían 2 s en aparecer.
-                transition={{ delay: 0.35 + Math.min(i, 12) * 0.035, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                style={{ animationDelay: `${350 + Math.min(i, 12) * 35}ms` }}
                 className={cn(
                   "flex scroll-mt-28 items-center gap-3 rounded-2xl border px-3 py-2.5",
+                  "animate-in fade-in slide-in-from-bottom-3 animation-duration-400 fill-mode-backwards",
+                  EASE_OUT,
                   isMe ? "border-brand/40 bg-brand/10 ring-1 ring-brand/20" : "border-border bg-card"
                 )}
               >
@@ -130,7 +135,7 @@ export function LeaderboardPodiumAndList({
                     {t("totalPointsShort")}
                   </span>
                 </p>
-              </motion.li>
+              </li>
             );
           })}
         </ol>
@@ -162,21 +167,19 @@ function PodiumColumn({
 
   return (
     <div className="flex min-w-0 flex-col items-center">
-      <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.8 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ delay: layout.delay + 0.25, type: "spring", stiffness: 320, damping: 20 }}
-        className="relative mb-2 flex flex-col items-center"
+      <div
+        className="relative mb-2 flex animate-in flex-col items-center fade-in slide-in-from-bottom-4 zoom-in-80 animation-duration-600 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)] fill-mode-backwards"
+        style={{ animationDelay: `${(layout.delay + 0.25) * 1000}ms` }}
       >
         {position === 1 && (
-          <motion.span
+          <m.span
             aria-hidden
             animate={{ y: [0, -4, 0], rotate: [-6, 6, -6] }}
             transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
             className="absolute -top-7 text-2xl drop-shadow"
           >
             👑
-          </motion.span>
+          </m.span>
         )}
         <Avatar className={cn("ring-[3px] ring-offset-2 ring-offset-background", layout.avatar, medal.ring, medal.glow)}>
           <AvatarImage src={entry.profiles?.avatar_url} />
@@ -192,19 +195,22 @@ function PodiumColumn({
           <AnimatedNumber value={entry.total_points} format={formatPoints} delay={layout.delay + 0.3} duration={0.8} />
         </p>
         <p className="text-[10px] text-muted-foreground">{t("hitsPodiumLine", { count: entry.aciertos })}</p>
-      </motion.div>
-      <motion.div
-        initial={{ scaleY: 0 }}
-        animate={{ scaleY: 1 }}
-        transition={{ delay: layout.delay, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      </div>
+      {/* El pedestal crece en vertical desde `scaleY(0)`: no hay keyframes de `tw-animate-css` para
+          escalar un solo eje, así que va con una transición desde `@starting-style`. Donde no se
+          soporte, aparece ya crecido. */}
+      <div
         className={cn(
           "flex w-full origin-bottom items-start justify-center rounded-t-2xl bg-gradient-to-b pt-2",
+          "transition-[scale] duration-600 starting:scale-y-0",
+          EASE_OUT,
           layout.height,
           medal.pedestal
         )}
+        style={{ transitionDelay: `${layout.delay * 1000}ms` }}
       >
         <span className="text-2xl font-black text-white/90 drop-shadow-sm">{position}</span>
-      </motion.div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -39,7 +39,7 @@ export function ToggleSwitch({
         aria-hidden
         className="block h-7 w-12 rounded-full bg-foreground/15 transition-colors duration-300 peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
       />
-      <motion.span
+      <m.span
         aria-hidden
         initial={false}
         animate={{ x: checked ? 20 : 0 }}

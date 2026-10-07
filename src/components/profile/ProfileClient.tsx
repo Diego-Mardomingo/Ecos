@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { motion, type Variants } from "framer-motion";
+import { m } from "framer-motion";
 import { Link, useRouter } from "@/i18n/navigation";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
@@ -45,15 +45,14 @@ interface Props {
   };
 }
 
-const stagger: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.07, delayChildren: 0.05 } },
-};
-
-const rise: Variants = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
-};
+/**
+ * Entradas en CSS y no en framer-motion: con framer, el HTML del servidor llegaba con todo el
+ * contenido a `opacity:0` y no se veía hasta hidratar (PERF-04). Cada bloque sube después del
+ * anterior, como hacía el `staggerChildren`. `prefers-reduced-motion` las anula desde `globals.css`.
+ */
+const RISE =
+  "animate-in fade-in slide-in-from-bottom-[14px] animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards";
+const riseDelay = (step: number) => ({ animationDelay: `${50 + step * 70}ms` });
 
 /** Perímetro del anillo de % de aciertos (2πr con r=42). */
 const RING_CIRCUMFERENCE = 263.89;
@@ -154,22 +153,17 @@ export function ProfileClient({ initialData }: Props) {
         action={<HeaderIconLink href="/profile/edit" icon="edit" label={t("settings.editProfile")} />}
       />
 
-      <motion.div variants={stagger} initial="hidden" animate="show" className="flex flex-col gap-5">
+      <div className="flex flex-col gap-5">
         {/* Tarjeta de identidad */}
-        <motion.section
-          variants={rise}
-          className="relative isolate overflow-hidden rounded-[28px] border border-border bg-card px-5 pb-5 pt-6 text-center"
+        <section
+          className={cn(RISE, "relative isolate overflow-hidden rounded-[28px] border border-border bg-card px-5 pb-5 pt-6 text-center")}
+          style={riseDelay(0)}
         >
           <div aria-hidden className="absolute inset-x-0 top-0 -z-10 h-28 overflow-hidden">
             <div className="ecos-drift-a absolute -left-10 -top-16 size-48 rounded-full bg-brand/25 blur-3xl" />
             <div className="ecos-drift-b absolute -right-10 -top-10 size-40 rounded-full bg-sky-400/20 blur-3xl" />
           </div>
-          <motion.div
-            initial={{ scale: 0.7, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 300, damping: 18, delay: 0.1 }}
-            className="mx-auto w-fit rounded-full bg-gradient-to-br from-brand via-sky-400 to-violet-400 p-[3px]"
-          >
+          <div className="mx-auto w-fit animate-in rounded-full bg-gradient-to-br from-brand via-sky-400 to-violet-400 p-[3px] fade-in zoom-in-70 animation-duration-600 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)] [--tw-animation-delay:100ms] fill-mode-backwards">
             <span className="block rounded-full bg-card p-[3px]">
               <Avatar className="size-24">
                 <AvatarImage src={profile.avatar_url} />
@@ -178,7 +172,7 @@ export function ProfileClient({ initialData }: Props) {
                 </AvatarFallback>
               </Avatar>
             </span>
-          </motion.div>
+          </div>
           <h2 className="mt-3 truncate text-2xl font-bold tracking-tight">{profile.display_name}</h2>
           {memberSince && (
             <p className="text-sm text-muted-foreground">
@@ -194,14 +188,14 @@ export function ProfileClient({ initialData }: Props) {
           <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-muted-foreground">
             {t("earlySupporterExplanation")}
           </p>
-        </motion.section>
+        </section>
 
         {/* Aciertos: anillo + desglose */}
-        <motion.section variants={rise} className="flex items-center gap-5 rounded-3xl border border-border bg-card p-4">
+        <section className={cn(RISE, "flex items-center gap-5 rounded-3xl border border-border bg-card p-4")} style={riseDelay(1)}>
           <div className="relative size-24 shrink-0">
             <svg viewBox="0 0 100 100" className="size-full -rotate-90" aria-hidden>
               <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="9" className="text-foreground/10" />
-              <motion.circle
+              <m.circle
                 cx="50"
                 cy="50"
                 r="42"
@@ -236,10 +230,10 @@ export function ProfileClient({ initialData }: Props) {
               <AnimatedNumber value={Math.round(avgAttempts * 10)} format={formatOneDecimal} delay={0.45} />
             </StatLine>
           </dl>
-        </motion.section>
+        </section>
 
         {/* Rachas */}
-        <motion.section variants={rise} className="grid grid-cols-2 gap-3">
+        <section className={cn(RISE, "grid grid-cols-2 gap-3")} style={riseDelay(2)}>
           <StreakTile
             icon="local_fire_department"
             label={t("stats.currentStreak")}
@@ -255,10 +249,10 @@ export function ProfileClient({ initialData }: Props) {
             suffix={t("stats.streakDays", { count: maxStreak })}
             accent="from-rose-500/20 text-rose-500"
           />
-        </motion.section>
+        </section>
 
         {/* Ajustes */}
-        <motion.div variants={rise}>
+        <div className={RISE} style={riseDelay(3)}>
           <SettingsGroup title={t("settings.appSettings")}>
             <ThemeSelector />
             <LanguageSelector />
@@ -278,9 +272,9 @@ export function ProfileClient({ initialData }: Props) {
               </SettingsRow>
             )}
           </SettingsGroup>
-        </motion.div>
+        </div>
 
-        <motion.div variants={rise}>
+        <div className={RISE} style={riseDelay(4)}>
           <SettingsGroup title={t("settings.account")}>
             {profile.role === "admin" && (
               <SettingsLink href="/admin" icon="admin_panel_settings" iconClass="bg-violet-500/15 text-violet-500" label="Panel de administración" />
@@ -300,8 +294,8 @@ export function ProfileClient({ initialData }: Props) {
               <span className="text-sm font-medium">{t("settings.logOut")}</span>
             </button>
           </SettingsGroup>
-        </motion.div>
-      </motion.div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -349,7 +343,7 @@ function StreakTile({
   return (
     <div className="relative overflow-hidden rounded-3xl border border-border bg-card p-4">
       <div aria-hidden className={cn("absolute -right-6 -top-6 size-24 rounded-full bg-gradient-to-br to-transparent blur-xl", accent)} />
-      <motion.span
+      <m.span
         aria-hidden
         animate={flicker ? { scale: [1, 1.12, 0.96, 1.08, 1], rotate: [0, -4, 3, -2, 0] } : undefined}
         transition={flicker ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : undefined}
@@ -357,7 +351,7 @@ function StreakTile({
         style={{ fontVariationSettings: "'FILL' 1" }}
       >
         {icon}
-      </motion.span>
+      </m.span>
       <p className="relative mt-2 text-3xl font-bold leading-none tracking-tight">
         <AnimatedNumber value={value} format={formatNumber} delay={0.4} />
         <span className="ml-1 text-sm font-medium text-muted-foreground">{suffix}</span>

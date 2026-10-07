@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 
 function subscribeOnline(cb: () => void) {
   window.addEventListener("online", cb);
@@ -29,7 +29,7 @@ export function OfflineBanner() {
   return (
     <AnimatePresence>
       {!online && (
-        <motion.div
+        <m.div
           role="status"
           initial={{ y: -40, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -41,7 +41,7 @@ export function OfflineBanner() {
             <span aria-hidden className="material-symbols-outlined text-base">wifi_off</span>
             {t("offline")}
           </span>
-        </motion.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

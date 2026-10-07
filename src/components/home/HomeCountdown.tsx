@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +32,7 @@ function RollingDigit({ digit }: { digit: number }) {
         0
       </span>
       <AnimatePresence initial={false}>
-        <motion.span
+        <m.span
           key={digit}
           initial={{ y: downward ? "100%" : "-100%", opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -41,7 +41,7 @@ function RollingDigit({ digit }: { digit: number }) {
           className="absolute inset-0 flex items-center justify-center"
         >
           {digit}
-        </motion.span>
+        </m.span>
       </AnimatePresence>
     </span>
   );

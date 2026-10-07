@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
 import {
@@ -46,7 +46,7 @@ function PreviousAttempts({
             const style = ATTEMPT_KIND_STYLES[kind];
             const { title: songTitle, artist } = kind === "skipped" ? { title: "", artist: "" } : parseGuessText(g.text);
             return (
-              <motion.li
+              <m.li
                 key={index}
                 layout
                 initial={{ opacity: 0, y: -14, scale: 0.96 }}
@@ -60,7 +60,7 @@ function PreviousAttempts({
                     kind === "skipped" ? "bg-muted" : "bg-background/60"
                   )}
                 >
-                  <motion.span
+                  <m.span
                     initial={{ scale: 0, rotate: -45 }}
                     animate={{ scale: 1, rotate: 0 }}
                     transition={{ type: "spring", stiffness: 500, damping: 20, delay: 0.08 }}
@@ -68,7 +68,7 @@ function PreviousAttempts({
                     className={cn("material-symbols-outlined text-lg font-bold", style.text)}
                   >
                     {style.icon}
-                  </motion.span>
+                  </m.span>
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className={cn("text-xs font-semibold", style.text)}>{t(style.labelKey)}</p>
@@ -78,7 +78,7 @@ function PreviousAttempts({
                 <span className="shrink-0 rounded-full bg-background/60 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
                   {ATTEMPT_DURATIONS[index] ?? 30}s
                 </span>
-              </motion.li>
+              </m.li>
             );
           })}
         </AnimatePresence>

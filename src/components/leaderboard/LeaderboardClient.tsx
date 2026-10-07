@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import {
   fetchLeaderboardPeriodData,
@@ -148,11 +148,8 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
       />
 
       {!currentUserId && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-3 flex items-center gap-3 rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/12 via-card to-card px-4 py-3"
-        >
+        // Entrada en CSS: con framer llegaba con `opacity:0` en el HTML del servidor (PERF-04).
+        <div className="mb-3 flex animate-in items-center gap-3 rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/12 via-card to-card px-4 py-3 fade-in slide-in-from-bottom-2 animation-duration-300 [--tw-ease:cubic-bezier(0.22,1,0.36,1)]">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/15 text-brand">
             <span aria-hidden className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
               emoji_events
@@ -168,7 +165,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
           >
             {t("guestBannerCta")}
           </Link>
-        </motion.div>
+        </div>
       )}
 
       <SegmentedControl
@@ -191,7 +188,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
         onTouchEnd={handleTouchEnd}
       >
         <AnimatePresence mode="wait" initial={false} custom={direction}>
-          <motion.div
+          <m.div
             key={activeTab}
             custom={direction}
             initial={{ opacity: 0, x: direction * 24 }}
@@ -235,11 +232,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
               <RankingPodiumAndListSkeleton />
             ) : entries.length === 0 ? (
               <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-                <motion.span
-                  initial={{ scale: 0.6, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="mb-4 flex size-16 items-center justify-center rounded-full bg-muted"
-                >
+                <span className="mb-4 flex size-16 animate-in items-center justify-center rounded-full bg-muted fade-in zoom-in-60 animation-duration-400 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)]">
                   <span
                     aria-hidden
                     className="material-symbols-outlined text-3xl text-muted-foreground"
@@ -247,7 +240,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
                   >
                     emoji_events
                   </span>
-                </motion.span>
+                </span>
                 <p className="text-sm font-medium text-muted-foreground">{t("emptyPeriod")}</p>
               </div>
             ) : (
@@ -259,7 +252,7 @@ export function LeaderboardClient({ initialByPeriod }: Props) {
                 t={t}
               />
             )}
-          </motion.div>
+          </m.div>
         </AnimatePresence>
         {/* Relleno táctil: con pocas filas, el hueco bajo la lista debe seguir disparando el swipe */}
         <div className="min-h-0 w-full flex-1" aria-hidden />

@@ -40,7 +40,7 @@ import {
 import type { GameWithSong } from "@/lib/queries/games";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useRouter } from "@/i18n/navigation";
 import { PLAY_FROM_HOME_STORAGE_KEY } from "@/lib/navigation/useNavigateBackToHome";
 import { PLAY_SKELETON_VARIANT_KEY } from "@/lib/navigation/playSkeletonStorage";
@@ -758,7 +758,7 @@ export function GameClient({ game, userId }: Props) {
       <GameHeader
         game={game}
         action={
-          <motion.button
+          <m.button
             type="button"
             onClick={handleSkip}
             whileTap={{ scale: 0.92 }}
@@ -770,7 +770,7 @@ export function GameClient({ game, userId }: Props) {
             <span aria-hidden className="material-symbols-outlined text-xl transition-transform duration-200 group-hover:translate-x-0.5 group-active:translate-x-1">
               skip_next
             </span>
-          </motion.button>
+          </m.button>
         }
       />
 

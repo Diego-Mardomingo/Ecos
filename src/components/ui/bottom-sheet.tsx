@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { AnimatePresence, motion, useDragControls, type PanInfo } from "framer-motion";
+import { AnimatePresence, m, useDragControls, type PanInfo } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -58,7 +58,7 @@ export function BottomSheet({
         {open && (
           <DialogPrimitive.Portal forceMount>
             <DialogPrimitive.Overlay asChild forceMount>
-              <motion.div
+              <m.div
                 className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[3px]"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -72,7 +72,7 @@ export function BottomSheet({
               // La descripción es opcional: sin ella, Radix avisaría por consola.
               {...(description ? {} : { "aria-describedby": undefined })}
             >
-              <motion.div
+              <m.div
                 className={cn(
                   "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-[28px] border border-b-0 border-border bg-card shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.5)] outline-none",
                   className
@@ -126,7 +126,7 @@ export function BottomSheet({
                 ) : (
                   <div className="h-[env(safe-area-inset-bottom)] shrink-0" aria-hidden />
                 )}
-              </motion.div>
+              </m.div>
             </DialogPrimitive.Content>
           </DialogPrimitive.Portal>
         )}
