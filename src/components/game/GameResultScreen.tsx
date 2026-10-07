@@ -155,6 +155,33 @@ const ResultGameView = memo(function ResultGameView({
   );
 });
 
+/**
+ * Comparte con la hoja nativa y, si no la hay o falla (salvo que el usuario la cierre), copia el
+ * texto al portapapeles. Devuelve `true` si lo copió. Va fuera del componente porque el React
+ * Compiler no admite condicionales dentro de un `try` y dejaría sin compilar `ResultScreen` entero.
+ */
+async function shareOrCopy(
+  data: { title: string; text: string; url: string },
+  clipboardText: string
+): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      await navigator.share(data);
+      return false;
+    }
+    await navigator.clipboard.writeText(clipboardText);
+    return true;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return false;
+    try {
+      await navigator.clipboard.writeText(clipboardText);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function ResultScreen({
   phase,
   song,
@@ -249,28 +276,13 @@ function ResultScreen({
     const emojiIntro = won ? "🎵 🏆" : "🎵 💪";
     const textWithEmojis = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText}`;
     const fullTextForClipboard = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText} ${shareUrl}`;
-    try {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({
-          title,
-          text: textWithEmojis,
-          url: shareUrl,
-        });
-      } else {
-        await navigator.clipboard.writeText(fullTextForClipboard);
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2000);
-      }
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        try {
-          await navigator.clipboard.writeText(fullTextForClipboard);
-          setShareCopied(true);
-          setTimeout(() => setShareCopied(false), 2000);
-        } catch {
-          // ignore
-        }
-      }
+    const copied = await shareOrCopy(
+      { title, text: textWithEmojis, url: shareUrl },
+      fullTextForClipboard
+    );
+    if (copied) {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
     }
   };
 

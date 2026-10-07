@@ -137,6 +137,37 @@ function failedMoveMessageKey(
   return decisive ? "saveResultError" : "saveAttemptError";
 }
 
+/**
+ * Cuerpo de cada envío de la cola de jugadas de `GameClient` (ver `enqueueSubmit`). Vive fuera del
+ * componente porque el React Compiler no admite `try` sin `catch` (`try/finally`) y, si lo
+ * encuentra dentro, deja sin compilar `GameClient` entero.
+ */
+async function runQueuedMove(
+  isStale: () => boolean,
+  submit: () => Promise<ServerMoveResult>,
+  onAccepted: (server: ServerMoveResult) => Promise<void> | void,
+  onFail: (error: unknown) => void,
+  done: () => void
+) {
+  try {
+    if (isStale()) return;
+    let server: ServerMoveResult;
+    try {
+      server = await submit();
+    } catch (error) {
+      onFail(error);
+      return;
+    }
+    try {
+      await onAccepted(server);
+    } catch (error) {
+      console.error("[partida] reconciliando una jugada ya guardada:", error);
+    }
+  } finally {
+    done();
+  }
+}
+
 export function GameClient({ game, userId }: Props) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -199,8 +230,15 @@ export function GameClient({ game, userId }: Props) {
     gameId,
   } = useGameStore();
 
-  const { getProgress, saveProgress, removeProgress } = useGameProgressStore();
-  const localStoredProgress = getProgress(game.id) ?? null;
+  const getProgress = useGameProgressStore((s) => s.getProgress);
+  const saveProgress = useGameProgressStore((s) => s.saveProgress);
+  const removeProgress = useGameProgressStore((s) => s.removeProgress);
+  /*
+   * Con selector y no con `getProgress(game.id)`: `getProgress` nunca cambia de identidad, así que
+   * el React Compiler memoizaría su resultado por `[getProgress, game.id]` y el progreso guardado
+   * se quedaría viejo tras cada jugada.
+   */
+  const localStoredProgress = useGameProgressStore((s) => s.byGameId[game.id]) ?? null;
   const hasLocalDecisiveProgress =
     (localStoredProgress?.phase === "playing" &&
       (localStoredProgress.guesses?.length ?? 0) > 0) ||
@@ -268,9 +306,20 @@ export function GameClient({ game, userId }: Props) {
     return resolveAuthoritativeProgress(localStoredProgress, serverProgress);
   }, [isGuest, serverProgressData, localStoredProgress]);
 
+  /*
+   * Los efectos de reconciliación de abajo llaman a `setLoadedProgress` de forma síncrona y la
+   * regla `react-hooks/set-state-in-effect` lo marca. Estuvo oculto hasta oct. 2026 porque un
+   * `try/finally` dejaba `GameClient` sin analizar (ni por el lint ni por el compilador). Se
+   * silencia línea a línea para no tocar el flujo invitado/autenticado al activar el compilador;
+   * pasar `loadedProgress` a estado derivado es un cambio aparte que exige probar ambas ramas.
+   * Silenciar esta regla no hace que el compilador se salte el componente (solo lo hacen
+   * `rules-of-hooks` y `exhaustive-deps`).
+   */
+
   // Al cambiar de ruta /play/[id] sin desmontar, alinear estado local y permitir re-bootstrap.
   useLayoutEffect(() => {
     lastServerSyncRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver nota de reconciliación
     setLoadedProgress(getProgress(game.id) ?? null);
     if (gameId !== game.id) {
       // Evita mostrar estado residual del juego previo mientras se resuelve progreso real.
@@ -290,6 +339,7 @@ export function GameClient({ game, userId }: Props) {
         localStoredProgress.guesses,
         localStoredProgress.guesses.length + 1
       );
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- ver nota de reconciliación
       setLoadedProgress(null);
       return;
     }
@@ -329,6 +379,7 @@ export function GameClient({ game, userId }: Props) {
     if (!authoritative) {
       removeProgress(game.id);
       ensureGameStarted();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- ver nota de reconciliación
       setLoadedProgress(null);
       return;
     }
@@ -376,6 +427,7 @@ export function GameClient({ game, userId }: Props) {
     if (isGuest || hasLocalDecisiveProgress) return;
     if (!isServerProgressError) return;
     ensureGameStarted();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver nota de reconciliación
     setLoadedProgress(null);
   }, [isGuest, hasLocalDecisiveProgress, isServerProgressError, ensureGameStarted]);
 
@@ -446,25 +498,15 @@ export function GameClient({ game, userId }: Props) {
   ) => {
     const epoch = queueEpochRef.current[gid] ?? 0;
     changePending(gid, 1);
-    submitQueueRef.current = submitQueueRef.current.then(async () => {
-      try {
-        if ((queueEpochRef.current[gid] ?? 0) !== epoch) return;
-        let server: ServerMoveResult;
-        try {
-          server = await submit();
-        } catch (error) {
-          onFail(error);
-          return;
-        }
-        try {
-          await onAccepted(server);
-        } catch (error) {
-          console.error("[partida] reconciliando una jugada ya guardada:", error);
-        }
-      } finally {
-        changePending(gid, -1);
-      }
-    });
+    submitQueueRef.current = submitQueueRef.current.then(() =>
+      runQueuedMove(
+        () => (queueEpochRef.current[gid] ?? 0) !== epoch,
+        submit,
+        onAccepted,
+        onFail,
+        () => changePending(gid, -1)
+      )
+    );
   };
 
   /** Deja la partida exactamente como la tiene el servidor (store, progreso local y resultado). */
