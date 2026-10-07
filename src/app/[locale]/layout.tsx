@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
+import { getSiteUrl } from "@/lib/seo/siteUrl";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { MotionProvider } from "@/components/providers/MotionProvider";
 import { SerwistProvider } from "../serwist";
@@ -51,26 +52,6 @@ const materialSymbols = localFont({
   adjustFontFallback: false,
 });
 
-const DEFAULT_SITE_URL = "https://ecosgame.vercel.app";
-
-/**
- * Base de las URL relativas de los metadatos (og:image, canonical…). `NEXT_PUBLIC_SITE_URL`
- * permite apuntar a otro dominio sin tocar código; si falta, no se puede leer o no es https, se usa
- * el de producción en vez de lanzar al generar los metadatos.
- */
-function getSiteUrl(): URL {
-  const raw = process.env.NEXT_PUBLIC_SITE_URL;
-  if (raw) {
-    try {
-      const url = new URL(raw);
-      if (url.protocol === "https:") return url;
-    } catch {
-      // Valor mal formado: se ignora.
-    }
-  }
-  return new URL(DEFAULT_SITE_URL);
-}
-
 /**
  * `generateMetadata` en lugar de un objeto estatico: la descripcion y el OpenGraph estaban
  * hardcodeados en español, asi que los enlaces compartidos desde /en salian en español.
@@ -108,6 +89,8 @@ export async function generateMetadata({
       locale: locale === "en" ? "en_US" : "es_ES",
       alternateLocale: locale === "en" ? "es_ES" : "en_US",
     },
+    // Con la imagen de `opengraph-image.tsx`: sin esto la tarjeta sale pequeña, sin imagen grande.
+    twitter: { card: "summary_large_image" },
   };
 }
 

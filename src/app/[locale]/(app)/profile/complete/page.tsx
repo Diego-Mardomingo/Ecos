@@ -1,14 +1,20 @@
 import type { Metadata } from "next";
-import { getLocale } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CompleteProfileClient } from "@/components/profile/CompleteProfileClient";
 import { redirectToLoginWithReturn } from "@/lib/auth/redirectToLogin";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 
-export const metadata: Metadata = {
-  title: "Completa tu perfil",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "profile" });
+  return { title: t("completeProfile.title") };
+}
 
 export default async function CompleteProfilePage() {
   const locale = await getLocale();

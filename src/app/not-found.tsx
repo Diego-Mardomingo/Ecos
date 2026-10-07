@@ -3,7 +3,8 @@ import Link from "next/link";
 /**
  * 404 de raíz. Solo se llega aquí cuando ni siquiera hay un idioma válido con el que responder:
  * el `notFound()` de `[locale]/layout.tsx` para un locale desconocido, y las rutas que caen fuera
- * de `[locale]`. Los 404 normales de la app los sirve `[locale]/not-found.tsx`, ya traducido.
+ * de `[locale]`. Los 404 normales de la app los sirve `[locale]/not-found.tsx`, ya traducido; las
+ * rutas desconocidas bajo un idioma válido llegan allí por el comodín `[locale]/[...rest]/page.tsx`.
  *
  * Sin `<html>`/`<body>` propios no se renderiza nada: el layout de raíz es un passthrough y quien
  * los aporta es `[locale]/layout.tsx`, que en este caso no llega a montarse. Por lo mismo tampoco

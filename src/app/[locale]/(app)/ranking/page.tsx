@@ -1,13 +1,21 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
+import { getPageSeo } from "@/lib/seo/pageMeta";
 import { createClient } from "@/lib/supabase/server";
 import { getLeaderboardByPeriod } from "@/lib/queries/users";
 import { LeaderboardClient } from "@/components/leaderboard/LeaderboardClient";
 import { RankingSkeleton } from "@/components/skeletons";
 
-export const metadata: Metadata = {
-  title: "Ranking",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "ranking" });
+  return { title: t("title"), ...(await getPageSeo(locale, "/ranking")) };
+}
 
 /** Evita RSC obsoleto en servidor para el snapshot inicial del leaderboard. */
 export const dynamic = "force-dynamic";
