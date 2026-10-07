@@ -77,6 +77,7 @@ const ResultGameView = memo(function ResultGameView({
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  const [audioFailed, setAudioFailed] = useState(false);
   /** Segundo completo transcurrido: el reloj solo cambia una vez por segundo. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
@@ -96,6 +97,10 @@ const ResultGameView = memo(function ResultGameView({
 
   const seek = useCallback((seconds: number) => {
     resultAudioPlayerRef.current?.seekTo(seconds);
+  }, []);
+
+  const retryAudio = useCallback(() => {
+    resultAudioPlayerRef.current?.retry();
   }, []);
 
   return (
@@ -118,6 +123,9 @@ const ResultGameView = memo(function ResultGameView({
             audio={{
               playing: audioPlaying,
               loaded: audioLoaded,
+              failed: audioFailed,
+              unavailable: !song.preview_url,
+              retry: retryAudio,
               elapsedSeconds,
               toggle: togglePlay,
               seek,
@@ -133,6 +141,7 @@ const ResultGameView = memo(function ResultGameView({
         onTimeUpdate={handleAudioTimeUpdate}
         onPlayingChange={setAudioPlaying}
         onLoadedChange={setAudioLoaded}
+        onErrorChange={setAudioFailed}
         onEnded={() => {
           handleAudioTimeUpdate(0);
           setTimeout(() => handleAudioTimeUpdate(0), 150);
@@ -170,6 +179,9 @@ function ResultScreen({
   audio: {
     playing: boolean;
     loaded: boolean;
+    failed: boolean;
+    unavailable: boolean;
+    retry: () => void;
     elapsedSeconds: number;
     toggle: () => void;
     seek: (seconds: number) => void;
@@ -328,7 +340,16 @@ function ResultScreen({
             loaded={audio.loaded}
             onClick={audio.toggle}
             size={60}
-            labels={{ play: t("listenSong"), stop: t("stopSong"), loading: t("loadingAudio") }}
+            labels={{
+              play: t("listenSong"),
+              stop: t("stopSong"),
+              loading: t("loadingAudio"),
+              retry: t("retryAudio"),
+              unavailable: t("noAudio"),
+            }}
+            failed={audio.failed}
+            unavailable={audio.unavailable}
+            onRetry={audio.retry}
           />
         </div>
       </motion.div>

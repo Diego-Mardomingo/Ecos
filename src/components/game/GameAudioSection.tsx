@@ -17,6 +17,8 @@ import {
   type SegmentedWaveformHandle,
 } from "@/components/game/SegmentedWaveform";
 import { PlayButton } from "@/components/game/PlayButton";
+import { ReportSongDialog, ReportSongTrigger } from "@/components/game/ReportSongDialog";
+import { useLoginHref } from "@/components/game/useLoginHref";
 import { Link } from "@/i18n/navigation";
 import { useIsVirtualKeyboardOpen } from "@/lib/hooks/useVirtualKeyboard";
 import type { GameWithSong } from "@/lib/queries/games";
@@ -76,6 +78,9 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const keyboardOpen = useIsVirtualKeyboardOpen();
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
+  /** La carga del audio ha fallado (red, proxy caído…): el botón de play pasa a reintentar. */
+  const [audioFailed, setAudioFailed] = useState(false);
+  const loginHref = useLoginHref();
   /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const waveformRef = useRef<SegmentedWaveformHandle | null>(null);
@@ -139,9 +144,11 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
             person
           </span>
           <p className="flex-1 text-xs leading-snug text-foreground/80">{t("guestNotice")}</p>
+          {/* Vuelve a esta partida al entrar (UX-01). El pseudo-elemento amplía la zona táctil
+              a 44 px sin cambiar el aspecto del botón, que mide 24 de alto (UX-12). */}
           <Link
-            href="/login"
-            className="shrink-0 rounded-full bg-brand px-3 py-1 text-xs font-bold text-primary-foreground transition-transform active:scale-95"
+            href={loginHref}
+            className="relative shrink-0 rounded-full bg-brand px-3 py-1 text-xs font-bold text-primary-foreground transition-transform before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] active:scale-95"
           >
             {tc("enter")}
           </Link>
@@ -225,7 +232,16 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
             loaded={audioLoaded}
             onClick={() => playerRef.current?.togglePlay()}
             size={PLAY_BUTTON_PX}
-            labels={{ play: t("playFragment"), stop: t("stopFragment"), loading: t("loadingAudio") }}
+            labels={{
+              play: t("playFragment"),
+              stop: t("stopFragment"),
+              loading: t("loadingAudio"),
+              retry: t("retryAudio"),
+              unavailable: t("noAudio"),
+            }}
+            failed={audioFailed}
+            unavailable={!song.preview_url}
+            onRetry={() => playerRef.current?.retry()}
           />
         </div>
         <span className="w-12 text-sm font-medium tabular-nums text-muted-foreground" aria-hidden>
@@ -241,8 +257,16 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
           onTimeUpdate={handleAudioTimeUpdate}
           onPlayingChange={setAudioPlaying}
           onLoadedChange={setAudioLoaded}
+          onErrorChange={setAudioFailed}
           hideControls
         />
+        {/* Sin audio la partida es a ciegas: quien tiene sesión puede avisar ya, sin esperar al
+            resultado (UX-06). */}
+        {!isGuest && (audioFailed || !song.preview_url) && (
+          <div className="mt-1 flex justify-center">
+            <ReportSongDialog gameId={game.id} songId={song.id} trigger={<ReportSongTrigger />} />
+          </div>
+        )}
         {children}
       </div>
     </div>

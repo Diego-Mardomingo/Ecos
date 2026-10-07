@@ -14,6 +14,8 @@ export interface AudioPlayerHandle {
    * siguiente play arranca desde ahí. Se acota al fragmento disponible (`maxDuration`).
    */
   seekTo: (seconds: number) => void;
+  /** Vuelve a cargar el audio después de un fallo de carga (UX-06). */
+  retry: () => void;
 }
 
 interface AudioPlayerProps {
@@ -24,6 +26,8 @@ interface AudioPlayerProps {
   onTimeUpdate?: (currentTime: number) => void;
   onPlayingChange?: (isPlaying: boolean) => void;
   onLoadedChange?: (isLoaded: boolean) => void;
+  /** Avisa cuando la carga del audio falla (red, proxy caído…) y cuando deja de estar fallida. */
+  onErrorChange?: (failed: boolean) => void;
   /** Cuando true, no se muestra la barra ni el botón (el padre dibuja el control grande) */
   hideControls?: boolean;
   className?: string;
@@ -36,6 +40,7 @@ const AudioPlayerComponent = ({
   onTimeUpdate,
   onPlayingChange,
   onLoadedChange,
+  onErrorChange,
   hideControls = false,
   className,
 }: AudioPlayerProps,
@@ -84,6 +89,12 @@ ref: React.Ref<AudioPlayerHandle>) => {
   );
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  /**
+   * Se incrementa en cada reintento: el efecto que crea el `<audio>` depende de él, así que un
+   * reintento monta un elemento nuevo. Antes, si fallaba la carga, el botón se quedaba girando
+   * para siempre y no había forma de volver a intentarlo sin recargar la página.
+   */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const isPlayingRef = useRef(false);
   const isLoadedRef = useRef(false);
 
@@ -171,6 +182,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
     onLoadedChange?.(isLoaded);
   }, [isLoaded, onLoadedChange]);
 
+  useEffect(() => {
+    onErrorChange?.(hasError);
+  }, [hasError, onErrorChange]);
+
   // Reset al cambiar de pista, ajustando el estado durante el render en lugar de
   // en el efecto de montaje del reproductor. En el primer render no hace nada,
   // porque estos son ya los valores iniciales.
@@ -244,7 +259,16 @@ ref: React.Ref<AudioPlayerHandle>) => {
       audioRef.current = null;
       clearMediaSession();
     };
-  }, [previewUrl, clearMediaSession, stopAndReset]);
+    // `loadAttempt` no se lee dentro: está para que un reintento vuelva a crear el `<audio>`.
+  }, [previewUrl, loadAttempt, clearMediaSession, stopAndReset]);
+
+  const retry = useCallback(() => {
+    if (!previewUrl) return;
+    setHasError(false);
+    setIsLoaded(false);
+    setIsPlaying(false);
+    setLoadAttempt((n) => n + 1);
+  }, [previewUrl]);
 
   const stopIfPlaying = useCallback(() => {
     if (!isLoadedRef.current || !isPlayingRef.current) return;
@@ -373,12 +397,18 @@ ref: React.Ref<AudioPlayerHandle>) => {
     togglePlay,
     stopIfPlaying,
     seekTo,
-  }), [togglePlay, stopIfPlaying, seekTo]);
+    retry,
+  }), [togglePlay, stopIfPlaying, seekTo, retry]);
 
   if (!previewUrl || hasError) {
+    // Distingue «esta canción no tiene audio» de «no se ha podido cargar», que tiene arreglo
+    // (reintentar desde el botón de play). `role="alert"` para que se anuncie al aparecer.
     return (
-      <div className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}>
-        {t("noAudio")}
+      <div
+        role="alert"
+        className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}
+      >
+        {previewUrl ? t("audioLoadError") : t("noAudio")}
       </div>
     );
   }
