@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store/authStore";
-import { useProfile } from "@/lib/hooks/queries";
-import { Link, useRouter } from "@/i18n/navigation";
+import { useProfileCore } from "@/lib/hooks/queries";
+import { Link } from "@/i18n/navigation";
 import { useNavPrefetch } from "@/components/navigation/useNavPrefetch";
 
 /**
@@ -25,15 +24,11 @@ const ITEM_HEIGHT = 46;
 const ITEM_GAP = 4;
 
 export function SidebarNav() {
-  const router = useRouter();
   const t = useTranslations("nav");
   const user = useAuthStore((s) => s.user);
-  const { data } = useProfile(user?.id ?? null, undefined, { enabled: !!user });
+  // Solo el núcleo del perfil: nombre y avatar. Antes se pedían también las estadísticas.
+  const { data } = useProfileCore(user?.id ?? null);
   const { isActive, handleNavClick } = useNavPrefetch();
-
-  useEffect(() => {
-    router.prefetch("/");
-  }, [router]);
 
   const profileLabel = user ? (data?.profile?.display_name ?? t("profile")) : t("profile");
   const avatarUrl = user ? data?.profile?.avatar_url : undefined;
@@ -97,7 +92,8 @@ export function SidebarNav() {
       <div className="p-3">
         <Link
           href="/profile"
-          prefetch
+          // Sin sesión redirige a /login: no se precarga (ver `BottomNav`).
+          prefetch={user != null}
           aria-current={profileActive ? "page" : undefined}
           onClick={(e) => handleNavClick("/profile", e)}
           className={cn(
