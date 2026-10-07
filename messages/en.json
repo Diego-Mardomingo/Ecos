@@ -424,6 +424,7 @@
   },
   "meta": {
     "description": "Guess the song of the day by listening to audio snippets. Compete on the global leaderboard.",
-    "ogDescription": "Guess the song of the day"
+    "ogDescription": "Guess the song of the day",
+    "title": "ECOS - Guess the song of the day"
   }
 }

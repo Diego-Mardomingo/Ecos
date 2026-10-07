@@ -47,8 +47,12 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "meta" });
 
   return {
+    // Base de las URL relativas de los metadatos (og:image, canonical…). La variable permite
+    // apuntar a otro dominio sin tocar código; sin ella, el de producción.
+    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://ecosgame.vercel.app"),
     title: {
-      default: "ECOS",
+      // Lo que ven las páginas sin título propio (home, partida, login).
+      default: t("title"),
       template: "ECOS - %s",
     },
     description: t("description"),
@@ -64,7 +68,10 @@ export async function generateMetadata({
       title: "ECOS",
       description: t("ogDescription"),
       type: "website",
-      locale,
+      siteName: "ECOS",
+      // Open Graph pide idioma_TERRITORIO; con el código a secas («es») no lo reconoce.
+      locale: locale === "en" ? "en_US" : "es_ES",
+      alternateLocale: locale === "en" ? "es_ES" : "en_US",
     },
   };
 }
