@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Sans, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
@@ -35,6 +36,42 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 /**
+ * Iconos (`.material-symbols-outlined`): recorte autoalojado de Material Symbols. Cómo
+ * regenerarlo al usar un icono nuevo, en globals.css. `next/font/local` lo sirve desde
+ * /_next/static con caché inmutable y lo precarga; `public/` no sirve, porque el proxy de
+ * next-intl no deja pasar rutas nuevas y el precache del service worker fallaría con un 404.
+ * Sin fuente de respaldo ajustada: un nombre de icono escrito con otra fuente no se parece en nada.
+ */
+const materialSymbols = localFont({
+  src: "../fonts/material-symbols-outlined.woff2",
+  variable: "--font-material-symbols",
+  weight: "400 700",
+  style: "normal",
+  display: "block",
+  adjustFontFallback: false,
+});
+
+const DEFAULT_SITE_URL = "https://ecosgame.vercel.app";
+
+/**
+ * Base de las URL relativas de los metadatos (og:image, canonical…). `NEXT_PUBLIC_SITE_URL`
+ * permite apuntar a otro dominio sin tocar código; si falta, no se puede leer o no es https, se usa
+ * el de producción en vez de lanzar al generar los metadatos.
+ */
+function getSiteUrl(): URL {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL;
+  if (raw) {
+    try {
+      const url = new URL(raw);
+      if (url.protocol === "https:") return url;
+    } catch {
+      // Valor mal formado: se ignora.
+    }
+  }
+  return new URL(DEFAULT_SITE_URL);
+}
+
+/**
  * `generateMetadata` en lugar de un objeto estatico: la descripcion y el OpenGraph estaban
  * hardcodeados en español, asi que los enlaces compartidos desde /en salian en español.
  */
@@ -47,8 +84,10 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "meta" });
 
   return {
+    metadataBase: getSiteUrl(),
     title: {
-      default: "ECOS",
+      // Lo que ven las páginas sin título propio (home, partida, login).
+      default: t("title"),
       template: "ECOS - %s",
     },
     description: t("description"),
@@ -64,7 +103,10 @@ export async function generateMetadata({
       title: "ECOS",
       description: t("ogDescription"),
       type: "website",
-      locale,
+      siteName: "ECOS",
+      // Open Graph pide idioma_TERRITORIO; con el código a secas («es») no lo reconoce.
+      locale: locale === "en" ? "en_US" : "es_ES",
+      alternateLocale: locale === "en" ? "es_ES" : "en_US",
     },
   };
 }
@@ -108,15 +150,9 @@ export default async function LocaleLayout({ children, params }: Props) {
           href="/web-app-manifest-512x512.png"
           sizes="512x512"
         />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
-        />
       </head>
       <body
-        className={`${dmSans.variable} ${bricolage.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${dmSans.variable} ${bricolage.variable} ${jetbrainsMono.variable} ${materialSymbols.variable} font-sans antialiased`}
         suppressHydrationWarning
       >
         <ThemeProvider
@@ -125,7 +161,14 @@ export default async function LocaleLayout({ children, params }: Props) {
           enableSystem
           disableTransitionOnChange={false}
         >
-          <SerwistProvider swUrl="/serwist/sw.js">
+          {/*
+            Sin las dos opciones que Serwist trae activadas por defecto:
+            - cacheOnNavigation: en cada navegación en cliente el SW volvía a pedir el HTML
+              completo de la página destino (otro render en el servidor) para guardarlo.
+            - reloadOnOnline: al recuperar la red recargaba la página entera, partida incluida.
+              La reconexión ya la cubren el onlineManager de QueryProvider y OfflineBanner.
+          */}
+          <SerwistProvider swUrl="/serwist/sw.js" cacheOnNavigation={false} reloadOnOnline={false}>
             <MotionProvider>
               <NextIntlClientProvider messages={messages}>
                 {children}

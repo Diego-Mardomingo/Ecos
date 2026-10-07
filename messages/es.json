@@ -424,6 +424,7 @@
   },
   "meta": {
     "description": "Adivina la canción del día escuchando fragmentos de audio. Compite en el ranking global.",
-    "ogDescription": "Adivina la canción del día"
+    "ogDescription": "Adivina la canción del día",
+    "title": "ECOS - Adivina la canción del día"
   }
 }
