@@ -4,47 +4,48 @@ Selección diaria: mantiene creados los juegos de hoy y de los DAYS_AHEAD días 
 Ejecutar 1x/día (GitHub Action). En régimen normal cada ejecución crea el juego de pasado mañana;
 si el cron se salta días, rellena en orden todos los huecos, empezando por el día en curso.
 
-Pool elegible: preview_url + preview_duration_seconds >= MIN_PREVIEW_SECONDS + spotify_playlist_id en
-ecos_spotify_playlists con is_active = true.
-(30 s nominales de Spotify suelen medir ~29.7 s en MP3; el umbral es ligeramente inferior para no vaciar el pool.)
+Las reglas de selección están en selection.py; aquí solo se lee la base de datos, se llama a
+`pick_song` y se inserta.
 
-Requiere: pip install -r scripts/requirements-ingest.txt
+Sale con 1 si alguna fecha pendiente se queda sin juego, aunque las demás se hayan creado: un
+run verde tiene que significar que están todas.
+
+Uso:
+  python scripts/select-daily-game.py              # crea los juegos que falten
+  python scripts/select-daily-game.py --dry-run    # simulación: lee la BD y no escribe nada
+  python scripts/select-daily-game.py --dry-run --hoy 2026-10-20 --seed 1
+
+Requiere: pip install -r scripts/requirements-selector.txt
 """
 from __future__ import annotations
 
+import argparse
 import logging
-import os
 import random
 import sys
-from datetime import datetime, timedelta
-from pathlib import Path
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta
+from typing import Any
 
-# Cargar .env.local
-_env = Path(__file__).resolve().parent.parent / ".env.local"
-if _env.exists():
-    for line in _env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, _, v = line.partition("=")
-            if k.strip():
-                os.environ[k.strip()] = v.strip().strip('"').strip("'")
+from common import (
+    JOB_DAILY_GAME,
+    MADRID,
+    get_supabase,
+    load_env,
+    log_job,
+    now_ms,
+    setup_logging,
+)
+from db_paging import fetch_all
+from selection import DAYS_AHEAD, MIN_PREVIEW_SECONDS, ROTATION_DAYS, UsedSongs, is_eligible, pick_song
 
-try:
-    from supabase import create_client, Client
-    from db_paging import fetch_all
-    from song_key import dedupe_key
-except ImportError:
-    print("Instala dependencias: pip install -r scripts/requirements-ingest.txt")
-    sys.exit(1)
-
-MADRID = ZoneInfo("Europe/Madrid")
-ROTATION_DAYS = 14
-# Días por delante de hoy que deben tener juego creado (ver get_pending_game_dates).
-DAYS_AHEAD = 2
-SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
-# Pool elegible: preview medido >= este umbral (s) y playlist activa en ecos_spotify_playlists
-MIN_PREVIEW_SECONDS = 29.0
+# Columnas de la canción que necesitan las reglas (pool y juegos recientes).
+SONG_COLUMNS = (
+    "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
+    "spotify_playlist_id, spotify_playlist_name"
+)
+RECENT_SONG_COLUMNS = "release_date, genre, spotify_playlist_id, spotify_playlist_name, artist_name"
+# Reintentos del insert si otro proceso se queda antes con el mismo game_number.
+INSERT_ATTEMPTS = 3
 
 
 def format_date_ddmmyyyy(iso_date: str) -> str:
@@ -52,46 +53,7 @@ def format_date_ddmmyyyy(iso_date: str) -> str:
     return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d/%m/%Y")
 
 
-def setup_logging() -> logging.Logger:
-    log = logging.getLogger("daily-game")
-    log.setLevel(logging.INFO)
-    h = logging.StreamHandler(sys.stdout)
-    h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
-    log.addHandler(h)
-    return log
-
-
-def get_decade(release_date: str | None) -> str | None:
-    """Extrae década de release_date (YYYY, YYYY-MM, YYYY-MM-DD)."""
-    if not release_date or len(release_date) < 4:
-        return None
-    try:
-        year = int(release_date[:4])
-        if year >= 2020:
-            return "2020s"
-        if year >= 2010:
-            return "2010s"
-        if year >= 2000:
-            return "2000s"
-        if year >= 1990:
-            return "90s"
-        if year >= 1980:
-            return "80s"
-        return None
-    except ValueError:
-        return None
-
-
-def get_special_genre(genre: str | None, playlist_name: str | None) -> str | None:
-    """Detecta si la canción es Flamenco, Rap o Reggaeton (géneros con rotación)."""
-    text = " ".join(filter(None, [genre or "", playlist_name or ""])).lower()
-    for g in SPECIAL_GENRES:
-        if g in text:
-            return g
-    return None
-
-
-def get_pending_game_dates(supabase: Client, now_madrid: datetime) -> list[str]:
+def get_pending_game_dates(supabase: Any, today: date) -> list[str]:
     """TODOS los días en [hoy, hoy + DAYS_AHEAD] (Madrid) sin juego, en orden.
 
     Crítico: el cron de GitHub es best-effort y llega con horas de retraso (hasta pasada la
@@ -99,16 +61,13 @@ def get_pending_game_dates(supabase: Client, now_madrid: datetime) -> list[str]:
     un retraso así basta para que a las 00:00 no exista el juego. Con dos, una ejecución tardía
     sigue llegando con más de 24 h de colchón.
     """
-    pending: list[str] = []
-    for offset in range(DAYS_AHEAD + 1):
-        candidate = (now_madrid.date() + timedelta(days=offset)).isoformat()
-        r_existing = supabase.table("ecos_games").select("id").eq("date", candidate).limit(1).execute()
-        if not r_existing.data:
-            pending.append(candidate)
-    return pending
+    dates = [(today + timedelta(days=offset)).isoformat() for offset in range(DAYS_AHEAD + 1)]
+    r = supabase.table("ecos_games").select("date").in_("date", dates).execute()
+    existing = {row["date"] for row in (r.data or [])}
+    return [d for d in dates if d not in existing]
 
 
-def _load_eligible_pool(supabase: Client, log: logging.Logger) -> list[dict]:
+def load_eligible_pool(supabase: Any, log: logging.Logger) -> list[dict]:
     """Canciones activas que cumplen playlist activa + preview_url + duración mínima."""
     r_pl = (
         supabase.table("ecos_spotify_playlists")
@@ -125,250 +84,223 @@ def _load_eligible_pool(supabase: Client, log: logging.Logger) -> list[dict]:
     # Paginado: sin esto la API devuelve 1.000 filas de las ~1.600 activas y el sorteo diario
     # nunca llega a ver el resto del catálogo.
     songs = fetch_all(
-        lambda: supabase.table("ecos_songs").select(
-            "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
-            "spotify_playlist_id, spotify_playlist_name",
-            count="exact",
-        ).eq("is_active", True)
+        lambda: supabase.table("ecos_songs").select(SONG_COLUMNS, count="exact").eq("is_active", True)
     )
-
-    def is_eligible_pool(song: dict) -> bool:
-        pl_id = (song.get("spotify_playlist_id") or "").strip()
-        if not pl_id or pl_id not in active_playlist_ids:
-            return False
-        if not song.get("preview_url"):
-            return False
-        dur = song.get("preview_duration_seconds")
-        if dur is None:
-            return False
-        try:
-            return float(dur) >= MIN_PREVIEW_SECONDS
-        except (TypeError, ValueError):
-            return False
-
-    pool = [s for s in songs if is_eligible_pool(s)]
+    pool = [s for s in songs if is_eligible(s, active_playlist_ids)]
     log.info("Pool elegible: %d de %d canciones activas", len(pool), len(songs))
     return pool
 
 
-def select_song_for_date(
-    supabase: Client,
-    target_date: str,
-    now_madrid: datetime,
-    all_songs: list[dict],
-    used_song_ids: set[str],
-    used_keys: set[str],
-    log: logging.Logger,
-) -> tuple[dict | None, str | None]:
-    """Aplica las reglas de selección para una fecha. Devuelve (song, error).
+def load_used_songs(supabase: Any) -> UsedSongs:
+    """Canciones que ya salieron en algún juego, de cualquier fecha (regla 1)."""
+    # Paginado también aquí: hoy hay bastantes menos de 1.000 juegos, pero al pasar de esa cifra
+    # un select sin paginar empezaría a "olvidar" canciones ya jugadas y a repetirlas.
+    rows = fetch_all(
+        lambda: supabase.table("ecos_games").select(
+            "song_id, ecos_songs(title, artist_name, preview_url)", count="exact"
+        )
+    )
+    used = UsedSongs()
+    for r in rows:
+        song = dict(r.get("ecos_songs") or {})
+        song["id"] = r.get("song_id")
+        used.add(song)
+    return used
 
-    Relee el contexto de rotación desde la BD, así que si en esta misma ejecución se
-    creó el juego de hoy, la selección de mañana ya lo tiene en cuenta.
+
+def load_recent_games(supabase: Any, pending_dates: list[str]) -> list[dict]:
+    """Juegos alrededor de las fechas pendientes, para las reglas 2-5.
+
+    Se leen una sola vez para todas las fechas: lo que se cree en esta ejecución se añade a la
+    lista en memoria, así que la segunda fecha ya ve la primera (y la simulación también).
     """
-    cutoff_14 = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
-    rotation_reference_date = (
-        datetime.strptime(target_date, "%Y-%m-%d").date() - timedelta(days=1)
-    ).isoformat()
+    since = (date.fromisoformat(pending_dates[0]) - timedelta(days=ROTATION_DAYS)).isoformat()
+    until = (date.fromisoformat(pending_dates[-1]) + timedelta(days=ROTATION_DAYS)).isoformat()
+    r = (
+        supabase.table("ecos_games")
+        .select(f"date, ecos_songs({RECENT_SONG_COLUMNS})")
+        .gte("date", since)
+        .lte("date", until)
+        .execute()
+    )
+    return r.data or []
 
-    # Regla 1: nunca repetir. Se descarta por id y por clave título+artista, porque el catálogo
-    # puede tener dos ediciones de la misma canción (single y álbum, con distinta carátula) y
-    # filtrar solo por id las trataría como dos canciones distintas.
-    pool = [
-        s
-        for s in all_songs
-        if str(s["id"]) not in used_song_ids
-        and dedupe_key(s.get("title"), s.get("artist_name")) not in used_keys
-    ]
-    if not pool:
-        return None, "Pool vacío: no quedan canciones no usadas"
 
-    r_recent = supabase.table("ecos_games").select(
-        "date, ecos_songs(release_date, genre, spotify_playlist_id, spotify_playlist_name, artist_name)"
-    ).gte("date", cutoff_14).order("date", desc=True).execute()
+def next_game_number(supabase: Any) -> int:
+    """max(game_number) + 1. No vale count(*) + 1: un borrado o un insert a mano lo descuadra."""
+    r = (
+        supabase.table("ecos_games")
+        .select("game_number")
+        .order("game_number", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = r.data or []
+    return (int(rows[0]["game_number"]) if rows else 0) + 1
 
-    recent_games = r_recent.data or []
-    yesterday_decade: str | None = None
-    yesterday_genre: str | None = None
-    artists_last_14: set[str] = set()
-    playlist_last_date: dict[str, str] = {}
 
-    for g in recent_games:
-        song = g.get("ecos_songs") or {}
-        date_str = g.get("date", "")
-        if date_str == rotation_reference_date:
-            yesterday_decade = get_decade(song.get("release_date"))
-            yesterday_genre = get_special_genre(song.get("genre"), song.get("spotify_playlist_name"))
+def _unique_violation(exc: Exception) -> str | None:
+    """Qué restricción única de ecos_games ha saltado ('date' o 'game_number'), si es eso."""
+    text = str(exc)
+    if getattr(exc, "code", None) != "23505" and "23505" not in text:
+        return None
+    if "ecos_games_date_key" in text:
+        return "date"
+    if "ecos_games_game_number_key" in text:
+        return "game_number"
+    return None
 
-        artist = (song.get("artist_name") or "").strip().lower()
-        if artist:
-            artists_last_14.add(artist)
-        pl_id = song.get("spotify_playlist_id")
-        if pl_id and (not playlist_last_date.get(pl_id) or playlist_last_date[pl_id] < date_str):
-            playlist_last_date[pl_id] = date_str
 
-    cutoff_priority = (now_madrid - timedelta(days=ROTATION_DAYS)).date().isoformat()
-    priority_playlists = {pl for pl, d in playlist_last_date.items() if d < cutoff_priority}
+def insert_game(supabase: Any, song_id: str, target_date: str, log: logging.Logger) -> int | None:
+    """Inserta el juego y devuelve su número, o None si otra ejecución ya creó esa fecha."""
+    for attempt in range(1, INSERT_ATTEMPTS + 1):
+        number = next_game_number(supabase)
+        try:
+            supabase.table("ecos_games").insert(
+                {"song_id": song_id, "date": target_date, "game_number": number}
+            ).execute()
+            return number
+        except Exception as exc:
+            which = _unique_violation(exc)
+            if which == "date":
+                return None
+            if which == "game_number" and attempt < INSERT_ATTEMPTS:
+                log.warning("game_number %d ocupado, se reintenta (%d/%d)", number, attempt, INSERT_ATTEMPTS)
+                continue
+            raise
+    raise RuntimeError("inalcanzable")
 
-    def is_valid(s: dict) -> bool:
-        decade = get_decade(s.get("release_date"))
-        if yesterday_decade and decade == yesterday_decade:
-            return False  # Regla 3
-        genre = get_special_genre(s.get("genre"), s.get("spotify_playlist_name"))
-        if yesterday_genre and genre == yesterday_genre:
-            return False  # Regla 4
-        artist = (s.get("artist_name") or "").strip().lower()
-        if artist and artist in artists_last_14:
-            return False  # Regla 5
-        return True
 
-    candidates = [s for s in pool if is_valid(s)]
-
-    # Regla 2: prioridad playlists que llevan 14+ días sin aparecer
-    priority_candidates = [s for s in candidates if (s.get("spotify_playlist_id") or "") in priority_playlists]
-    if priority_candidates:
-        candidates = priority_candidates
-        log.info("Regla 2: %d candidatos de playlists prioritarias", len(candidates))
-
-    # Regla 6: fallback aleatorio si no hay candidatos
-    if not candidates:
-        candidates = pool
-        log.info("Regla 6: fallback aleatorio entre %d no usadas", len(candidates))
-
-    song = random.choice(candidates)
-
-    if not song.get("title") or not song.get("artist_name"):
-        return None, "Campos requeridos faltantes (title/artist_name)"
-
-    return song, None
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Crea los juegos de hoy y de los próximos días.")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="simulación: lee la base de datos, elige y lo cuenta, pero no escribe nada",
+    )
+    p.add_argument(
+        "--hoy",
+        metavar="AAAA-MM-DD",
+        help="(solo con --dry-run) simula que hoy en Madrid es esta fecha",
+    )
+    p.add_argument("--seed", type=int, help="semilla del sorteo (para repetir una simulación)")
+    args = p.parse_args()
+    if args.hoy and not args.dry_run:
+        p.error("--hoy solo se admite con --dry-run")
+    return args
 
 
 def main() -> None:
-    log = setup_logging()
-    start_ms = int(datetime.now().timestamp() * 1000)
+    args = parse_args()
+    load_env()
+    log = setup_logging("daily-game")
+    start_ms = now_ms()
+    dry_run: bool = args.dry_run
+    supabase = get_supabase(log, read_only=dry_run)
+    rng = random.Random(args.seed)
 
-    url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url_env or not key_env:
-        log.error("NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridos")
-        sys.exit(1)
-
-    supabase: Client = create_client(url_env, key_env)
     now_madrid = datetime.now(MADRID)
+    today = date.fromisoformat(args.hoy) if args.hoy else now_madrid.date()
+    if dry_run:
+        log.info("SIMULACIÓN: no se escribe nada en la base de datos (hoy = %s)", today.isoformat())
 
-    pending_dates = get_pending_game_dates(supabase, now_madrid)
+    def record(status: str, summary: str, details: dict, errors: list[str] | None = None) -> None:
+        if dry_run:
+            log.info("[simulación] registro %s: %s %s", status, summary, details)
+            return
+        log_job(
+            supabase, JOB_DAILY_GAME, status, summary,
+            start_ms=start_ms, details=details, errors=errors, log=log,
+        )
+
+    pending_dates = get_pending_game_dates(supabase, today)
     if not pending_dates:
         log.info("Ya existen juegos para hoy y los %d días siguientes en Madrid, nada que hacer", DAYS_AHEAD)
-        try:
-            supabase.table("ecos_system_logs").insert({
-                "job_type": "daily_game",
-                "status": "success",
-                "summary": f"Juegos ya existían para hoy y los {DAYS_AHEAD} días siguientes",
-                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-                "details": {"skipped": True, "madrid_now": now_madrid.isoformat()},
-            }).execute()
-        except Exception as log_err:
-            log.warning("No se pudo guardar log: %s", log_err)
+        record(
+            "success",
+            f"Juegos ya existían para hoy y los {DAYS_AHEAD} días siguientes",
+            {"skipped": True, "madrid_now": now_madrid.isoformat()},
+        )
         return
+    log.info("Fechas pendientes: %s", ", ".join(pending_dates))
 
-    all_songs = _load_eligible_pool(supabase, log)
-    if not all_songs:
+    pool = load_eligible_pool(supabase, log)
+    if not pool:
         msg = (
             f"Pool elegible vacío: ninguna canción cumple preview ≥ {MIN_PREVIEW_SECONDS:g}s, "
             "playlist activa y preview_url"
         )
         log.error(msg)
-        _log_failure(supabase, start_ms, msg)
+        record("failure", msg, {"pending_dates": pending_dates}, [msg])
         sys.exit(1)
 
-    # Paginado también aquí: hoy hay bastantes menos de 1.000 juegos, pero al pasar de esa cifra
-    # un select sin paginar empezaría a "olvidar" canciones ya jugadas y a repetirlas.
-    used_rows = fetch_all(
-        lambda: supabase.table("ecos_games").select(
-            "song_id, ecos_songs(title, artist_name)", count="exact"
-        )
-    )
-    used_song_ids = {str(r["song_id"]) for r in used_rows if r.get("song_id")}
-    used_keys: set[str] = set()
-    for r in used_rows:
-        s = r.get("ecos_songs") or {}
-        k = dedupe_key(s.get("title"), s.get("artist_name"))
-        if k:
-            used_keys.add(k)
-
-    r_count = supabase.table("ecos_games").select("*", count="exact", head=True).execute()
-    next_game_number = (r_count.count or 0) + 1
+    used = load_used_songs(supabase)
+    recent_games = load_recent_games(supabase, pending_dates)
 
     created: list[str] = []
+    failed: list[str] = []
     for target_date in pending_dates:
-        song, err = select_song_for_date(
-            supabase, target_date, now_madrid, all_songs, used_song_ids, used_keys, log
+        pick = pick_song(pool, used, recent_games, target_date, today, rng)
+        song = pick.song
+        if pick.error or not song:
+            msg = f"{target_date}: {pick.error}"
+            log.error("No se pudo seleccionar para %s", msg)
+            record("failure", msg, {"target_date": format_date_ddmmyyyy(target_date)}, [msg])
+            failed.append(target_date)
+            continue
+
+        details = {
+            "target_date": format_date_ddmmyyyy(target_date),
+            "song_id": str(song["id"]),
+            "title": song.get("title"),
+            "artist": song.get("artist_name"),
+            "playlist": song.get("spotify_playlist_name") or None,
+            "playlist_id": song.get("spotify_playlist_id") or None,
+            "rule": pick.rule,
+            "pool_size": pick.pool_size,
+            "candidates": pick.candidates,
+        }
+
+        if dry_run:
+            number: int | None = next_game_number(supabase) + len(created)
+        else:
+            try:
+                number = insert_game(supabase, song["id"], target_date, log)
+            except Exception as exc:
+                msg = f"insert {target_date}: {exc}"
+                log.error("No se pudo insertar el juego: %s", msg)
+                record("failure", msg, {**details, "error": str(exc)}, [msg])
+                failed.append(target_date)
+                continue
+            if number is None:
+                # Otra ejecución creó esa fecha entre la lectura y el insert: está cubierta.
+                log.warning("El juego de %s ya lo creó otra ejecución", target_date)
+                continue
+
+        log.info(
+            "Ecos #%d para %s: %s / %s (regla %s, %d candidatos de %d disponibles)",
+            number, target_date, (song.get("title") or "")[:40], (song.get("artist_name") or "")[:30],
+            pick.rule, pick.candidates, pick.pool_size,
         )
-        if err or not song:
-            log.error("No se pudo seleccionar para %s: %s", target_date, err)
-            _log_failure(supabase, start_ms, f"{target_date}: {err}")
-            # Si falla el primer día seguimos intentando el segundo; solo abortamos
-            # con exit!=0 al final si no se creó ninguno.
-            continue
 
-        try:
-            supabase.table("ecos_games").insert({
-                "song_id": song["id"],
-                "date": target_date,
-                "game_number": next_game_number,
-            }).execute()
-        except Exception as e:
-            # Otra ejecución concurrente pudo crear el juego (unique en date): tratar como benigno.
-            log.warning("No se pudo insertar juego para %s (¿ya existe?): %s", target_date, e)
-            _log_failure(supabase, start_ms, f"insert {target_date}: {e}")
-            continue
+        # Estado local para que la siguiente fecha no repita canción y aplique las reglas 2-5
+        # con este juego ya contado.
+        used.add(song)
+        recent_games.append({"date": target_date, "ecos_songs": song})
 
-        log.info("Ecos #%d para %s: %s / %s",
-                 next_game_number, target_date, song.get("title", "")[:40], song.get("artist_name", "")[:30])
-
-        # Actualizar estado local para que la siguiente fecha no repita canción.
-        used_song_ids.add(str(song["id"]))
-        used_key = dedupe_key(song.get("title"), song.get("artist_name"))
-        if used_key:
-            used_keys.add(used_key)
-        try:
-            supabase.table("ecos_system_logs").insert({
-                "job_type": "daily_game",
-                "status": "success",
-                "summary": f"1 juego creado para {format_date_ddmmyyyy(target_date)}",
-                "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-                "details": {
-                    "target_date": format_date_ddmmyyyy(target_date),
-                    "game_number": next_game_number,
-                    "song_id": str(song["id"]),
-                    "title": song.get("title"),
-                    "artist": song.get("artist_name"),
-                    "playlist": song.get("spotify_playlist_name") or None,
-                    "playlist_id": song.get("spotify_playlist_id") or None,
-                },
-            }).execute()
-        except Exception as log_err:
-            log.warning("No se pudo guardar log: %s", log_err)
-
+        # El sorteo de reserva (regla 6) significa que las reglas no dejaron candidatos: se
+        # registra como parcial para que destaque en el panel.
+        status = "partial" if pick.rule == "6-fallback" else "success"
+        record(
+            status,
+            f"1 juego creado para {format_date_ddmmyyyy(target_date)}",
+            {**details, "game_number": number},
+        )
         created.append(target_date)
-        next_game_number += 1
 
-    if not created:
-        log.error("No se creó ningún juego para las fechas pendientes: %s", pending_dates)
+    if failed:
+        log.error("Fechas sin juego: %s (creadas: %s)", ", ".join(failed), ", ".join(created) or "ninguna")
         sys.exit(1)
-
-
-def _log_failure(supabase: Client, start_ms: int, error: str) -> None:
-    try:
-        supabase.table("ecos_system_logs").insert({
-            "job_type": "daily_game",
-            "status": "failure",
-            "summary": error,
-            "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-            "errors": [error],
-            "details": {},
-        }).execute()
-    except Exception:
-        pass
 
 
 if __name__ == "__main__":
