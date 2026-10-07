@@ -364,6 +364,7 @@
       "completed": "Completed",
       "avgAttempts": "Avg attempts",
       "currentStreak": "Current streak",
+      "streakDays": "{count, plural, one {day} other {days}}",
       "points": "Points"
     },
     "earlySupporterBadge": "Early supporter",
