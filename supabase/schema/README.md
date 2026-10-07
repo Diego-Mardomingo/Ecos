@@ -29,7 +29,14 @@ encontraron en cuanto se pudieron *leer* las políticas:
 - Cualquier usuario con cuenta podía ponerse `role = 'admin'` en su propio perfil.
 - Cualquiera con la anon key podía leer, alterar o vaciar `ecos_feedback`.
 
-Los dos habrían salido en la primera revisión de un `03_security.sql`.
+Los dos habrían salido en la primera revisión de un `03_security.sql`. Y la auditoría de octubre de
+2026 encontró más del mismo tipo: RPC de puntuación ejecutables por cualquiera (el `EXECUTE` de una
+función nace concedido a `PUBLIC`), `INSERT` de perfiles con `role`, perfiles y reto de mañana
+legibles con la anon key, estadísticas de cualquier usuario.
+
+**Una tabla `ecos_*` nueva nace con todo concedido**: Supabase da todo el DML (y `TRUNCATE`) a `anon`
+y `authenticated` en cada tabla de `public`. Recórtala a mano en `03_security.sql` en el mismo
+commit que la crea; la RLS sola no basta (`TRUNCATE` ni siquiera pasa por ella).
 
 ## Qué NO está aquí, y por qué
 
@@ -59,6 +66,21 @@ depende de políticas que, si no se versionan, no salen en ningún diff. Están 
 - **Realtime, `realtime.messages`**: la política `ecos_ranking_broadcast_receive`, que deja a
   anon/authenticated recibir solo el canal `ecos:ranking` (aviso de «el ranking ha cambiado»).
   Nada puede emitir salvo la service role.
+
+## Desfase conocido
+
+Dos cosas del volcado van por delante o por detrás de la BD hasta que se aplique lo que queda
+pendiente en `supabase/migrations/` (su README lo detalla, y la cabecera `ESTADO` de cada migración
+manda):
+
+- `ecos_guesses`: `03_security.sql` ya no tiene política ni privilegio de `INSERT`; la BD conserva
+  `ecos_guesses_own_insert`, limitada a filas de salto, hasta desplegar el código que salta con
+  service role.
+- `ecos_songs`: `01_tables.sql` sigue con `genre`, `popularity`, `tempo`, `danceability`, `energy` y
+  `raw_spotify_data`, que siguen en la BD hasta aplicar `20261008130000_d12_borrar_columnas_muertas.sql`
+  tras desplegar. Al aplicarla, se quitan del volcado en el mismo commit.
+
+Cuando se apliquen, borra esta sección.
 
 ## Cómo regenerarlo
 
