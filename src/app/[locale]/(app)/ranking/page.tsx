@@ -14,11 +14,16 @@ export const dynamic = "force-dynamic";
 
 async function RankingPageContent() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [globalEntries, weeklyEntries, monthlyEntries] = await Promise.all([
+  // Los rankings no dependen de la sesión (RPC con el cliente anónimo): todo a la vez.
+  const [
+    {
+      data: { user },
+    },
+    globalEntries,
+    weeklyEntries,
+    monthlyEntries,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
     getLeaderboardByPeriod("global", 50),
     getLeaderboardByPeriod("weekly", 50),
     getLeaderboardByPeriod("monthly", 50),
