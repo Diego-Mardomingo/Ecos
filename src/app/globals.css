@@ -135,9 +135,8 @@
  *  1. Añade el nombre a la lista de abajo (orden alfabético: Google lo exige).
  *  2. Pide la hoja con un User-Agent de Chrome (para que sirva woff2):
  *     https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=<lista separada por comas>&display=block
- *  3. Descarga el woff2 que enlaza, guárdalo en `public/fonts/` con los 8 primeros caracteres de
- *     su sha256 en el nombre (se sirve como inmutable: el nombre tiene que cambiar con el
- *     contenido) y actualiza la ruta aquí y en el `preload` de `[locale]/layout.tsx`.
+ *  3. Descarga el woff2 que enlaza y sustituye `src/app/fonts/material-symbols-outlined.woff2`.
+ *     Lo carga `next/font/local` en `[locale]/layout.tsx`, que le pone el hash en el nombre.
  *
  * Ejes: `opsz` 20..48 porque el navegador ajusta el tamaño óptico al `font-size` de cada icono
  * (`font-optical-sizing: auto`); `wght` 400..700 y `FILL` 0..1 son los que se usan vía
@@ -153,24 +152,15 @@
  * play_circle, priority_high, progress_activity, question_mark, queue_music, refresh, report,
  * search, search_off, send, settings, skip_next, south, stop, terminal, today, translate, trophy,
  * visibility, volunteer_activism, whatshot, wifi_off, workspace_premium
- */
-@font-face {
-  font-family: "Material Symbols Outlined";
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: block;
-  src: url("/fonts/material-symbols-outlined-d8bbd45b.woff2") format("woff2");
-}
-
-/**
- * La misma regla que traía la hoja de Google, sin capa a propósito: así sigue ganando a las
+ *
+ * La regla de abajo es la misma que traía la hoja de Google, sin capa a propósito: así sigue ganando a las
  * utilidades de Tailwind como hasta ahora y los iconos se ven exactamente igual. En concreto,
  * `line-height: 1` gana al interlineado que añaden las utilidades `text-*` (si no, la caja de
  * cada icono crecería), y `font-weight: normal` deja el grosor en manos de
  * `fontVariationSettings` (un `font-bold` en el propio icono no tiene efecto).
  */
 .material-symbols-outlined {
-  font-family: "Material Symbols Outlined";
+  font-family: var(--font-material-symbols);
   font-weight: normal;
   font-style: normal;
   line-height: 1;

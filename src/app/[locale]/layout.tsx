@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Sans, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
@@ -32,6 +33,22 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin", "latin-ext"],
   weight: ["500", "600", "700"],
   display: "swap",
+});
+
+/**
+ * Iconos (`.material-symbols-outlined`): recorte autoalojado de Material Symbols. Cómo
+ * regenerarlo al usar un icono nuevo, en globals.css. `next/font/local` lo sirve desde
+ * /_next/static con caché inmutable y lo precarga; `public/` no sirve, porque el proxy de
+ * next-intl no deja pasar rutas nuevas y el precache del service worker fallaría con un 404.
+ * Sin fuente de respaldo ajustada: un nombre de icono escrito con otra fuente no se parece en nada.
+ */
+const materialSymbols = localFont({
+  src: "../fonts/material-symbols-outlined.woff2",
+  variable: "--font-material-symbols",
+  weight: "400 700",
+  style: "normal",
+  display: "block",
+  adjustFontFallback: false,
 });
 
 /**
@@ -115,18 +132,9 @@ export default async function LocaleLayout({ children, params }: Props) {
           href="/web-app-manifest-512x512.png"
           sizes="512x512"
         />
-        {/* Fuente de iconos autoalojada (ver globals.css): todas las páginas la usan desde el
-            primer pintado, así que se pide en paralelo al CSS en vez de esperar a descubrirla. */}
-        <link
-          rel="preload"
-          href="/fonts/material-symbols-outlined-d8bbd45b.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin=""
-        />
       </head>
       <body
-        className={`${dmSans.variable} ${bricolage.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${dmSans.variable} ${bricolage.variable} ${jetbrainsMono.variable} ${materialSymbols.variable} font-sans antialiased`}
         suppressHydrationWarning
       >
         <ThemeProvider

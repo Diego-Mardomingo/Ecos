@@ -93,14 +93,6 @@ const nextConfig: NextConfig = {
           { key: cspHeaderName, value: csp },
         ],
       },
-      {
-        // Fuente de iconos autoalojada: el nombre lleva el hash del contenido (ver globals.css),
-        // así que se puede cachear para siempre. Por defecto Next sirve `public/` con max-age=0.
-        source: "/fonts/:path*",
-        headers: [
-          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
-        ],
-      },
     ];
   },
   /**
