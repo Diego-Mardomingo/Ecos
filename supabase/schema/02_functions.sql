@@ -99,21 +99,59 @@ $function$;
 
 -- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con preview,
 -- que es lo único que el juego puede reproducir.
-CREATE OR REPLACE FUNCTION public.ecos_search_songs(p_query text, p_limit integer)
- RETURNS SETOF ecos_songs
+--
+-- Devuelve solo las columnas que usa /api/search-songs: con SETOF ecos_songs viajaba la fila
+-- entera (raw_spotify_data, preview_url…), 4,3 veces más bytes, y quien llamara a la RPC por REST
+-- se llevaba el preview_url de cualquier canción. El límite se acota dentro (1–200, 100 si llega
+-- NULL): antes un `LIMIT NULL` devolvía el catálogo entero.
+--
+-- Orden por relevancia, normalizando igual que el filtro (minúsculas y sin acentos):
+--   0 título idéntico a la consulta · 1 título que empieza por ella · 2 palabra completa del
+--   título · 3 artista que empieza por ella · 4 palabra completa del artista · 5 el resto.
+-- Desempate: título más corto, alfabético y por id (orden estable). Antes no había ORDER BY y,
+-- con «Así», la canción titulada exactamente «Así» salía la última de 19.
+--
+-- Cambiar el tipo de retorno obliga a DROP + CREATE, que se lleva los privilegios: se vuelven a
+-- conceder abajo (la RPC está abierta a propósito, ver 03_security.sql). Aplicada como migración
+-- 20261007120000_search_songs_relevance (supabase/migrations/).
+DROP FUNCTION IF EXISTS public.ecos_search_songs(text, integer);
+
+CREATE FUNCTION public.ecos_search_songs(p_query text, p_limit integer)
+ RETURNS TABLE(id uuid, title text, artist_name text, album_title text, cover_url text, spotify_id text)
  LANGUAGE sql
  STABLE
+ SET search_path TO 'public'
 AS $function$
-  SELECT *
-  FROM ecos_songs
-  WHERE is_active = true
-    AND preview_url IS NOT NULL
+  WITH q AS (
+    SELECT lower(unaccent(btrim(p_query))) AS nq
+  )
+  SELECT s.id, s.title, s.artist_name, s.album_title, s.cover_url, s.spotify_id
+  FROM ecos_songs s, q
+  WHERE s.is_active = true
+    AND s.preview_url IS NOT NULL
     AND (
-      unaccent(title) ILIKE '%' || unaccent(p_query) || '%'
-      OR unaccent(artist_name) ILIKE '%' || unaccent(p_query) || '%'
+      unaccent(s.title) ILIKE '%' || unaccent(p_query) || '%'
+      OR unaccent(s.artist_name) ILIKE '%' || unaccent(p_query) || '%'
     )
-  LIMIT p_limit;
+  ORDER BY
+    CASE
+      WHEN lower(unaccent(s.title)) = q.nq THEN 0
+      WHEN lower(unaccent(s.title)) LIKE q.nq || '%' THEN 1
+      WHEN ' ' || regexp_replace(lower(unaccent(s.title)), '[^[:alnum:]]+', ' ', 'g') || ' '
+           LIKE '% ' || q.nq || ' %' THEN 2
+      WHEN lower(unaccent(s.artist_name)) LIKE q.nq || '%' THEN 3
+      WHEN ' ' || regexp_replace(lower(unaccent(s.artist_name)), '[^[:alnum:]]+', ' ', 'g') || ' '
+           LIKE '% ' || q.nq || ' %' THEN 4
+      ELSE 5
+    END,
+    length(s.title),
+    lower(unaccent(s.title)),
+    s.id
+  LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 200);
 $function$;
+
+GRANT EXECUTE ON FUNCTION public.ecos_search_songs(text, integer)
+  TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_user_avg_guesses(p_user_id uuid)
  RETURNS real
