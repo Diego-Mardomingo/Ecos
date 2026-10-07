@@ -14,17 +14,9 @@ el esquema discrepan, manda el esquema (y, sobre él, la BD).
 - Al aplicar una migración nueva, apunta en su cabecera cuándo y con qué nombre se aplicó, y refleja el
   resultado en `supabase/schema/` en el mismo commit.
 
-## Pendiente de aplicar a mano, después de desplegar
+## Aplicadas tras desplegar
 
-Son destructivas o dependen de que el código nuevo esté en producción. Aplicarlas antes rompe la
-versión desplegada. Cuando se apliquen, actualiza la cabecera de la migración, quita la sección
-«Desfase conocido» de `supabase/schema/README.md` y borra este apartado.
-
-- `20261008130000_d12_borrar_columnas_muertas.sql` (D12): borra seis columnas de `ecos_songs`
-  (`tempo`, `danceability`, `energy`, `popularity`, `genre`, `raw_spotify_data`). Hay que esperar a
-  que estén en producción el código de la app que ya no las lee y los scripts nuevos de `master`
-  (`daily-game.yml` ejecuta `select-daily-game.py` desde `master`).
-- Segunda parte de `20261008140000_recortar_privilegios_tablas.sql`, ya anotada en su cabecera: el
-  resto se aplicó, pero falta `revoke insert on public.ecos_guesses from authenticated` y
-  `drop policy if exists ecos_guesses_own_insert on public.ecos_guesses`, que solo se pueden aplicar
-  cuando el código nuevo (que salta con service role) esté desplegado.
+El 2026-10-08, después de desplegar la auditoría, se aplicaron a mano las dos que dependían del
+código nuevo: `20261008130000_d12_borrar_columnas_muertas.sql` y la segunda parte de
+`20261008140000_recortar_privilegios_tablas.sql` (sin `INSERT` de clientes en `ecos_guesses`).
+Si una migración futura depende de un despliegue, márcala igual en su cabecera y anótala aquí.
