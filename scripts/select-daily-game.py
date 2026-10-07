@@ -36,14 +36,21 @@ from common import (
     setup_logging,
 )
 from db_paging import fetch_all
-from selection import DAYS_AHEAD, MIN_PREVIEW_SECONDS, ROTATION_DAYS, UsedSongs, is_eligible, pick_song
+from selection import (
+    DAYS_AHEAD,
+    MIN_PREVIEW_SECONDS,
+    ROTATION_DAYS,
+    UsedSongs,
+    is_eligible,
+    pick_song,
+)
 
 # Columnas de la canción que necesitan las reglas (pool y juegos recientes).
 SONG_COLUMNS = (
     "id, title, artist_name, preview_url, preview_duration_seconds, release_date, genre, "
     "spotify_playlist_id, spotify_playlist_name"
 )
-RECENT_SONG_COLUMNS = "release_date, genre, spotify_playlist_id, spotify_playlist_name, artist_name"
+NEARBY_SONG_COLUMNS = "release_date, genre, spotify_playlist_id, spotify_playlist_name, artist_name"
 # Reintentos del insert si otro proceso se queda antes con el mismo game_number.
 INSERT_ATTEMPTS = 3
 
@@ -108,8 +115,8 @@ def load_used_songs(supabase: Any) -> UsedSongs:
     return used
 
 
-def load_recent_games(supabase: Any, pending_dates: list[str]) -> list[dict]:
-    """Juegos alrededor de las fechas pendientes, para las reglas 2-5.
+def load_nearby_games(supabase: Any, pending_dates: list[str]) -> list[dict]:
+    """Juegos a ROTATION_DAYS días o menos de las fechas pendientes, para las reglas 2-5.
 
     Se leen una sola vez para todas las fechas: lo que se cree en esta ejecución se añade a la
     lista en memoria, así que la segunda fecha ya ve la primera (y la simulación también).
@@ -118,7 +125,7 @@ def load_recent_games(supabase: Any, pending_dates: list[str]) -> list[dict]:
     until = (date.fromisoformat(pending_dates[-1]) + timedelta(days=ROTATION_DAYS)).isoformat()
     r = (
         supabase.table("ecos_games")
-        .select(f"date, ecos_songs({RECENT_SONG_COLUMNS})")
+        .select(f"date, ecos_songs({NEARBY_SONG_COLUMNS})")
         .gte("date", since)
         .lte("date", until)
         .execute()
@@ -235,12 +242,12 @@ def main() -> None:
         sys.exit(1)
 
     used = load_used_songs(supabase)
-    recent_games = load_recent_games(supabase, pending_dates)
+    nearby_games = load_nearby_games(supabase, pending_dates)
 
     created: list[str] = []
     failed: list[str] = []
     for target_date in pending_dates:
-        pick = pick_song(pool, used, recent_games, target_date, today, rng)
+        pick = pick_song(pool, used, nearby_games, target_date, rng)
         song = pick.song
         if pick.error or not song:
             msg = f"{target_date}: {pick.error}"
@@ -286,7 +293,7 @@ def main() -> None:
         # Estado local para que la siguiente fecha no repita canción y aplique las reglas 2-5
         # con este juego ya contado.
         used.add(song)
-        recent_games.append({"date": target_date, "ecos_songs": song})
+        nearby_games.append({"date": target_date, "ecos_songs": song})
 
         # El sorteo de reserva (regla 6) significa que las reglas no dejaron candidatos: se
         # registra como parcial para que destaque en el panel.
