@@ -1,10 +1,21 @@
 import { Suspense } from "react";
+import type { Metadata } from "next";
+import { getPageSeo } from "@/lib/seo/pageMeta";
 import { createClient } from "@/lib/supabase/server";
 import { HomeClient } from "@/components/home/HomeClient";
 import { HomeSkeleton } from "@/components/skeletons";
 import { loadHomePayload } from "@/lib/queries/home";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  return getPageSeo(locale, "/");
+}
 
 async function HomePageContent() {
   const supabase = await createClient();
