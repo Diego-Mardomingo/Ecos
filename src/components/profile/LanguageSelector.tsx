@@ -3,8 +3,10 @@
 import { useTransition } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter, usePathname } from "@/i18n/navigation";
-import { cn } from "@/lib/utils";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SettingsRow } from "@/components/profile/SettingsRow";
 
+/** Fila de ajustes para cambiar de idioma. El cambio va en una transición: re-renderiza la ruta. */
 export function LanguageSelector() {
   const t = useTranslations("profile.settings");
   const locale = useLocale();
@@ -20,36 +22,18 @@ export function LanguageSelector() {
   };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3.5">
-      <span aria-hidden
-        className="material-symbols-outlined text-xl text-brand"
-        style={{ fontVariationSettings: "'FILL' 1" }}
-      >
-        language
-      </span>
-      <span className="flex-1 text-left text-sm font-medium">
-        {t("language")}
-      </span>
-      <div
-        className={cn(
-          "flex gap-1 rounded-full bg-muted p-1 transition-opacity",
-          isPending && "opacity-70"
-        )}
-      >
-        {(["es", "en"] as const).map((loc) => (
-          <button
-            key={loc}
-            onClick={() => handleLocaleChange(loc)}
-            disabled={isPending}
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-medium transition-all",
-              locale === loc ? "bg-brand text-primary-foreground" : "text-muted-foreground"
-            )}
-          >
-            {loc === "es" ? "Español" : "English"}
-          </button>
-        ))}
-      </div>
-    </div>
+    <SettingsRow icon="translate" iconClass="bg-sky-500/15 text-sky-500" label={t("language")}>
+      <SegmentedControl
+        size="sm"
+        label={t("language")}
+        options={[
+          { value: "es", label: "ES" },
+          { value: "en", label: "EN" },
+        ]}
+        value={locale === "en" ? "en" : "es"}
+        onChange={handleLocaleChange}
+        disabled={isPending}
+      />
+    </SettingsRow>
   );
 }

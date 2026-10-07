@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueries,
@@ -11,36 +12,36 @@ import type {
   InProgressProgress,
   TodaysCompletedResult,
 } from "@/lib/queries/games";
-import type { GameProgress } from "@/lib/store/gameProgressStore";
+import { isTerminalProgress } from "@/lib/store/gameProgressStore";
 
 import {
-  HOME_DAY_STATUS_STALE_MS,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
-  HOME_TODAY_STALE_MS,
+  HOME_HISTORY_GC_MS,
+  HOME_USER_STATS_STALE_MS,
   PROFILE_STALE_MS,
   RANKING_STALE_MS,
+  SEARCH_STALE_MS,
   homeSessionSegment,
   queryKeys,
+  staleUntilMadridMidnight,
 } from "./queryKeys";
 import {
   fetchGameProgressById,
   fetchHomeDayStatusById,
-  fetchHomePreviousDaysData,
   fetchHomeTodayData,
   fetchHomeUserStatsData,
   fetchLeaderboardPeriodData,
   fetchProfileCoreData,
   fetchProfileStatsData,
+  postJson,
 } from "./queryFetchers";
 import {
-  applyOptimisticCompletionCaches,
-  applyOptimisticInProgressCaches,
-  invalidateAfterGameEvent,
+  applyGameOptimisticCaches,
   restoreGameCacheSnapshot,
+  syncQueriesAfterGameEvent,
   takeGameCacheSnapshot,
 } from "./gameCacheSync";
 import type {
+  HomeData,
   ProfileData,
   SkipAttemptRequest,
   SkipAttemptResponse,
@@ -48,9 +49,8 @@ import type {
   ValidateGuessResponse,
   GameCacheSnapshot,
   GameMutationEvent,
+  GameOptimistic,
   GameProgressData,
-  HomeData,
-  HomeDayStatusData,
   HomePreviousDaysData,
   HomeTodayData,
   HomeUserStatsData,
@@ -61,43 +61,32 @@ import type {
 } from "./queryTypes";
 
 /**
- * Módulo central de datos en cliente. Sigue siendo el punto de importación de toda la app
- * (`@/lib/hooks/queries`), pero ahora solo contiene los hooks y los fetchers: las claves están en
- * `queryKeys.ts`, las formas de datos en `queryTypes.ts` y el parcheado de caché en
- * `gameCacheSync.ts`. Se re-exporta todo para no cambiar ningún sitio de uso.
+ * Módulo central de datos en cliente y punto de importación de toda la app
+ * (`@/lib/hooks/queries`). Aquí viven los hooks y las opciones de cada query; las claves están en
+ * `queryKeys.ts`, las formas de datos en `queryTypes.ts`, los fetchers en `queryFetchers.ts` y el
+ * parcheado de caché en `gameCacheSync.ts`. Se re-exporta solo lo que se importa desde fuera.
  */
 export {
-  HOME_DAY_STATUS_STALE_MS,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
-  HOME_TODAY_STALE_MS,
   PROFILE_STALE_MS,
   RANKING_STALE_MS,
   homeSessionSegment,
   queryKeys,
 };
 export {
-  fetchGameProgressById,
   fetchHomeDayStatusById,
-  fetchHomePreviousDaysData,
   fetchHomeTodayData,
   fetchHomeUserStatsData,
   fetchLeaderboardPeriodData,
   fetchProfileCoreData,
   fetchProfileStatsData,
 };
+export { ApiError } from "./queryFetchers";
 export {
-  applyOptimisticCompletionCaches,
-  applyOptimisticInProgressCaches,
-  completionToGameProgress,
-  inProgressToGameProgress,
-  invalidateAfterGameEvent,
-  patchHomePreviousDaysAllFromDayStatus,
-  primeHomeDayStatusCache,
+  applyConfirmedProgressCaches,
   primePlayQueriesFromHomeInitialData,
-  syncQueriesAfterGameEvent,
 } from "./gameCacheSync";
 export type {
+  GameOptimistic,
   GameProgressData,
   HomeData,
   HomeDayStatusData,
@@ -105,69 +94,107 @@ export type {
   HomeTodayData,
   HomeUserStatsData,
   RankingData,
-  RankingStatsPeriod,
-  SkipAttemptRequest,
-  SkipAttemptResponse,
-  ValidateGuessRequest,
-  ValidateGuessResponse,
 } from "./queryTypes";
 export type { InProgressProgress, TodaysCompletedResult };
 
+/* -------------------------------------------------------------------------------------------- */
+/* Home                                                                                          */
+/* -------------------------------------------------------------------------------------------- */
 
+/**
+ * Carga completa de la home (`/api/home`): hoy, histórico y estadísticas en una sola petición.
+ * `effectiveDate` solo para la precarga del día siguiente en el último minuto antes de medianoche
+ * (la ruta lo ignora fuera de esa ventana).
+ */
+export async function fetchHomeData(effectiveDate?: string): Promise<HomeData> {
+  const url = effectiveDate
+    ? `/api/home?effectiveDate=${encodeURIComponent(effectiveDate)}`
+    : "/api/home";
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch home data");
+  return res.json();
+}
 
-export function useHomeData(
-  userId: string | null,
-  initialData?: HomeData
-) {
-  return useQuery({
-    queryKey: queryKeys.home.all(userId),
-    queryFn: async (): Promise<HomeData> => {
-      const res = await fetch("/api/home", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch home data");
-      return res.json();
-    },
-    initialData,
+export function homeTodayFromHomeData(data: HomeData): HomeTodayData {
+  return {
+    todaysGame: data.todaysGame,
+    todaysCompletedResult: data.todaysCompletedResult ?? null,
+    todaysInProgress: data.todaysGame
+      ? (data.inProgressByGameId?.[data.todaysGame.id] ?? null)
+      : null,
+    userId: data.userId,
+  };
+}
+
+export function homeHistoryFromHomeData(data: HomeData): HomePreviousDaysData {
+  return {
+    previousDays: data.previousDays,
+    userId: data.userId,
+    inProgressByGameId: data.inProgressByGameId ?? {},
+  };
+}
+
+export function homeUserStatsFromHomeData(data: HomeData): HomeUserStatsData {
+  return {
+    userStats: data.userStats ?? null,
+    rankingRanks: data.rankingRanks,
+    rankingStats: data.rankingStats,
+    userId: data.userId,
+  };
+}
+
+/**
+ * Opciones de cada query de la home: clave, fetcher y frescura juntos, para que el hook, los
+ * `prefetchQuery` y los `fetchQuery` no los vuelvan a declarar cada uno a su manera (DUP-10).
+ *
+ * `today` e histórico solo cambian con el día de juego o por jugadas propias (que se parchean en
+ * caché), así que son frescos hasta la medianoche de Madrid. Además, la home los vuelve a sembrar
+ * con el RSC de cada visita (`HomeClient`), así que en la práctica no se piden por API.
+ */
+export function homeTodayQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.home.today(userId),
+    queryFn: fetchHomeTodayData,
+    staleTime: staleUntilMadridMidnight,
   });
 }
 
+/**
+ * Histórico completo de la home. Normalmente lo trae el RSC; esta petición es el respaldo para
+ * cuando la página no lo trae alineado con la sesión del cliente (un cambio de usuario en curso).
+ * Antes se reconstruía pidiendo `/api/home/months` y un `previous-days` por mes, en cada vuelta a
+ * la home: 13 peticiones que crecían una al mes (PDATA-05).
+ */
+export function homeHistoryQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.home.previousDaysAll(userId),
+    queryFn: async () => homeHistoryFromHomeData(await fetchHomeData()),
+    staleTime: staleUntilMadridMidnight,
+    gcTime: HOME_HISTORY_GC_MS,
+  });
+}
 
-
-
+export function homeUserStatsQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.home.userStats(userId),
+    queryFn: fetchHomeUserStatsData,
+    staleTime: HOME_USER_STATS_STALE_MS,
+  });
+}
 
 export function useHomeToday(
   userId: string | null,
   initialData?: HomeTodayData
 ) {
-  return useQuery({
-    queryKey: queryKeys.home.today(userId),
-    queryFn: fetchHomeTodayData,
-    initialData,
-    staleTime: HOME_TODAY_STALE_MS,
-    /**
-     * Refetch en montaje solo cuando está stale.
-     * Los casos críticos play->home se fuerzan con señal de sincronización dirigida.
-     */
-    refetchOnMount: true,
-  });
+  return useQuery({ ...homeTodayQueryOptions(userId), initialData });
 }
 
-export function useHomePreviousDays(
-  month: string,
+/** `initialData` puede ser una función: el histórico solo se construye si la query aún no existe. */
+export function useHomeHistory(
   userId: string | null,
-  initialData?: HomePreviousDaysData
+  initialData?: HomePreviousDaysData | (() => HomePreviousDaysData)
 ) {
-  return useQuery({
-    queryKey: queryKeys.home.previousDays(month, userId),
-    queryFn: () => fetchHomePreviousDaysData(month),
-    initialData,
-    staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-    gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-    /**
-     * Refetch en montaje solo cuando está stale.
-     * Los casos críticos play->home se fuerzan con señal de sincronización dirigida.
-     */
-    refetchOnMount: true,
-  });
+  return useQuery({ ...homeHistoryQueryOptions(userId), initialData });
 }
 
 export function useHomeUserStats(
@@ -175,27 +202,35 @@ export function useHomeUserStats(
   initialData?: HomeUserStatsData
 ) {
   return useQuery({
-    queryKey: queryKeys.home.userStats(userId),
-    queryFn: fetchHomeUserStatsData,
+    ...homeUserStatsQueryOptions(userId),
     initialData,
     enabled: userId != null,
-    staleTime: HOME_TODAY_STALE_MS,
   });
 }
 
+/** Partida terminada con su lista de intentos: ya no puede cambiar. */
+function isSettledGameProgress(data: GameProgressData | undefined): boolean {
+  const progress = data?.progress;
+  return isTerminalProgress(progress) && (progress?.guesses?.length ?? 0) > 0;
+}
 
-export function useHomeDayStatus(
-  gameId: string,
-  initialData?: HomeDayStatusData,
-  options?: { enabled?: boolean }
-) {
-  return useQuery({
-    queryKey: queryKeys.home.dayStatus(gameId),
-    queryFn: () => fetchHomeDayStatusById(gameId),
-    initialData,
-    enabled: (options?.enabled ?? true) && !!gameId,
-    staleTime: HOME_DAY_STATUS_STALE_MS,
-  });
+/**
+ * Frescura del progreso **al abrir la partida**. Por defecto se pide siempre al montar: el GET
+ * trae los intentos y tiene que ganar a una caché incompleta (un resumen sin intentos, una partida
+ * a medias que avanzó en otro dispositivo).
+ *
+ * La excepción es una partida terminada con sus intentos que ya ha pasado por la caché
+ * (`dataUpdateCount > 0`: respuesta del servidor, jugada confirmada o caché persistida): no puede
+ * cambiar, así que no se vuelve a pedir. Si solo es el `initialData` que pone `GameClient` desde el
+ * progreso local, se pide igual: puede venir de una partida de invitado que el servidor no tiene,
+ * y la reconciliación de `GameClient` necesita la respuesta.
+ */
+function openGameProgressStaleTime(query: {
+  state: { data?: GameProgressData; dataUpdateCount: number };
+}): number {
+  return query.state.dataUpdateCount > 0 && isSettledGameProgress(query.state.data)
+    ? Infinity
+    : 0;
 }
 
 export function useGameProgressById(
@@ -207,12 +242,41 @@ export function useGameProgressById(
     queryFn: () => fetchGameProgressById(gameId),
     enabled: (options?.enabled ?? true) && !!gameId,
     initialData: options?.initialData,
-    /** Siempre pedir datos al montar la partida: el GET incluye intentos y debe ganar a caché incompleta. */
-    staleTime: 0,
+    staleTime: openGameProgressStaleTime,
     gcTime: 5 * 60 * 1000,
   });
 }
 
+/**
+ * Progreso de la partida recién pedido al servidor, sin pasar por caché. Para cuando el cliente
+ * sabe que su copia ya no vale (el servidor ha dicho que la partida estaba cerrada, o ha
+ * registrado la jugada en otro intento).
+ */
+export function fetchFreshGameProgress(
+  queryClient: QueryClient,
+  gameId: string
+): Promise<GameProgressData> {
+  return queryClient.fetchQuery({
+    queryKey: queryKeys.game.progress(gameId),
+    queryFn: () => fetchGameProgressById(gameId),
+    staleTime: 0,
+  });
+}
+
+/**
+ * Frescura del progreso **para precargarlo**. Una partida terminada con su lista de intentos ya no
+ * puede cambiar: no hace falta volver a pedirla. Lo demás se precarga como mucho cada 30 s, para
+ * que pasar el dedo o el ratón varias veces por el mismo día no repita la petición (`/play` la
+ * vuelve a pedir al montar de todas formas).
+ */
+function gameProgressStaleTime(query: { state: { data?: GameProgressData } }): number {
+  return isSettledGameProgress(query.state.data) ? Infinity : 30 * 1000;
+}
+
+/**
+ * Precarga el progreso de una partida antes de abrirla (intención del usuario en la home). Si la
+ * caché ya tiene la partida terminada con sus intentos, no hace nada.
+ */
 export function prefetchGameProgressById(
   queryClient: QueryClient,
   gameId: string
@@ -221,95 +285,34 @@ export function prefetchGameProgressById(
   return queryClient.prefetchQuery({
     queryKey: queryKeys.game.progress(gameId),
     queryFn: () => fetchGameProgressById(gameId),
-    /** Alineado con `useGameProgressById` — el GET debe poder sustituir seeds de la home. */
-    staleTime: 0,
+    staleTime: gameProgressStaleTime,
   });
 }
 
-
-export function prefetchHomeDayStatusById(
-  queryClient: QueryClient,
-  gameId: string
-) {
-  if (!gameId) return Promise.resolve();
-  return queryClient.prefetchQuery({
-    queryKey: queryKeys.home.dayStatus(gameId),
-    queryFn: () => fetchHomeDayStatusById(gameId),
-    staleTime: HOME_DAY_STATUS_STALE_MS,
-  });
-}
-
-interface GameMutationBaseInput {
+interface GameMutationInput<TRequest> {
   userId: string | null;
   gameId: string;
   song: SongSnapshot;
   event: GameMutationEvent;
+  request: TRequest;
+  optimistic: GameOptimistic;
 }
 
-interface ValidateGuessMutationInput extends GameMutationBaseInput {
-  request: ValidateGuessRequest;
-  optimistic:
-    | {
-        type: "inProgress";
-        inProgress: InProgressProgress;
-      }
-    | {
-        type: "completion";
-        won: boolean;
-        score: number | null;
-        completedProgress?: {
-          gameDate?: string;
-          guesses?: GameProgress["guesses"];
-          correctAttempt?: number;
-        };
-      };
-}
-
-interface SkipAttemptMutationInput extends GameMutationBaseInput {
-  request: SkipAttemptRequest;
-  optimistic:
-    | {
-        type: "inProgress";
-        inProgress: InProgressProgress;
-      }
-    | {
-        type: "completion";
-        won: boolean;
-        score: number | null;
-        completedProgress?: {
-          gameDate?: string;
-          guesses?: GameProgress["guesses"];
-          correctAttempt?: number;
-        };
-      };
-}
-
-export function useValidateGuessMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation<
-    ValidateGuessResponse,
-    Error,
-    ValidateGuessMutationInput,
-    GameCacheSnapshot
-  >({
-    mutationKey: ["game", "validate-guess"],
-    meta: { skipGlobalErrorToast: true },
-    mutationFn: async ({ request }) => {
-      const res = await fetch("/api/validate-guess", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      const data = (await res.json()) as ValidateGuessResponse;
-      if (!res.ok) {
-        throw new Error(
-          typeof data.error === "string" ? data.error : "Failed to validate guess"
-        );
-      }
-      return data;
-    },
-    onMutate: async (variables) => {
+/**
+ * Ciclo de vida común a las dos mutaciones de partida (intento y salto), que antes estaba
+ * copiado entero en cada una.
+ *
+ * - `onMutate`: cancela los refetch en vuelo de esta partida (no pueden pisar lo optimista),
+ *   guarda una foto de la caché y aplica el cambio optimista.
+ * - `onError`: vuelve a la foto. Solo se llega aquí si el servidor **no** ha aceptado la jugada.
+ * - `onSuccess`: lanza la sincronización en segundo plano y **no la espera**. Antes la esperaba:
+ *   la mutación tardaba varios segundos en resolverse (cuatro refetch en serie), la partida
+ *   descartaba en silencio cualquier jugada hecha mientras tanto, y si fallaba un refetch se
+ *   revertía en pantalla una jugada que el servidor ya había guardado (PDATA-01).
+ */
+function gameMutationCallbacks<TRequest>(queryClient: QueryClient) {
+  return {
+    onMutate: async (variables: GameMutationInput<TRequest>) => {
       const { userId, gameId, optimistic, song } = variables;
       await Promise.all([
         queryClient.cancelQueries({
@@ -326,26 +329,14 @@ export function useValidateGuessMutation() {
       ]);
 
       const snapshot = takeGameCacheSnapshot(queryClient, userId, gameId);
-      if (optimistic.type === "completion") {
-        applyOptimisticCompletionCaches(queryClient, {
-          userId,
-          gameId,
-          won: optimistic.won,
-          score: optimistic.score,
-          song,
-          completedProgress: optimistic.completedProgress,
-        });
-      } else {
-        applyOptimisticInProgressCaches(queryClient, {
-          userId,
-          gameId,
-          inProgress: optimistic.inProgress,
-          song,
-        });
-      }
+      applyGameOptimisticCaches(queryClient, { userId, gameId, song, optimistic });
       return snapshot;
     },
-    onError: (_error, variables, context) => {
+    onError: (
+      _error: Error,
+      variables: GameMutationInput<TRequest>,
+      context: GameCacheSnapshot | undefined
+    ) => {
       restoreGameCacheSnapshot(
         queryClient,
         variables.userId,
@@ -353,13 +344,34 @@ export function useValidateGuessMutation() {
         context
       );
     },
-    onSuccess: async (_data, variables) => {
-      await invalidateAfterGameEvent(queryClient, {
+    onSuccess: (_data: unknown, variables: GameMutationInput<TRequest>) => {
+      void syncQueriesAfterGameEvent(queryClient, {
         userId: variables.userId,
         gameId: variables.gameId,
         event: variables.event,
       });
     },
+  };
+}
+
+export function useValidateGuessMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    ValidateGuessResponse,
+    Error,
+    GameMutationInput<ValidateGuessRequest>,
+    GameCacheSnapshot
+  >({
+    mutationKey: ["game", "validate-guess"],
+    meta: { skipGlobalErrorToast: true },
+    mutationFn: ({ request }) =>
+      postJson<ValidateGuessResponse>(
+        "/api/validate-guess",
+        request,
+        "Failed to validate guess"
+      ),
+    ...gameMutationCallbacks<ValidateGuessRequest>(queryClient),
   });
 }
 
@@ -369,76 +381,18 @@ export function useSkipAttemptMutation() {
   return useMutation<
     SkipAttemptResponse,
     Error,
-    SkipAttemptMutationInput,
+    GameMutationInput<SkipAttemptRequest>,
     GameCacheSnapshot
   >({
     mutationKey: ["game", "skip-attempt"],
     meta: { skipGlobalErrorToast: true },
-    mutationFn: async ({ request }) => {
-      const res = await fetch("/api/skip-attempt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      const data = (await res.json()) as SkipAttemptResponse;
-      if (!res.ok) {
-        throw new Error(
-          typeof data.error === "string" ? data.error : "Failed to skip attempt"
-        );
-      }
-      return data;
-    },
-    onMutate: async (variables) => {
-      const { userId, gameId, optimistic, song } = variables;
-      await Promise.all([
-        queryClient.cancelQueries({
-          queryKey: queryKeys.home.dayStatus(gameId),
-        }),
-        queryClient.cancelQueries({
-          queryKey: queryKeys.game.progress(gameId),
-        }),
-        userId
-          ? queryClient.cancelQueries({
-              queryKey: queryKeys.home.today(userId),
-            })
-          : Promise.resolve(),
-      ]);
-
-      const snapshot = takeGameCacheSnapshot(queryClient, userId, gameId);
-      if (optimistic.type === "completion") {
-        applyOptimisticCompletionCaches(queryClient, {
-          userId,
-          gameId,
-          won: optimistic.won,
-          score: optimistic.score,
-          song,
-          completedProgress: optimistic.completedProgress,
-        });
-      } else {
-        applyOptimisticInProgressCaches(queryClient, {
-          userId,
-          gameId,
-          inProgress: optimistic.inProgress,
-          song,
-        });
-      }
-      return snapshot;
-    },
-    onError: (_error, variables, context) => {
-      restoreGameCacheSnapshot(
-        queryClient,
-        variables.userId,
-        variables.gameId,
-        context
-      );
-    },
-    onSuccess: async (_data, variables) => {
-      await invalidateAfterGameEvent(queryClient, {
-        userId: variables.userId,
-        gameId: variables.gameId,
-        event: variables.event,
-      });
-    },
+    mutationFn: ({ request }) =>
+      postJson<SkipAttemptResponse>(
+        "/api/skip-attempt",
+        request,
+        "Failed to skip attempt"
+      ),
+    ...gameMutationCallbacks<SkipAttemptRequest>(queryClient),
   });
 }
 
@@ -454,20 +408,13 @@ export function useUpdateProfileMutation() {
   return useMutation({
     mutationKey: ["profile", "update"],
     meta: { skipGlobalErrorToast: true },
-    mutationFn: async (input: UpdateProfileInput) => {
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        throw new Error(
-          typeof json.error === "string" ? json.error : "Failed to update profile"
-        );
-      }
-      return json;
-    },
+    mutationFn: (input: UpdateProfileInput) =>
+      postJson<{ error?: string }>(
+        "/api/profile",
+        input,
+        "Failed to update profile",
+        "PATCH"
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.profile.all });
     },
@@ -485,17 +432,7 @@ export function useSubmitFeedbackMutation() {
     mutationKey: ["feedback", "submit"],
     meta: { skipGlobalErrorToast: true },
     mutationFn: async (input: SubmitFeedbackInput) => {
-      const res = await fetch("/api/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      if (!res.ok) {
-        const json = (await res.json()) as { error?: string };
-        throw new Error(
-          typeof json.error === "string" ? json.error : "Failed to submit feedback"
-        );
-      }
+      await postJson("/api/feedback", input, "Failed to submit feedback");
     },
   });
 }
@@ -503,12 +440,7 @@ export function useSubmitFeedbackMutation() {
 export interface ReportGameInput {
   gameId: string;
   songId: string;
-  reason:
-    | "bad_audio"
-    | "wrong_video"
-    | "intro_problem"
-    | "explicit_content"
-    | "other";
+  reason: "bad_audio" | "intro_problem" | "explicit_content" | "other";
   description?: string;
 }
 
@@ -516,20 +448,8 @@ export function useReportGameMutation() {
   return useMutation({
     mutationKey: ["game", "report"],
     meta: { skipGlobalErrorToast: true },
-    mutationFn: async (input: ReportGameInput) => {
-      const res = await fetch("/api/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        throw new Error(
-          typeof json.error === "string" ? json.error : "Failed to save report"
-        );
-      }
-      return json;
-    },
+    mutationFn: (input: ReportGameInput) =>
+      postJson<{ error?: string }>("/api/report", input, "Failed to save report"),
   });
 }
 
@@ -537,17 +457,12 @@ export function useLeaderboard(
   period: "weekly" | "monthly" | "global",
   initialByPeriod?: Partial<
     Record<"weekly" | "monthly" | "global", RankingData>
-  >,
-  legacyInitialData?: RankingData
+  >
 ) {
-  const initialData =
-    initialByPeriod?.[period] ??
-    (period === "global" ? legacyInitialData : undefined);
-
   return useQuery({
     queryKey: queryKeys.ranking.period(period),
     queryFn: () => fetchLeaderboardPeriodData(period),
-    initialData,
+    initialData: initialByPeriod?.[period],
     staleTime: RANKING_STALE_MS,
   });
 }
@@ -616,6 +531,35 @@ export function useLeaderboardHistoryDetail(
   });
 }
 
+export function profileCoreQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.profile.section("core", userId),
+    queryFn: fetchProfileCoreData,
+    staleTime: PROFILE_STALE_MS,
+  });
+}
+
+export function profileStatsQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.profile.section("stats", userId),
+    queryFn: fetchProfileStatsData,
+    staleTime: PROFILE_STALE_MS,
+  });
+}
+
+/**
+ * Solo el núcleo del perfil (nombre, avatar). Para las barras de navegación, que antes usaban
+ * `useProfile` y pedían también las estadísticas (dos RPC pesadas) solo para pintar el nombre
+ * (PDATA-10).
+ */
+export function useProfileCore(userId: string | null) {
+  return useQuery({
+    ...profileCoreQueryOptions(userId),
+    retry: 1,
+    enabled: userId != null,
+  });
+}
+
 export function useProfile(
   profileUserId: string | null,
   initialData?: ProfileData,
@@ -637,20 +581,16 @@ export function useProfile(
   const [coreQuery, statsQuery] = useQueries({
     queries: [
       {
-        queryKey: queryKeys.profile.section("core", profileUserId),
-        queryFn: fetchProfileCoreData,
+        ...profileCoreQueryOptions(profileUserId),
         initialData: initialCoreData,
         retry: 1,
         enabled,
-        staleTime: PROFILE_STALE_MS,
       },
       {
-        queryKey: queryKeys.profile.section("stats", profileUserId),
-        queryFn: fetchProfileStatsData,
+        ...profileStatsQueryOptions(profileUserId),
         initialData: initialStatsData,
         retry: 1,
         enabled,
-        staleTime: PROFILE_STALE_MS,
       },
     ],
   });
@@ -696,10 +636,13 @@ export function useSearchSongs(query: string) {
       const res = await fetch(
         `/api/search-songs?q=${encodeURIComponent(query.trim())}`
       );
-      const json = (await res.json()) as { data: EcosSong[] };
+      // Un fallo de la API no es «sin resultados»: se lanza para que el buscador pueda decirlo
+      // (UX-04). Antes un 401 o un 500 se convertía en una lista vacía.
+      if (!res.ok) throw new Error(`Failed to search songs (${res.status})`);
+      const json = (await res.json()) as { data?: EcosSong[] };
       return json.data ?? [];
     },
     enabled: query.trim().length >= 2,
-    staleTime: 60 * 1000,
+    staleTime: SEARCH_STALE_MS,
   });
 }

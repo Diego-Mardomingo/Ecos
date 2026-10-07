@@ -1,110 +1,95 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import {
+  GUESS_COLUMNS,
+  getGameByIdCached,
+  isFutureGame,
+  toInProgress,
+  type GuessRow,
+} from "@/lib/queries/games";
+import {
+  getRequestUser,
+  handleRoute,
+  isUuid,
+  jsonError,
+  PRIVATE_NO_STORE,
+} from "@/lib/api/route";
 
 type Params = { params: Promise<{ gameId: string }> };
 
-export async function GET(_request: NextRequest, { params }: Params) {
-  try {
+const notPlayed = (gameId: string) => ({
+  gameId,
+  played: false,
+  won: false,
+  score: null,
+  title: "",
+  artist_name: "",
+  cover_url: "",
+  inProgress: null,
+});
+
+/**
+ * Estado de un día para la home: jugado (con la canción), a medias (con los intentos) o sin jugar.
+ * La canción solo sale si el usuario tiene puntuación en ese juego.
+ */
+export const GET = handleRoute(
+  "api/home/day/[gameId]/status",
+  async (_request: NextRequest, { params }: Params) => {
     const { gameId } = await params;
-    if (!gameId) {
-      return NextResponse.json({ error: "Missing gameId" }, { status: 400 });
-    }
+    if (!gameId) return jsonError(400, "Missing gameId");
+    if (!isUuid(gameId)) return jsonError(404, "Game not found");
 
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // El juego (de la caché de servidor) no depende de la sesión: van a la vez.
+    const [{ supabase, user }, game] = await Promise.all([
+      getRequestUser(),
+      getGameByIdCached(gameId),
+    ]);
 
-    const { data: game } = await supabase
-      .from("ecos_games")
-      .select("id, date, ecos_songs(title, artist_name, cover_url)")
-      .eq("id", gameId)
-      .single();
+    // Un juego futuro no existe para nadie (es lo que ya hacía la RLS de ecos_games).
+    if (!game || isFutureGame(game)) return jsonError(404, "Game not found");
 
-    if (!game) {
-      return NextResponse.json({ error: "Game not found" }, { status: 404 });
-    }
+    if (!user) return NextResponse.json(notPlayed(gameId), { headers: PRIVATE_NO_STORE });
 
-    if (!user) {
-      return NextResponse.json({
-        gameId,
-        played: false,
-        won: false,
-        score: null,
-        title: "",
-        artist_name: "",
-        cover_url: "",
-        inProgress: null,
-      });
-    }
+    const [scoreRes, guessesRes] = await Promise.all([
+      supabase
+        .from("ecos_scores")
+        .select("points, correct")
+        .eq("user_id", user.id)
+        .eq("game_id", gameId)
+        .maybeSingle(),
+      supabase
+        .from("ecos_guesses")
+        .select(GUESS_COLUMNS)
+        .eq("user_id", user.id)
+        .eq("game_id", gameId)
+        .order("attempt_number", { ascending: true }),
+    ]);
+    if (scoreRes.error) throw scoreRes.error;
+    if (guessesRes.error) throw guessesRes.error;
 
-    const { data: scoreRow } = await supabase
-      .from("ecos_scores")
-      .select("points, correct")
-      .eq("user_id", user.id)
-      .eq("game_id", gameId)
-      .maybeSingle();
-
+    const scoreRow = scoreRes.data;
     if (scoreRow) {
-      const songRaw = Array.isArray(game.ecos_songs)
-        ? game.ecos_songs[0]
-        : game.ecos_songs;
-      const song = songRaw as {
-        title: string;
-        artist_name: string;
-        cover_url: string | null;
-      } | null;
-
-      return NextResponse.json({
-        gameId,
-        played: true,
-        won: scoreRow.correct === true,
-        score: scoreRow.points ?? null,
-        title: song?.title ?? "",
-        artist_name: song?.artist_name ?? "",
-        cover_url: song?.cover_url ?? "",
-        inProgress: null,
-      });
+      const song = game.ecos_songs;
+      return NextResponse.json(
+        {
+          gameId,
+          played: true,
+          won: scoreRow.correct === true,
+          score: scoreRow.points ?? null,
+          title: song.title ?? "",
+          artist_name: song.artist_name ?? "",
+          cover_url: song.cover_url ?? "",
+          inProgress: null,
+        },
+        { headers: PRIVATE_NO_STORE }
+      );
     }
 
-    const { data: guesses } = await supabase
-      .from("ecos_guesses")
-      .select("guess_text, correct, correct_artist, correct_album, attempt_number")
-      .eq("user_id", user.id)
-      .eq("game_id", gameId)
-      .order("attempt_number", { ascending: true });
-
-    const inProgress =
-      guesses && guesses.length > 0
-        ? {
-            gameId,
-            gameDate: game.date ?? "",
-            guesses: guesses.map((g) => ({
-              text: g.guess_text,
-              correct: g.correct ?? false,
-              correctArtist: g.correct_artist ?? false,
-              correctAlbum: g.correct_album ?? false,
-              attemptNumber: g.attempt_number,
-            })),
-            phase: "playing" as const,
-          }
-        : null;
-
-    return NextResponse.json({
-      gameId,
-      played: false,
-      won: false,
-      score: null,
-      title: "",
-      artist_name: "",
-      cover_url: "",
-      inProgress,
-    });
-  } catch (err) {
-    console.error("api/home/day/[gameId]/status error:", err);
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+      {
+        ...notPlayed(gameId),
+        inProgress: toInProgress(gameId, game.date ?? "", (guessesRes.data ?? []) as GuessRow[]),
+      },
+      { headers: PRIVATE_NO_STORE }
     );
   }
-}
+);

@@ -1,0 +1,77 @@
+# Comprobación de juegos: falla (y GitHub avisa por email) si falta el juego de hoy o de mañana
+# en Madrid, o si su preview no responde. Si falta alguno de los tres próximos días, antes lanza
+# el selector para crearlo, así que un cron diario retrasado o saltado se arregla solo.
+#
+# Cada 3 h: como mira hasta pasado mañana, el retraso habitual de los crons de Actions (2-6 h)
+# no importa.
+#
+# El repo es público, y en un repo público GitHub desactiva los workflows programados tras 60
+# días sin actividad en el repo. El job `keepalive` los reactiva cada lunes por la API. Que eso
+# reinicie el contador es lo que hacen las acciones de keepalive conocidas, pero GitHub no lo
+# documenta: si un día dejan de correr, reactívalos a mano desde la pestaña Actions.
+name: Check Games
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Mismo grupo que daily-game.yml: el paso de reparación también crea juegos.
+concurrency:
+  group: game-selection
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements-selector.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements-selector.txt
+
+      - name: Check coverage
+        id: coverage
+        run: python scripts/check-games.py --previa
+
+      # Si el selector falla, la comprobación final lo ve (falta el juego, o queda una fila
+      # failure en ecos_system_logs) y es la que decide el color del run.
+      - name: Create missing games
+        if: steps.coverage.outputs.missing_dates != ''
+        continue-on-error: true
+        run: python scripts/select-daily-game.py
+
+      - name: Check games
+        run: python scripts/check-games.py
+
+  keepalive:
+    if: github.event_name == 'schedule' && github.event.schedule == '41 5 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable scheduled workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for wf in check-games.yml daily-game.yml send-daily-notifications.yml weekly-ingest.yml; do
+            gh api --method PUT "repos/$REPO/actions/workflows/$wf/enable"
+            echo "Reactivado: $wf"
+          done

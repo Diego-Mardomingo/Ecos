@@ -193,12 +193,14 @@ alter table public.ecos_leaderboard add constraint ecos_leaderboard_user_id_fkey
   FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 alter table public.ecos_reports add constraint ecos_reports_pkey PRIMARY KEY (id);
+-- ON DELETE SET NULL (DATA-05): borrar un usuario, un juego o una canción con reportes ya no falla;
+-- el reporte se conserva sin la referencia.
 alter table public.ecos_reports add constraint ecos_reports_game_id_fkey
-  FOREIGN KEY (game_id) REFERENCES ecos_games(id);
+  FOREIGN KEY (game_id) REFERENCES ecos_games(id) ON DELETE SET NULL;
 alter table public.ecos_reports add constraint ecos_reports_song_id_fkey
-  FOREIGN KEY (song_id) REFERENCES ecos_songs(id);
+  FOREIGN KEY (song_id) REFERENCES ecos_songs(id) ON DELETE SET NULL;
 alter table public.ecos_reports add constraint ecos_reports_user_id_fkey
-  FOREIGN KEY (user_id) REFERENCES auth.users(id);
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
 alter table public.ecos_reports add constraint ecos_reports_reason_check
   CHECK ((reason = ANY (ARRAY['bad_audio'::text, 'wrong_video'::text, 'intro_problem'::text, 'explicit_content'::text, 'other'::text])));
 alter table public.ecos_reports add constraint ecos_reports_status_check
@@ -226,7 +228,7 @@ alter table public.ecos_spotify_playlists add constraint ecos_spotify_playlists_
 
 alter table public.ecos_system_logs add constraint ecos_system_logs_pkey PRIMARY KEY (id);
 alter table public.ecos_system_logs add constraint ecos_system_logs_job_type_check
-  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text])));
+  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text])));
 alter table public.ecos_system_logs add constraint ecos_system_logs_status_check
   CHECK ((status = ANY (ARRAY['success'::text, 'partial'::text, 'failure'::text])));
 
@@ -234,20 +236,20 @@ alter table public.ecos_system_logs add constraint ecos_system_logs_status_check
 -- Índices (los que no crea ya una constraint)
 -- ---------------------------------------------------------------------------------------------
 
-CREATE INDEX IF NOT EXISTS idx_ecos_games_date ON public.ecos_games USING btree (date DESC);
-CREATE INDEX IF NOT EXISTS idx_ecos_guesses_user_game ON public.ecos_guesses USING btree (user_id, game_id);
+-- Índices de FK con cascada real (PERFDB-13): sin ellos, borrar un juego o una canción recorría la
+-- tabla hija entera.
+CREATE INDEX IF NOT EXISTS ecos_guesses_game_id_idx ON public.ecos_guesses USING btree (game_id);
+CREATE INDEX IF NOT EXISTS ecos_games_song_id_idx ON public.ecos_games USING btree (song_id);
+-- Se borraron en oct. 2026 (PERFDB-12 / DEAD-19) por sin uso o por duplicar una UNIQUE:
+-- ecos_songs_fts (la búsqueda usa ILIKE), ecos_push_subscriptions_enabled_idx, idx_ecos_games_date,
+-- idx_ecos_guesses_user_game, idx_ecos_scores_user y ecos_push_subscriptions_user_id_idx.
 CREATE INDEX IF NOT EXISTS idx_ecos_leaderboard_points ON public.ecos_leaderboard USING btree (total_points DESC);
 CREATE INDEX IF NOT EXISTS idx_ecos_scores_game ON public.ecos_scores USING btree (game_id);
-CREATE INDEX IF NOT EXISTS idx_ecos_scores_user ON public.ecos_scores USING btree (user_id);
-CREATE INDEX IF NOT EXISTS ecos_songs_fts ON public.ecos_songs
-  USING gin (to_tsvector('spanish'::regconfig, ((COALESCE(title, ''::text) || ' '::text) || COALESCE(artist_name, ''::text))));
 -- Un único por canción, no por edición. Parcial a propósito: las copias desactivadas conviven
 -- con la que se quedó activa, y si algún día se retira una canción por audio malo se puede
 -- reingerir otra edición de la misma.
 CREATE UNIQUE INDEX IF NOT EXISTS ecos_songs_dedupe_key_activas_key ON public.ecos_songs
   USING btree (dedupe_key) WHERE is_active;
-CREATE INDEX IF NOT EXISTS ecos_push_subscriptions_user_id_idx ON public.ecos_push_subscriptions USING btree (user_id);
-CREATE INDEX IF NOT EXISTS ecos_push_subscriptions_enabled_idx ON public.ecos_push_subscriptions USING btree (enabled) WHERE (enabled = true);
 CREATE INDEX IF NOT EXISTS ecos_spotify_playlists_sort_order_idx ON public.ecos_spotify_playlists USING btree (sort_order);
 
 -- ---------------------------------------------------------------------------------------------

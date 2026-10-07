@@ -1,8 +1,10 @@
 -- Funciones de Ecos. Instantánea del proyecto real; ver README.md de este directorio.
 --
--- NO están aquí `get_leaderboard_by_period`, `get_leaderboard_period_summaries` ni
--- `get_user_ranking_stats`: esas ya viven en `supabase/migrations/`, que es su historia real.
--- Duplicarlas aquí solo crearía dos versiones que se pueden desincronizar.
+-- Las RPC de ranking (`get_leaderboard_by_period`, `get_leaderboard_period_summaries`,
+-- `get_user_ranking_stats`) están en `04_leaderboard.sql`, volcadas de la BD viva. Las
+-- migraciones de `supabase/migrations/` que las crearon (marzo 2026) están desfasadas respecto
+-- a lo que corre en producción (usan CURRENT_DATE/UTC y no respetan `show_avatar_in_rankings`):
+-- no son su historia real y no se deben reaplicar.
 --
 -- Tampoco están `is_admin`, `handle_new_user` ni `run_judi_daily_notification`: pese al nombre
 -- genérico, pertenecen a la otra aplicación que comparte el proyecto de Supabase. Ojo con
@@ -81,7 +83,7 @@ CREATE OR REPLACE FUNCTION public.ecos_dedupe_key(p_title text, p_artist text)
  STABLE
  SET search_path TO 'public'
 AS $function$
-  SELECT lower(btrim(regexp_replace(unaccent(coalesce(p_title, '')), '\s+', ' ', 'g')))
+  select lower(btrim(regexp_replace(unaccent(coalesce(p_title, '')), '\s+', ' ', 'g')))
       || E'\x1f'
       || lower(btrim(regexp_replace(unaccent(coalesce(p_artist, '')), '\s+', ' ', 'g')));
 $function$;
@@ -99,30 +101,70 @@ $function$;
 
 -- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con preview,
 -- que es lo único que el juego puede reproducir.
-CREATE OR REPLACE FUNCTION public.ecos_search_songs(p_query text, p_limit integer)
- RETURNS SETOF ecos_songs
+--
+-- Devuelve solo las columnas que usa /api/search-songs: con SETOF ecos_songs viajaba la fila
+-- entera (raw_spotify_data, preview_url…), 4,3 veces más bytes, y quien llamara a la RPC por REST
+-- se llevaba el preview_url de cualquier canción. El límite se acota dentro (1–200, 100 si llega
+-- NULL): antes un `LIMIT NULL` devolvía el catálogo entero.
+--
+-- Orden por relevancia, normalizando igual que el filtro (minúsculas y sin acentos):
+--   0 título idéntico a la consulta · 1 título que empieza por ella · 2 palabra completa del
+--   título · 3 artista que empieza por ella · 4 palabra completa del artista · 5 el resto.
+-- Desempate: título más corto, alfabético y por id (orden estable). Antes no había ORDER BY y,
+-- con «Así», la canción titulada exactamente «Así» salía la última de 19.
+--
+-- Cambiar el tipo de retorno obliga a DROP + CREATE, que se lleva los privilegios: se vuelven a
+-- conceder abajo (la RPC está abierta a propósito, ver 03_security.sql). Aplicada como migración
+-- 20261007120000_search_songs_relevance (supabase/migrations/).
+DROP FUNCTION IF EXISTS public.ecos_search_songs(text, integer);
+
+CREATE FUNCTION public.ecos_search_songs(p_query text, p_limit integer)
+ RETURNS TABLE(id uuid, title text, artist_name text, album_title text, cover_url text, spotify_id text)
  LANGUAGE sql
  STABLE
+ SET search_path TO 'public'
 AS $function$
-  SELECT *
-  FROM ecos_songs
-  WHERE is_active = true
-    AND preview_url IS NOT NULL
+  WITH q AS (
+    SELECT lower(unaccent(btrim(p_query))) AS nq
+  )
+  SELECT s.id, s.title, s.artist_name, s.album_title, s.cover_url, s.spotify_id
+  FROM ecos_songs s, q
+  WHERE s.is_active = true
+    AND s.preview_url IS NOT NULL
     AND (
-      unaccent(title) ILIKE '%' || unaccent(p_query) || '%'
-      OR unaccent(artist_name) ILIKE '%' || unaccent(p_query) || '%'
+      unaccent(s.title) ILIKE '%' || unaccent(p_query) || '%'
+      OR unaccent(s.artist_name) ILIKE '%' || unaccent(p_query) || '%'
     )
-  LIMIT p_limit;
+  ORDER BY
+    CASE
+      WHEN lower(unaccent(s.title)) = q.nq THEN 0
+      WHEN lower(unaccent(s.title)) LIKE q.nq || '%' THEN 1
+      WHEN ' ' || regexp_replace(lower(unaccent(s.title)), '[^[:alnum:]]+', ' ', 'g') || ' '
+           LIKE '% ' || q.nq || ' %' THEN 2
+      WHEN lower(unaccent(s.artist_name)) LIKE q.nq || '%' THEN 3
+      WHEN ' ' || regexp_replace(lower(unaccent(s.artist_name)), '[^[:alnum:]]+', ' ', 'g') || ' '
+           LIKE '% ' || q.nq || ' %' THEN 4
+      ELSE 5
+    END,
+    length(s.title),
+    lower(unaccent(s.title)),
+    s.id
+  LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 200);
 $function$;
+
+GRANT EXECUTE ON FUNCTION public.ecos_search_songs(text, integer)
+  TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_user_avg_guesses(p_user_id uuid)
  RETURNS real
  LANGUAGE sql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   SELECT COALESCE(AVG(guesses_used)::real, 0)
   FROM ecos_scores
-  WHERE user_id = p_user_id;
+  WHERE user_id = p_user_id
+    AND p_user_id = auth.uid();
 $function$;
 
 -- ---------------------------------------------------------------------------------------------
@@ -134,40 +176,15 @@ $function$;
 -- (ver src/lib/server-attempt.ts).
 -- ---------------------------------------------------------------------------------------------
 
--- OJO: hay dos sobrecargas de ecos_update_leaderboard. La de 4 argumentos es la antigua y no
--- respeta `p_update_streak` ni la hora de Madrid; la de 5 es la que usa el código. Se conserva
--- la primera porque sigue existiendo en el proyecto, pero es candidata a borrarse.
-CREATE OR REPLACE FUNCTION public.ecos_update_leaderboard(p_user_id uuid, p_points integer, p_won boolean, p_streak integer)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-BEGIN
-  INSERT INTO ecos_leaderboard (user_id, total_points, games_played, games_won, streak, last_played)
-  VALUES (p_user_id, p_points, 1, CASE WHEN p_won THEN 1 ELSE 0 END, p_streak, CURRENT_DATE)
-  ON CONFLICT (user_id) DO UPDATE SET
-    total_points  = ecos_leaderboard.total_points + p_points,
-    games_played  = ecos_leaderboard.games_played + 1,
-    games_won     = ecos_leaderboard.games_won + CASE WHEN p_won THEN 1 ELSE 0 END,
-    streak        = p_streak,
-    last_played   = CURRENT_DATE,
-    updated_at    = NOW();
-
-  -- Recalcular global_rank para todos
-  UPDATE ecos_leaderboard el
-  SET global_rank = ranked.rn
-  FROM (
-    SELECT user_id, ROW_NUMBER() OVER (ORDER BY total_points DESC) AS rn
-    FROM ecos_leaderboard
-  ) ranked
-  WHERE el.user_id = ranked.user_id;
-END;
-$function$;
-
+-- ecos_update_leaderboard ya no recalcula `global_rank` (PERFDB-08): reescribía todo el ranking en
+-- cada cierre de partida y nadie lo lee, las RPC de get_leaderboard_* calculan la posición al vuelo.
+-- La columna sigue existiendo, pero queda sin mantener. Tampoco existe ya la sobrecarga antigua de
+-- 4 argumentos (DEAD-16). Migración: 20261008120000_bd2_rendimiento_y_limpieza.
 CREATE OR REPLACE FUNCTION public.ecos_update_leaderboard(p_user_id uuid, p_points integer, p_won boolean, p_streak integer, p_update_streak boolean DEFAULT true)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   madrid_date date;
@@ -176,9 +193,7 @@ BEGIN
 
   INSERT INTO ecos_leaderboard (user_id, total_points, games_played, games_won, streak, max_streak, last_played)
   VALUES (
-    p_user_id,
-    p_points,
-    1,
+    p_user_id, p_points, 1,
     CASE WHEN p_won THEN 1 ELSE 0 END,
     CASE WHEN p_update_streak THEN p_streak ELSE 0 END,
     CASE WHEN p_update_streak THEN GREATEST(0, p_streak) ELSE 0 END,
@@ -192,23 +207,20 @@ BEGIN
     max_streak    = CASE WHEN p_update_streak THEN GREATEST(COALESCE(ecos_leaderboard.max_streak, 0), p_streak) ELSE ecos_leaderboard.max_streak END,
     last_played   = CASE WHEN p_update_streak THEN madrid_date ELSE ecos_leaderboard.last_played END,
     updated_at    = NOW();
-
-  UPDATE ecos_leaderboard el
-  SET global_rank = ranked.rn
-  FROM (
-    SELECT user_id, ROW_NUMBER() OVER (ORDER BY total_points DESC) AS rn
-    FROM ecos_leaderboard
-  ) ranked
-  WHERE el.user_id = ranked.user_id;
 END;
 $function$;
 
+-- Solo suma al ranking si la puntuación es nueva (DATA-02): `xmax = 0` distingue el INSERT del
+-- ON CONFLICT DO UPDATE. Antes, dos cierres simultáneos de la misma partida sumaban los puntos dos
+-- veces a ecos_leaderboard.
 CREATE OR REPLACE FUNCTION public.ecos_finalize_game_score(p_user_id uuid, p_game_id uuid, p_points integer, p_guesses_used integer, p_correct boolean, p_won boolean, p_streak integer, p_update_streak boolean)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+DECLARE
+  v_inserted boolean;
 BEGIN
   INSERT INTO ecos_scores (user_id, game_id, points, guesses_used, correct)
   VALUES (p_user_id, p_game_id, p_points, p_guesses_used, p_correct)
@@ -216,9 +228,12 @@ BEGIN
   DO UPDATE SET
     points = EXCLUDED.points,
     guesses_used = EXCLUDED.guesses_used,
-    correct = EXCLUDED.correct;
+    correct = EXCLUDED.correct
+  RETURNING (xmax = 0) INTO v_inserted;
 
-  PERFORM public.ecos_update_leaderboard(p_user_id, p_points, p_won, p_streak, p_update_streak);
+  IF v_inserted THEN
+    PERFORM public.ecos_update_leaderboard(p_user_id, p_points, p_won, p_streak, p_update_streak);
+  END IF;
 END;
 $function$;
 

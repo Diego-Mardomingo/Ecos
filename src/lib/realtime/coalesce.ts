@@ -1,31 +1,37 @@
 /**
- * Ventana de agrupación de eventos de realtime.
+ * Ventana de agrupación de los avisos de Realtime, en ms, y dispersión aleatoria que se le suma.
  *
- * En hora punta llegan muchos INSERT de `ecos_scores` casi a la vez, porque todo el mundo termina
- * el reto del día a la vez. Sin agrupar, cada cliente conectado recarga una vez por cada partida
- * que cierra cualquier usuario: un patrón que se amplifica solo.
+ * Cuando alguien cierra una partida, el aviso llega a **todos** los espectadores a la vez. Sin
+ * agrupar, cada uno recargaría el ranking una vez por partida; sin dispersar, todos lo harían en el
+ * mismo instante. Con esto, cada espectador recarga como mucho una vez por ventana, sean cuantos
+ * sean los avisos, y las recargas se reparten en el tiempo.
  */
-export const REALTIME_COALESCE_MS = 4000;
+const COALESCE_WINDOW_MS = 1500;
+const COALESCE_JITTER_MS = 2500;
 
 /**
- * Agrupa ráfagas de eventos en una sola ejecución, `delayMs` después del último.
+ * Agrupa ráfagas de avisos en una sola ejecución.
+ *
+ * El primer aviso arma un temporizador; los que lleguen mientras corre se absorben; al vencer
+ * ejecuta `run` una vez. Es una ventana fija, no un antirrebote: una racha continua de avisos no
+ * puede retrasar la recarga indefinidamente.
  *
  * Se crea dentro del efecto que abre el canal, y su `cancel()` va en el cleanup para que no quede
- * un timer pendiente tras desmontar.
+ * un temporizador pendiente tras desmontar.
  */
-export function createEventCoalescer(
-  run: () => void,
-  delayMs: number = REALTIME_COALESCE_MS
-) {
+export function createEventCoalescer(run: () => void) {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   return {
     schedule() {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        run();
-      }, delayMs);
+      if (timer) return;
+      timer = setTimeout(
+        () => {
+          timer = null;
+          run();
+        },
+        COALESCE_WINDOW_MS + Math.random() * COALESCE_JITTER_MS
+      );
     },
     cancel() {
       if (timer) clearTimeout(timer);

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -32,6 +33,15 @@ export async function requireAdmin(): Promise<{ error: string } | null> {
 }
 
 /**
+ * {@link requireAdmin} compartido dentro de un mismo render: cuando el layout de admin y la
+ * página se renderizan en la misma petición, la comprobación (`getUser()` + lectura del rol) se
+ * hace una vez y no dos. `cache()` vale por petición, así que no mezcla usuarios.
+ *
+ * Solo para Server Components. Las server actions siguen llamando a `requireAdmin()` sin caché.
+ */
+const requireAdminForRender = cache(requireAdmin);
+
+/**
  * Igual que {@link requireAdmin} pero para Server Components: corta el render con `notFound()`
  * en vez de devolver un error, para no revelar que la ruta de admin existe.
  *
@@ -40,6 +50,6 @@ export async function requireAdmin(): Promise<{ error: string } | null> {
  * página, con lo que un guard puesto solo en el layout no se volvería a ejecutar.
  */
 export async function requireAdminPage(): Promise<void> {
-  const denied = await requireAdmin();
+  const denied = await requireAdminForRender();
   if (denied) notFound();
 }

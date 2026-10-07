@@ -1,7 +1,13 @@
 {
   "name": "ECOS",
   "short_name": "ECOS",
+  "id": "/",
+  "lang": "es",
+  "description": "Adivina la canción del día escuchando fragmentos de audio.",
   "start_url": "/",
+  "scope": "/",
+  "orientation": "portrait",
+  "categories": ["games", "music"],
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { readJsonBody } from "@/lib/api/body-limit";
 import { z } from "zod";
 
 const FeedbackSchema = z.object({
@@ -9,10 +9,22 @@ const FeedbackSchema = z.object({
   email: z.string().email().max(320).optional().or(z.literal("")),
 });
 
+/**
+ * `message` admite 2.000 caracteres, que en UTF-8 pueden ser hasta ~8 KB; con el email y el
+ * resto del JSON, 16 KB deja margen sin abrir la puerta a cuerpos grandes.
+ */
+const FEEDBACK_BODY_LIMIT = 16 * 1024;
+
+/**
+ * Feedback desde la home. Es anónimo a propósito (también lo pueden mandar los invitados); si
+ * hay sesión, se guarda el `user_id`. El abuso de frecuencia lo corta la regla de rate limit del
+ * firewall de Vercel, y el tamaño, `readJsonBody`.
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const parsed = FeedbackSchema.safeParse(body);
+    const body = await readJsonBody(request, FEEDBACK_BODY_LIMIT);
+    if (!body.ok) return body.response;
+    const parsed = FeedbackSchema.safeParse(body.data);
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }

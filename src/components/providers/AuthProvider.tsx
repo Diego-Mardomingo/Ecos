@@ -3,13 +3,18 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
   clearSessionScopedClientData,
   getCachedSessionUser,
   syncCachedSessionUser,
 } from "@/lib/auth/clearSessionScopedClientData";
+
+/**
+ * El `import()` va en una función de módulo porque el React Compiler todavía no admite
+ * expresiones `import()` dentro de un componente y dejaría `AuthProvider` sin compilar.
+ */
+const loadBrowserClient = () => import("@/lib/supabase/client");
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -18,49 +23,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const prevUserIdRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    const supabase = createClient();
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
 
-    const applyUserIdTransition = async (newUserId: string | null) => {
-      if (prevUserIdRef.current === undefined) {
-        const cachedUserId = getCachedSessionUser();
-        if (cachedUserId !== newUserId) {
-          queryClient.clear();
-          clearSessionScopedClientData();
+    void (async () => {
+      /*
+       * supabase-js (≈55 KB gzip con GoTrue y Realtime) se carga aquí y no con un import estático:
+       * así no entra en el JS crítico de todas las páginas y la hidratación no lo espera (PERF-08).
+       * El estado de sesión ya arranca en `loading`, así que llegar unos cientos de ms más tarde
+       * no cambia nada en pantalla.
+       */
+      const { createClient } = await loadBrowserClient();
+      if (cancelled) return;
+      const supabase = createClient();
+
+      const applyUserIdTransition = async (newUserId: string | null) => {
+        if (prevUserIdRef.current === undefined) {
+          const cachedUserId = getCachedSessionUser();
+          if (cachedUserId !== newUserId) {
+            queryClient.clear();
+            clearSessionScopedClientData();
+          }
+          prevUserIdRef.current = newUserId;
+          syncCachedSessionUser(newUserId);
+          return;
+        }
+        if (prevUserIdRef.current === newUserId) {
+          syncCachedSessionUser(newUserId);
+          return;
         }
         prevUserIdRef.current = newUserId;
+        queryClient.clear();
+        clearSessionScopedClientData();
         syncCachedSessionUser(newUserId);
-        return;
-      }
-      if (prevUserIdRef.current === newUserId) {
-        syncCachedSessionUser(newUserId);
-        return;
-      }
-      prevUserIdRef.current = newUserId;
-      queryClient.clear();
-      clearSessionScopedClientData();
-      syncCachedSessionUser(newUserId);
-      await supabase.auth.getSession();
-      router.refresh();
-    };
+        await supabase.auth.getSession();
+        router.refresh();
+      };
 
-    void supabase.auth.getUser().then(async ({ data: { user } }) => {
-      await applyUserIdTransition(user?.id ?? null);
-      setUser(user);
-      setLoading(false);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const nextId = session?.user?.id ?? null;
-      void (async () => {
-        await applyUserIdTransition(nextId);
-        setUser(session?.user ?? null);
+      void supabase.auth.getUser().then(async ({ data: { user } }) => {
+        if (cancelled) return;
+        await applyUserIdTransition(user?.id ?? null);
+        setUser(user);
         setLoading(false);
-      })();
-    });
+      });
 
-    return () => subscription.unsubscribe();
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => {
+        const nextId = session?.user?.id ?? null;
+        void (async () => {
+          await applyUserIdTransition(nextId);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        })();
+      });
+      unsubscribe = () => subscription.unsubscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, [queryClient, router, setUser, setLoading]);
 
   return <>{children}</>;

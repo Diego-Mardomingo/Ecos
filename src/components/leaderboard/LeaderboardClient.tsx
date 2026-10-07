@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import {
   fetchLeaderboardPeriodData,
@@ -12,11 +12,15 @@ import {
 } from "@/lib/hooks/queries";
 import { useLeaderboardRealtime } from "@/lib/realtime/useLeaderboardRealtime";
 import { useIsMounted } from "@/lib/hooks/useIsMounted";
-import { cn } from "@/lib/utils";
 import {
   LeaderboardPodiumAndList,
-  type LeaderboardEntry,
+  leaderboardRowId,
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
+import { rankingDisplayName } from "@/lib/display-name";
+import { useLoginHref } from "@/components/game/useLoginHref";
+import type { LeaderboardEntryRow as LeaderboardEntry } from "@/lib/queries/users";
+import { HeaderIconLink, PageHeader } from "@/components/ui/page-header";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import type { RankingData } from "@/lib/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,16 +33,15 @@ interface Props {
   initialByPeriod?: Partial<
     Record<"weekly" | "monthly" | "global", RankingData>
   >;
-  /** @deprecated usar initialByPeriod */
-  initialData?: RankingData;
 }
 
 type PeriodTab = "weekly" | "monthly" | "global";
 
 const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 
-export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
+export function LeaderboardClient({ initialByPeriod }: Props) {
   const t = useTranslations("ranking");
+  const loginHref = useLoginHref();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
@@ -82,11 +85,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     }
   }, [activeTab, queryClient]);
 
-  const { data, isLoading } = useLeaderboard(
-    activeTab,
-    initialByPeriod,
-    initialData
-  );
+  const { data, isLoading } = useLeaderboard(activeTab, initialByPeriod);
   useLeaderboardRealtime();
   const entries = data?.entries ?? [];
 
@@ -101,20 +100,19 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
   const currentUserId = data?.currentUserId ?? lastUserId;
 
   const touchStartX = useRef<number>(0);
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const tabsBaseId = useId();
   const tabId = (tab: PeriodTab) => `${tabsBaseId}-tab-${tab}`;
   const panelId = `${tabsBaseId}-panel`;
+  /** Sentido del último cambio de periodo, para que el panel entre por el lado correcto. */
+  const [direction, setDirection] = useState<1 | -1>(1);
 
-  /** Cambia de periodo por indice, con ciclo. Compartido por el swipe y las flechas. */
-  const selectTabAt = useCallback((index: number, moveFocus: boolean) => {
-    const len = PERIOD_ORDER.length;
-    const nextIndex = (index + len) % len;
-    setActiveTab(PERIOD_ORDER[nextIndex]);
-    // Con roving tabindex el destino tiene tabIndex -1 hasta el siguiente render, pero
-    // focus() programatico funciona igual: -1 solo lo saca de la tabulacion.
-    if (moveFocus) tabRefs.current[nextIndex]?.focus();
-  }, []);
+  const changeTab = useCallback(
+    (next: PeriodTab) => {
+      setDirection(PERIOD_ORDER.indexOf(next) >= PERIOD_ORDER.indexOf(activeTab) ? 1 : -1);
+      setActiveTab(next);
+    },
+    [activeTab]
+  );
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -123,192 +121,141 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     (e: React.TouchEvent) => {
       const delta = e.changedTouches[0].clientX - touchStartX.current;
       const idx = PERIOD_ORDER.indexOf(activeTab);
+      const len = PERIOD_ORDER.length;
       if (delta > SWIPE_THRESHOLD) {
-        selectTabAt(idx - 1, false);
+        changeTab(PERIOD_ORDER[(idx - 1 + len) % len]);
       } else if (delta < -SWIPE_THRESHOLD) {
-        selectTabAt(idx + 1, false);
+        changeTab(PERIOD_ORDER[(idx + 1) % len]);
       }
     },
-    [activeTab, selectTabAt]
-  );
-
-  /**
-   * Equivalente de teclado del swipe, que no tenia ninguno. Activacion automatica (la flecha
-   * cambia de periodo, no solo de foco) porque los tres periodos vienen prefetcheados.
-   */
-  const handleTabsKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const idx = PERIOD_ORDER.indexOf(activeTab);
-      switch (event.key) {
-        case "ArrowRight":
-          event.preventDefault();
-          selectTabAt(idx + 1, true);
-          return;
-        case "ArrowLeft":
-          event.preventDefault();
-          selectTabAt(idx - 1, true);
-          return;
-        case "Home":
-          event.preventDefault();
-          selectTabAt(0, true);
-          return;
-        case "End":
-          event.preventDefault();
-          selectTabAt(PERIOD_ORDER.length - 1, true);
-          return;
-        default:
-          return;
-      }
-    },
-    [activeTab, selectTabAt]
+    [activeTab, changeTab]
   );
 
   const { formatNumber: formatPoints } = useAppFormatters();
 
-  const getDisplayName = (entry: LeaderboardEntry) => {
-    const name = entry.profiles?.display_name?.trim();
-    if (name && name.toLowerCase() !== "admin") return name;
-    return t("playerFallback");
-  };
-
-  const indicatorLeft =
-    activeTab === "weekly"
-      ? "4px"
-      : activeTab === "monthly"
-        ? "calc(33.333% + 2px)"
-        : "calc(66.666% + 2px)";
+  const getDisplayName = (entry: LeaderboardEntry) =>
+    rankingDisplayName(entry.profiles?.display_name, t("playerFallback"));
 
   const showListSkeleton = entries.length === 0 && isLoading;
+  const myEntry = currentUserId ? entries.find((e) => e.user_id === currentUserId) : undefined;
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col">
-      <header
-        className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-3 backdrop-blur-md"
-        style={{
-          background: "color-mix(in srgb, var(--background) 85%, transparent)",
-          paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
-        }}
-      >
-        <div className="flex-1" />
-        <h1 className="text-base font-bold">{t("title")}</h1>
-        <div className="flex flex-1 justify-end">
-          <Link
-            href="/ranking/history"
-            className="inline-flex h-9 w-auto shrink-0 items-center justify-start gap-1.5 rounded-xl border border-border bg-muted px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground max-w-[min(100%,11rem)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t("historyLinkAria")}
-          >
-            <span aria-hidden
-              className="material-symbols-outlined shrink-0 text-xl text-brand/70"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              history
+    <div className="flex min-h-0 w-full flex-1 flex-col px-4">
+      <PageHeader
+        eyebrow={t("eyebrow")}
+        title={t("title")}
+        action={<HeaderIconLink href="/ranking/history" icon="history" label={t("historyLinkAria")} />}
+      />
+
+      {!currentUserId && (
+        // Entrada en CSS: con framer llegaba con `opacity:0` en el HTML del servidor (PERF-04).
+        <div className="mb-3 flex animate-in items-center gap-3 rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/12 via-card to-card px-4 py-3 fade-in slide-in-from-bottom-2 animation-duration-300 [--tw-ease:cubic-bezier(0.22,1,0.36,1)]">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/15 text-brand">
+            <span aria-hidden className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+              emoji_events
             </span>
-            <span className="truncate">{t("historyButtonLabel")}</span>
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
+            <p className="text-xs text-muted-foreground">{t("guestBannerDescription")}</p>
+          </div>
+          <Link
+            href={loginHref}
+            className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-xs font-bold text-primary-foreground transition-transform active:scale-95"
+          >
+            {t("guestBannerCta")}
           </Link>
         </div>
-      </header>
+      )}
+
+      <SegmentedControl
+        asTabs
+        label={t("periodTabsLabel")}
+        options={PERIOD_ORDER.map((tab) => ({ value: tab, label: t(tab) }))}
+        value={activeTab}
+        onChange={changeTab}
+        tabIdFor={tabId}
+        panelId={panelId}
+      />
 
       <div
         role="tabpanel"
         id={panelId}
         aria-labelledby={tabId(activeTab)}
-        className="flex min-h-0 flex-1 flex-col touch-pan-y"
+        className="flex min-h-0 flex-1 flex-col"
         style={{ touchAction: "pan-y" }}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {!currentUserId && (
-          <div className="mx-4 mt-1 flex items-center gap-3 rounded-2xl bg-brand/10 px-4 py-3">
-            <span aria-hidden
-              className="material-symbols-outlined text-xl text-brand"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              emoji_events
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">{t("guestBannerTitle")}</p>
-              <p className="text-xs text-muted-foreground">
-                {t("guestBannerDescription")}
-              </p>
-            </div>
-            <Link
-              href="/login?redirect=/ranking"
-              className="flex-shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-primary-foreground"
-            >
-              {t("guestBannerCta")}
-            </Link>
-          </div>
-        )}
-
-        <div className="px-4 py-3">
-          <div
-            role="tablist"
-            aria-label={t("periodTabsLabel")}
-            onKeyDown={handleTabsKeyDown}
-            className="relative flex rounded-full bg-muted p-1"
+        <AnimatePresence mode="wait" initial={false} custom={direction}>
+          <m.div
+            key={activeTab}
+            custom={direction}
+            initial={{ opacity: 0, x: direction * 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: direction * -24 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="flex min-h-0 flex-col"
           >
-            <motion.div
-              aria-hidden
-              layout
-              className="absolute inset-y-1 rounded-full bg-brand"
-              style={{
-                width: "calc(33.333% - 5px)",
-                left: indicatorLeft,
-              }}
-              transition={{ type: "spring", stiffness: 400, damping: 35 }}
-            />
-            {PERIOD_ORDER.map((tab, index) => (
+            {myEntry && (
               <button
-                key={tab}
-                ref={(el) => {
-                  tabRefs.current[index] = el;
-                }}
                 type="button"
-                role="tab"
-                id={tabId(tab)}
-                aria-selected={activeTab === tab}
-                aria-controls={panelId}
-                /** Roving tabindex: solo la pestana activa entra en la tabulacion. */
-                tabIndex={activeTab === tab ? 0 : -1}
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "relative z-10 flex-1 rounded-full py-2 text-sm font-semibold transition-colors",
-                  activeTab === tab ? "text-primary-foreground" : "text-muted-foreground"
+                onClick={() =>
+                  document
+                    .getElementById(leaderboardRowId(myEntry.user_id))
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                }
+                className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-brand/30 bg-brand/10 px-3.5 py-2.5 text-left transition-transform active:scale-[0.98]"
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-sm font-black tabular-nums text-primary-foreground">
+                  {myEntry.global_rank}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-medium text-muted-foreground">{t("yourPosition")}</span>
+                  <span className="block truncate text-sm font-bold">
+                    {formatPoints(myEntry.total_points)} {t("totalPointsShort")}
+                    <span className="px-1.5 font-normal text-muted-foreground">·</span>
+                    <span className="font-medium text-muted-foreground">
+                      {t("hitsPodiumLine", { count: myEntry.aciertos })}
+                    </span>
+                  </span>
+                </span>
+                {myEntry.global_rank > 3 && (
+                  <span aria-hidden className="material-symbols-outlined text-lg text-brand">
+                    south
+                  </span>
                 )}
-              >
-                {t(tab)}
               </button>
-            ))}
-          </div>
-        </div>
+            )}
 
-        <div className="flex min-h-0 flex-1 flex-col">
-          {showListSkeleton ? (
-            <RankingPodiumAndListSkeleton />
-          ) : entries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-              <span aria-hidden
-                className="material-symbols-outlined mb-4 text-4xl text-muted-foreground"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                emoji_events
-              </span>
-              <p className="text-sm font-medium text-muted-foreground">
-                {t("emptyPeriod")}
-              </p>
-            </div>
-          ) : (
-            <LeaderboardPodiumAndList
-              entries={entries}
-              currentUserId={currentUserId}
-              formatPoints={formatPoints}
-              getDisplayName={getDisplayName}
-              t={t}
-            />
-          )}
-          {/* Relleno táctil: con pocas filas, el hueco bajo la lista debe seguir disparando el swipe */}
-          <div className="min-h-0 w-full flex-1" aria-hidden />
-        </div>
+            {showListSkeleton ? (
+              <RankingPodiumAndListSkeleton />
+            ) : entries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                <span className="mb-4 flex size-16 animate-in items-center justify-center rounded-full bg-muted fade-in zoom-in-60 animation-duration-400 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)]">
+                  <span
+                    aria-hidden
+                    className="material-symbols-outlined text-3xl text-muted-foreground"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    emoji_events
+                  </span>
+                </span>
+                <p className="text-sm font-medium text-muted-foreground">{t("emptyPeriod")}</p>
+              </div>
+            ) : (
+              <LeaderboardPodiumAndList
+                entries={entries}
+                currentUserId={currentUserId}
+                formatPoints={formatPoints}
+                getDisplayName={getDisplayName}
+                t={t}
+              />
+            )}
+          </m.div>
+        </AnimatePresence>
+        {/* Relleno táctil: con pocas filas, el hueco bajo la lista debe seguir disparando el swipe */}
+        <div className="min-h-0 w-full flex-1" aria-hidden />
       </div>
     </div>
   );

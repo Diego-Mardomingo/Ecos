@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   Collapsible,
@@ -18,19 +18,23 @@ type GameRow = {
   ecos_songs: { title: string; artist_name: string; spotify_playlist_name?: string | null } | null;
 };
 
+type MissingDay = { date: string; label: string; critical: boolean };
+
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export function ScheduleClient({
   games,
+  missing,
 }: {
   games: GameRow[];
+  missing: MissingDay[];
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, { label: string; items: GameRow[] }>();
     for (const g of games) {
-      const dt = new Date(g.date);
+      const dt = parseISO(g.date);
       const key = monthKey(dt);
       const label = format(dt, "MMMM yyyy", { locale: es });
       if (!map.has(key)) map.set(key, { label, items: [] });
@@ -56,6 +60,19 @@ export function ScheduleClient({
         </h2>
         <Badge variant="secondary">{games.length}</Badge>
       </div>
+
+      {missing.map((m) => (
+        <p
+          key={m.date}
+          className={`rounded-xl px-4 py-3 text-sm font-medium ${
+            m.critical
+              ? "bg-red-500/15 text-red-600 dark:text-red-400"
+              : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          }`}
+        >
+          Falta el juego de {m.label} ({m.date})
+        </p>
+      ))}
 
       {groups.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
@@ -102,7 +119,7 @@ export function ScheduleClient({
                           >
                             <div className="min-w-0">
                               <p className="font-medium">
-                                {format(new Date(it.date), "EEEE d MMM", {
+                                {format(parseISO(it.date), "EEEE d MMM", {
                                   locale: es,
                                 })}
                               </p>

@@ -7,7 +7,7 @@ import type {
   InProgressProgress,
   TodaysCompletedResult,
 } from "@/lib/queries/games";
-import type { GameProgress } from "@/lib/store/gameProgressStore";
+import { isTerminalProgress, type GameProgress } from "@/lib/store/gameProgressStore";
 import {
   markHomeSyncSignal,
   markRecentGameCompleted,
@@ -16,17 +16,16 @@ import { queryKeys } from "./queryKeys";
 import {
   fetchGameProgressById,
   fetchHomeDayStatusById,
-  fetchHomePreviousDaysData,
   fetchHomeTodayData,
 } from "./queryFetchers";
 import type {
   GameCacheSnapshot,
   GameMutationEvent,
+  GameOptimistic,
   GameProgressData,
   HomeDayStatusData,
   HomePreviousDaysData,
   HomeTodayData,
-  QueryDiagnosticRecord,
   SongSnapshot,
 } from "./queryTypes";
 
@@ -35,101 +34,17 @@ import type {
  *
  * Es la parte más delicada del cliente después de `GameClient`: siembra el estado del día,
  * aplica los cambios optimistas al acertar o fallar, y reconcilia lo que devuelve el servidor.
- * Se ha extraído de `queries.ts` tal cual, sin cambiar lógica.
  *
  * Cuidado al tocarlo: varias de estas funciones se llaman desde `onMutate`, así que corren antes
  * de que el servidor conteste y su efecto debe poder revertirse con
  * `takeGameCacheSnapshot`/`restoreGameCacheSnapshot`.
  */
 
-function trackQueryDiagnostic(queryKey: readonly unknown[], event: string) {
-  if (process.env.NODE_ENV !== "development") return;
-  if (typeof window === "undefined") return;
-
-  const globalRef = window as Window & {
-    __ecosQueryDiagnostics?: Record<string, QueryDiagnosticRecord>;
-  };
-  const key = JSON.stringify(queryKey);
-  const map = (globalRef.__ecosQueryDiagnostics ??= {});
-  const prev = map[key];
-  map[key] = {
-    key,
-    count: (prev?.count ?? 0) + 1,
-    lastEvent: event,
-    lastAt: Date.now(),
-  };
-}
-
 function normalizeCoverUrl(coverUrl: string | null | undefined): string {
   return coverUrl ?? "";
 }
 
-function guessCountFromInProgress(
-  p: InProgressProgress | null | undefined
-): number {
-  return p?.guesses?.length ?? 0;
-}
-
-/**
- * No sustituir day-status en caché si el nuevo snapshot (p. ej. RSC) trae menos intentos
- * que lo ya sincronizado tras jugar en /play.
- */
-export function primeHomeDayStatusCache(
-  queryClient: QueryClient,
-  previousDays: PreviousDayGame[],
-  inProgressByGameId?: Record<string, InProgressProgress>
-) {
-  for (const day of previousDays) {
-    const incomingInProgress = inProgressByGameId?.[day.id] ?? null;
-    const existing = queryClient.getQueryData<HomeDayStatusData>(
-      queryKeys.home.dayStatus(day.id)
-    );
-
-    let resolvedInProgress: InProgressProgress | null = incomingInProgress;
-    if (day.played) {
-      resolvedInProgress = null;
-    } else if (existing?.inProgress) {
-      const existingN = guessCountFromInProgress(existing.inProgress);
-      const incomingN = guessCountFromInProgress(incomingInProgress);
-      if (incomingInProgress == null && existingN > 0) {
-        resolvedInProgress = existing.inProgress;
-      } else if (existingN > incomingN) {
-        resolvedInProgress = existing.inProgress;
-      }
-    }
-
-    /**
-     * Protege contra downgrade por payload mensual stale:
-     * si ya teníamos este día como completado y entra "no jugado", mantener completado.
-     */
-    const keepExistingCompletion = Boolean(existing?.played && !day.played);
-
-    const status: HomeDayStatusData = keepExistingCompletion
-      ? {
-          gameId: day.id,
-          played: true,
-          won: existing?.won ?? day.won,
-          score: existing?.score ?? day.score,
-          title: existing?.title ?? day.title,
-          artist_name: existing?.artist_name ?? day.artist_name,
-          cover_url: existing?.cover_url ?? day.cover_url,
-          inProgress: null,
-        }
-      : {
-          gameId: day.id,
-          played: day.played,
-          won: day.won,
-          score: day.score,
-          title: day.title,
-          artist_name: day.artist_name,
-          cover_url: day.cover_url,
-          inProgress: resolvedInProgress,
-        };
-    queryClient.setQueryData(queryKeys.home.dayStatus(day.id), status);
-  }
-}
-
-export function applyOptimisticInProgressCaches(
+function applyOptimisticInProgressCaches(
   queryClient: QueryClient,
   input: {
     userId: string | null;
@@ -155,11 +70,12 @@ export function applyOptimisticInProgressCaches(
     } satisfies HomeDayStatusData;
   });
 
-  queryClient.setQueryData(queryKeys.home.today(userId), (prev: unknown) => {
-    const previous = (prev ?? {}) as HomeTodayData;
-    if (previous.todaysGame?.id !== gameId) return previous;
+  // Sin `today` en caché no se escribe nada (devolver `undefined` deja la query como está); antes
+  // se guardaba un `{}` que luego no había forma de deshacer.
+  queryClient.setQueryData(queryKeys.home.today(userId), (prev: HomeTodayData | undefined) => {
+    if (prev?.todaysGame?.id !== gameId) return prev;
     return {
-      ...previous,
+      ...prev,
       todaysInProgress: inProgress,
       todaysCompletedResult: null,
     } satisfies HomeTodayData;
@@ -172,7 +88,7 @@ export function applyOptimisticInProgressCaches(
   patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
 }
 
-export function applyOptimisticCompletionCaches(
+function applyOptimisticCompletionCaches(
   queryClient: QueryClient,
   input: {
     userId: string | null;
@@ -205,11 +121,10 @@ export function applyOptimisticCompletionCaches(
     } satisfies HomeDayStatusData;
   });
 
-  queryClient.setQueryData(queryKeys.home.today(userId), (prev: unknown) => {
-    const previous = (prev ?? {}) as HomeTodayData;
-    if (previous.todaysGame?.id !== gameId) return previous;
+  queryClient.setQueryData(queryKeys.home.today(userId), (prev: HomeTodayData | undefined) => {
+    if (prev?.todaysGame?.id !== gameId) return prev;
     return {
-      ...previous,
+      ...prev,
       todaysCompletedResult: {
         title: song.title,
         artist_name: song.artist_name,
@@ -247,11 +162,94 @@ export function applyOptimisticCompletionCaches(
   patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
 }
 
+/** Aplica el cambio optimista de una jugada, sea de partida en curso o terminada. */
+export function applyGameOptimisticCaches(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    song: SongSnapshot;
+    optimistic: GameOptimistic;
+  }
+) {
+  const { userId, gameId, song, optimistic } = input;
+  if (optimistic.type === "completion") {
+    applyOptimisticCompletionCaches(queryClient, {
+      userId,
+      gameId,
+      won: optimistic.won,
+      score: optimistic.score,
+      song,
+      completedProgress: optimistic.completedProgress,
+    });
+  } else {
+    applyOptimisticInProgressCaches(queryClient, {
+      userId,
+      gameId,
+      inProgress: optimistic.inProgress,
+      song,
+    });
+  }
+}
+
+/**
+ * Deja en caché el estado de la partida que ha confirmado el servidor. Normalmente coincide con
+ * el optimista y no cambia nada (`setQueryData` conserva la referencia si los datos son iguales);
+ * importa cuando el servidor corrige al cliente: otro veredicto, otros aciertos de artista o
+ * álbum, u otra puntuación. Sin esto, la caché seguiría diciendo lo que supuso el cliente hasta
+ * el refetch, y la reconciliación de `GameClient` podría tomarlo por bueno.
+ */
+export function applyConfirmedProgressCaches(
+  queryClient: QueryClient,
+  input: {
+    userId: string | null;
+    gameId: string;
+    song: SongSnapshot;
+    progress: GameProgress;
+  }
+) {
+  const { userId, gameId, song, progress } = input;
+  applyGameOptimisticCaches(queryClient, {
+    userId,
+    gameId,
+    song,
+    optimistic: isTerminalProgress(progress)
+      ? {
+          type: "completion",
+          won: progress.won,
+          score: progress.score,
+          completedProgress: {
+            gameDate: progress.gameDate,
+            guesses: progress.guesses,
+            correctAttempt: progress.correctAttempt,
+          },
+        }
+      : {
+          type: "inProgress",
+          inProgress: {
+            gameId,
+            gameDate: progress.gameDate,
+            guesses: progress.guesses,
+            phase: "playing",
+          },
+        },
+  });
+}
+
+/**
+ * Foto de todo lo que puede escribir el cambio optimista de una jugada (`applyGameOptimisticCaches`):
+ * estado del día, `home.today`, progreso de la partida y, del histórico de la home, la fila del día
+ * y su partida a medias. Del histórico solo se guarda eso: es lo único que toca el parcheado, y
+ * restaurar el bloque entero pisaría lo que hubiera llegado entretanto para otros días.
+ */
 export function takeGameCacheSnapshot(
   queryClient: QueryClient,
   userId: string | null,
   gameId: string
 ): GameCacheSnapshot {
+  const history = userId
+    ? queryClient.getQueryData<HomePreviousDaysData>(queryKeys.home.previousDaysAll(userId))
+    : undefined;
   return {
     dayStatus: queryClient.getQueryData<HomeDayStatusData>(
       queryKeys.home.dayStatus(gameId)
@@ -262,9 +260,76 @@ export function takeGameCacheSnapshot(
     progress: queryClient.getQueryData<GameProgressData>(
       queryKeys.game.progress(gameId)
     ),
+    historyEntry: history?.previousDays
+      ? {
+          day: history.previousDays.find((d) => d.id === gameId),
+          inProgress: history.inProgressByGameId?.[gameId],
+        }
+      : undefined,
   };
 }
 
+/**
+ * Deja una query como estaba en la foto. Si entonces no tenía datos, `setQueryData(key, undefined)`
+ * no serviría (TanStack lo ignora): se quita de la caché, o se reinicia si alguien la observa (la
+ * partida abierta), para que vuelva a su estado inicial y se pida de nuevo.
+ */
+function restoreQueryData(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  data: unknown
+) {
+  if (data !== undefined) {
+    queryClient.setQueryData(queryKey, data);
+    return;
+  }
+  const query = queryClient.getQueryCache().find({ queryKey, exact: true });
+  if (!query || query.state.data === undefined) return;
+  if (query.getObserversCount() > 0) {
+    void queryClient.resetQueries({ queryKey, exact: true });
+  } else {
+    queryClient.removeQueries({ queryKey, exact: true });
+  }
+}
+
+/** Devuelve al histórico la fila del día y su partida a medias tal como estaban en la foto. */
+function restoreHistoryEntry(
+  prev: HomePreviousDaysData | undefined,
+  gameId: string,
+  entry: NonNullable<GameCacheSnapshot["historyEntry"]>
+): HomePreviousDaysData | undefined {
+  if (!prev?.previousDays) return prev;
+
+  let previousDays = prev.previousDays;
+  const idx = previousDays.findIndex((d) => d.id === gameId);
+  if (entry.day && idx >= 0 && previousDays[idx] !== entry.day) {
+    previousDays = [...previousDays];
+    previousDays[idx] = entry.day;
+  }
+
+  let inProgressByGameId = prev.inProgressByGameId;
+  const current = inProgressByGameId?.[gameId];
+  if (current !== entry.inProgress) {
+    inProgressByGameId = { ...(inProgressByGameId ?? {}) };
+    if (entry.inProgress) {
+      inProgressByGameId[gameId] = entry.inProgress;
+    } else {
+      delete inProgressByGameId[gameId];
+    }
+  }
+
+  if (previousDays === prev.previousDays && inProgressByGameId === prev.inProgressByGameId) {
+    return prev;
+  }
+  return { ...prev, previousDays, inProgressByGameId };
+}
+
+/**
+ * Deshace el cambio optimista de una jugada que el servidor ha rechazado. Tiene que cubrir todo
+ * lo que escribe `applyGameOptimisticCaches`: si el histórico se quedara con el día como jugado, la
+ * home lo seguiría mostrando así (al sembrar el RSC, lo terminado no vuelve atrás), y lo mismo
+ * pasaría con un `dayStatus` que antes no existía (la home lo aplica al histórico al volver).
+ */
 export function restoreGameCacheSnapshot(
   queryClient: QueryClient,
   userId: string | null,
@@ -272,14 +337,21 @@ export function restoreGameCacheSnapshot(
   snapshot: GameCacheSnapshot | undefined
 ) {
   if (!snapshot) return;
-  queryClient.setQueryData(queryKeys.home.dayStatus(gameId), snapshot.dayStatus);
+  restoreQueryData(queryClient, queryKeys.home.dayStatus(gameId), snapshot.dayStatus);
   if (userId) {
-    queryClient.setQueryData(queryKeys.home.today(userId), snapshot.today);
+    restoreQueryData(queryClient, queryKeys.home.today(userId), snapshot.today);
+    const { historyEntry } = snapshot;
+    if (historyEntry) {
+      queryClient.setQueryData(
+        queryKeys.home.previousDaysAll(userId),
+        (prev: HomePreviousDaysData | undefined) => restoreHistoryEntry(prev, gameId, historyEntry)
+      );
+    }
   }
-  queryClient.setQueryData(queryKeys.game.progress(gameId), snapshot.progress);
+  restoreQueryData(queryClient, queryKeys.game.progress(gameId), snapshot.progress);
 }
 
-export function inProgressToGameProgress(
+function inProgressToGameProgress(
   gameId: string,
   inProgress: InProgressProgress
 ): GameProgress {
@@ -300,7 +372,7 @@ export function inProgressToGameProgress(
   };
 }
 
-export function completionToGameProgress(
+function completionToGameProgress(
   gameId: string,
   gameDate: string,
   won: boolean,
@@ -322,6 +394,17 @@ export function completionToGameProgress(
     phase: won ? "won" : "lost",
     correctAttempt: won ? (correctAttempt ?? undefined) : undefined,
   };
+}
+
+/**
+ * La caché ya tiene de esta partida algo más rico que un resumen: una partida en curso con
+ * intentos, o una terminada con su lista de intentos (p. ej. tras jugar o tras el refetch). En
+ * ese caso no se pisa con lo que trae el RSC de la home, que llega sin intentos.
+ */
+function hasRicherProgress(existing: GameProgressData | undefined): boolean {
+  const progress = existing?.progress;
+  if (!progress || (progress.guesses?.length ?? 0) === 0) return false;
+  return progress.phase === "playing" || isTerminalProgress(progress);
 }
 
 /**
@@ -348,8 +431,7 @@ export function primePlayQueriesFromHomeInitialData(
     const existing = queryClient.getQueryData<GameProgressData>(
       queryKeys.game.progress(gameId)
     );
-    const phase = existing?.progress?.phase;
-    if (phase === "won" || phase === "lost") {
+    if (isTerminalProgress(existing?.progress)) {
       continue;
     }
     const existingN = existing?.progress?.guesses?.length ?? 0;
@@ -370,17 +452,7 @@ export function primePlayQueriesFromHomeInitialData(
     const existing = queryClient.getQueryData<GameProgressData>(
       queryKeys.game.progress(gameId)
     );
-    if (
-      existing?.progress?.phase === "playing" &&
-      (existing.progress.guesses?.length ?? 0) > 0
-    ) {
-      /* Hay partida en curso más rica en caché (p. ej. tras jugar). */
-    } else if (
-      (existing?.progress?.phase === "won" || existing?.progress?.phase === "lost") &&
-      (existing?.progress?.guesses?.length ?? 0) > 0
-    ) {
-      /* Ya hay resultado completo (p. ej. tras refetch). */
-    } else {
+    if (!hasRicherProgress(existing)) {
       queryClient.setQueryData(queryKeys.game.progress(gameId), {
         progress: completionToGameProgress(
           gameId,
@@ -405,18 +477,7 @@ export function primePlayQueriesFromHomeInitialData(
     const existing = queryClient.getQueryData<GameProgressData>(
       queryKeys.game.progress(gameId)
     );
-    if (
-      existing?.progress?.phase === "playing" &&
-      (existing.progress.guesses?.length ?? 0) > 0
-    ) {
-      continue;
-    }
-    if (
-      (existing?.progress?.phase === "won" || existing?.progress?.phase === "lost") &&
-      (existing?.progress?.guesses?.length ?? 0) > 0
-    ) {
-      continue;
-    }
+    if (hasRicherProgress(existing)) continue;
     queryClient.setQueryData(queryKeys.game.progress(gameId), {
       progress: completionToGameProgress(
         gameId,
@@ -449,23 +510,56 @@ export function primePlayQueriesFromHomeInitialData(
     const existing = queryClient.getQueryData<GameProgressData>(
       queryKeys.game.progress(gameId)
     );
-    if (
-      existing?.progress?.phase === "playing" &&
-      (existing.progress.guesses?.length ?? 0) > 0
-    ) {
-      continue;
-    }
-    if (existing?.progress?.phase === "won" || existing?.progress?.phase === "lost") {
-      continue;
-    }
+    // Aquí basta con que esté terminada, aunque sea sin intentos: un resumen vale más que nada.
+    if (hasRicherProgress(existing) || isTerminalProgress(existing?.progress)) continue;
     queryClient.setQueryData(queryKeys.game.progress(gameId), { progress: null });
   }
 }
 
 /**
+ * Lleva el estado de un día (`dayStatus`) al histórico en caché: la fila del día, si está, y su
+ * entrada en `inProgressByGameId` (que se apunta aunque el día no esté en la lista).
+ */
+function patchPreviousDaysBlock(
+  prev: HomePreviousDaysData | undefined,
+  gameId: string,
+  dayStatus: HomeDayStatusData
+): HomePreviousDaysData | undefined {
+  if (!prev?.previousDays) return prev;
+  const idx = prev.previousDays.findIndex((d) => d.id === gameId);
+
+  let nextDays = prev.previousDays;
+  if (idx >= 0) {
+    nextDays = [...prev.previousDays];
+    nextDays[idx] = {
+      ...nextDays[idx],
+      played: dayStatus.played,
+      won: dayStatus.won,
+      score: dayStatus.score,
+      title: dayStatus.title,
+      artist_name: dayStatus.artist_name,
+      cover_url: dayStatus.cover_url,
+    };
+  }
+  const nextInProgress: Record<string, InProgressProgress> = {
+    ...(prev.inProgressByGameId ?? {}),
+  };
+  if (!dayStatus.played && dayStatus.inProgress) {
+    nextInProgress[gameId] = dayStatus.inProgress;
+  } else {
+    delete nextInProgress[gameId];
+  }
+  return {
+    ...prev,
+    previousDays: nextDays,
+    inProgressByGameId: nextInProgress,
+  };
+}
+
+/**
  * Tras refetch de day-status, alinea la lista agregada en caché (sin invalidar todo el histórico).
  */
-export function patchHomePreviousDaysAllFromDayStatus(
+function patchHomePreviousDaysAllFromDayStatus(
   queryClient: QueryClient,
   userId: string | null,
   gameId: string
@@ -478,80 +572,22 @@ export function patchHomePreviousDaysAllFromDayStatus(
 
   queryClient.setQueryData(
     queryKeys.home.previousDaysAll(userId),
-    (prev: HomePreviousDaysData | undefined) => {
-      if (!prev?.previousDays) return prev;
-      const idx = prev.previousDays.findIndex((d) => d.id === gameId);
-      let nextDays = prev.previousDays;
-      if (idx >= 0) {
-        nextDays = [...prev.previousDays];
-        nextDays[idx] = {
-          ...nextDays[idx],
-          played: dayStatus.played,
-          won: dayStatus.won,
-          score: dayStatus.score,
-          title: dayStatus.title,
-          artist_name: dayStatus.artist_name,
-          cover_url: dayStatus.cover_url,
-        };
-      }
-      const nextInProgress: Record<string, InProgressProgress> = {
-        ...(prev.inProgressByGameId ?? {}),
-      };
-      if (dayStatus.played) {
-        delete nextInProgress[gameId];
-      } else if (dayStatus.inProgress) {
-        nextInProgress[gameId] = dayStatus.inProgress;
-      } else {
-        delete nextInProgress[gameId];
-      }
-      return {
-        ...prev,
-        previousDays: nextDays,
-        inProgressByGameId: nextInProgress,
-      };
-    }
+    (prev: HomePreviousDaysData | undefined) => patchPreviousDaysBlock(prev, gameId, dayStatus)
   );
-
-  const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
-  if (monthKey) {
-    queryClient.setQueryData(
-      queryKeys.home.previousDays(monthKey, userId),
-      (prev: HomePreviousDaysData | undefined) => {
-        if (!prev?.previousDays) return prev;
-        const mIdx = prev.previousDays.findIndex((d) => d.id === gameId);
-        if (mIdx < 0) return prev;
-        const nextDays = [...prev.previousDays];
-        nextDays[mIdx] = {
-          ...nextDays[mIdx],
-          played: dayStatus.played,
-          won: dayStatus.won,
-          score: dayStatus.score,
-          title: dayStatus.title,
-          artist_name: dayStatus.artist_name,
-          cover_url: dayStatus.cover_url,
-        };
-        const nextInProgress: Record<string, InProgressProgress> = {
-          ...(prev.inProgressByGameId ?? {}),
-        };
-        if (dayStatus.played) {
-          delete nextInProgress[gameId];
-        } else if (dayStatus.inProgress) {
-          nextInProgress[gameId] = dayStatus.inProgress;
-        } else {
-          delete nextInProgress[gameId];
-        }
-        return {
-          ...prev,
-          previousDays: nextDays,
-          inProgressByGameId: nextInProgress,
-        };
-      }
-    );
-  }
 }
 
 /**
- * Refetch granular post-intento: progreso del juego, estado del día, home hoy, mes afectado; parchea agregados.
+ * Sincronización con el servidor después de una jugada ya guardada. Corre en segundo plano: la
+ * mutación no la espera (PDATA-01), así que nunca retrasa la siguiente jugada ni puede revertir
+ * una que el servidor ya aceptó. No lanza: los fallos de cada refetch ya los registra el
+ * `QueryCache`, y la próxima jugada o la vuelta a la home vuelven a pedir lo mismo.
+ *
+ * Todo en paralelo y solo lo necesario:
+ * - progreso de la partida y estado del día; con este último se parchea el histórico en caché
+ *   (pedirlo entero otra vez sobraba);
+ * - `home.today`, solo si la partida es la de hoy;
+ * - al terminar, ranking, perfil y estadísticas: `invalidateQueries` ya vuelve a pedir las que
+ *   están activas, así que no hace falta un `refetchQueries` detrás (las pedía dos veces).
  */
 export async function syncQueriesAfterGameEvent(
   queryClient: QueryClient,
@@ -560,115 +596,51 @@ export async function syncQueriesAfterGameEvent(
     gameId: string;
     event: GameMutationEvent;
   }
-) {
+): Promise<void> {
   const { userId, gameId, event } = input;
 
   markHomeSyncSignal(userId, gameId, event);
 
-  await queryClient.fetchQuery({
-    queryKey: queryKeys.game.progress(gameId),
-    queryFn: () => fetchGameProgressById(gameId),
-    staleTime: 0,
-  });
-  await queryClient.fetchQuery({
-    queryKey: queryKeys.home.dayStatus(gameId),
-    queryFn: () => fetchHomeDayStatusById(gameId),
-    staleTime: 0,
-  });
+  const tasks: Promise<unknown>[] = [
+    queryClient.fetchQuery({
+      queryKey: queryKeys.game.progress(gameId),
+      queryFn: () => fetchGameProgressById(gameId),
+      staleTime: 0,
+    }),
+    queryClient
+      .fetchQuery({
+        queryKey: queryKeys.home.dayStatus(gameId),
+        queryFn: () => fetchHomeDayStatusById(gameId),
+        staleTime: 0,
+      })
+      .then(() => patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId)),
+  ];
 
   if (userId) {
-    await queryClient.fetchQuery({
-      queryKey: queryKeys.home.today(userId),
-      queryFn: fetchHomeTodayData,
-      staleTime: 0,
-    });
+    const today = queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId));
+    if (today?.todaysGame?.id === gameId) {
+      tasks.push(
+        queryClient.fetchQuery({
+          queryKey: queryKeys.home.today(userId),
+          queryFn: fetchHomeTodayData,
+          staleTime: 0,
+        })
+      );
+    }
   }
-
-  const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
-  if (userId && monthKey) {
-    await queryClient.fetchQuery({
-      queryKey: queryKeys.home.previousDays(monthKey, userId),
-      queryFn: () => fetchHomePreviousDaysData(monthKey),
-      staleTime: 0,
-    });
-  }
-
-  patchHomePreviousDaysAllFromDayStatus(queryClient, userId, gameId);
 
   if (event === "gameCompleted") {
     markRecentGameCompleted(userId);
-    trackQueryDiagnostic(queryKeys.ranking.all, "syncQueriesAfterGameEvent");
-    trackQueryDiagnostic(queryKeys.profile.all, "syncQueriesAfterGameEvent");
-    await Promise.all([
+    tasks.push(
       queryClient.invalidateQueries({ queryKey: queryKeys.ranking.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.profile.all }),
-      userId
-        ? queryClient.invalidateQueries({
-            queryKey: queryKeys.home.userStats(userId),
-          })
-        : Promise.resolve(),
-    ]);
-
-    await Promise.all([
-      queryClient.refetchQueries({
-        queryKey: queryKeys.ranking.all,
-        type: "active",
-      }),
-      queryClient.refetchQueries({
-        queryKey: queryKeys.profile.all,
-        type: "active",
-      }),
-      userId
-        ? queryClient.refetchQueries({
-            queryKey: queryKeys.home.userStats(userId),
-            type: "active",
-          })
-        : Promise.resolve(),
-    ]);
-  }
-}
-
-/**
- * Resuelve YYYY-MM del juego para invalidar solo la query mensual afectada,
- * sin disparar refetch de todos los meses prefetcheados en caché.
- */
-function getMonthKeyForGameFromCaches(
-  queryClient: QueryClient,
-  userId: string | null,
-  gameId: string
-): string | null {
-  if (userId) {
-    const all = queryClient.getQueryData<HomePreviousDaysData>(
-      queryKeys.home.previousDaysAll(userId)
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.all })
     );
-    const fromAll = all?.previousDays?.find((d) => d.id === gameId);
-    if (fromAll?.date) return fromAll.date.slice(0, 7);
+    if (userId) {
+      tasks.push(
+        queryClient.invalidateQueries({ queryKey: queryKeys.home.userStats(userId) })
+      );
+    }
   }
-  const today = userId
-    ? queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId))
-    : undefined;
-  if (today?.todaysGame?.id === gameId && today.todaysGame.date) {
-    return today.todaysGame.date.slice(0, 7);
-  }
-  const monthlyEntries = queryClient.getQueriesData<HomePreviousDaysData>({
-    queryKey: ["home", "previous-days"],
-    exact: false,
-  });
-  for (const [, data] of monthlyEntries) {
-    const hit = data?.previousDays?.find((d) => d.id === gameId);
-    if (hit?.date) return hit.date.slice(0, 7);
-  }
-  return null;
-}
 
-/** Alias retrocompatible: sincroniza caché granular tras intento o fin de partida. */
-export async function invalidateAfterGameEvent(
-  queryClient: QueryClient,
-  input: {
-    userId: string | null;
-    gameId: string;
-    event: GameMutationEvent;
-  }
-) {
-  await syncQueriesAfterGameEvent(queryClient, input);
+  await Promise.allSettled(tasks);
 }

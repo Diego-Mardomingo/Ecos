@@ -1,63 +1,59 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
+import { cn } from "@/lib/utils";
 
 /**
- * Cuenta atrás hasta la próxima medianoche de Madrid, con el carrusel vertical de dígitos.
- * Extraído de `HomeClient` sin cambios de lógica.
+ * Cuenta atrás hasta la próxima medianoche de Madrid: el hook que la mide y el reloj (hh:mm:ss)
+ * con dígitos que ruedan por separado.
  */
-function getCountdownParts(ms: number): { value: number; suffix: "h" | "m" | "s" }[] {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const parts: { value: number; suffix: "h" | "m" | "s" }[] = [];
-  if (h > 0) parts.push({ value: h, suffix: "h" });
-  if (m > 0 || h > 0) parts.push({ value: m, suffix: "m" });
-  parts.push({ value: s, suffix: "s" });
-  return parts;
-}
 
-/** Carrusel vertical: al bajar el valor, el nuevo número entra desde abajo; al subir (p. ej. 0→59), desde arriba. */
-function RollingCountdownSegment({
-  value,
-  suffix,
-}: {
-  value: number;
-  suffix: "h" | "m" | "s";
-}) {
+/**
+ * Un dígito del reloj, con carrusel vertical: al bajar el valor, el nuevo entra desde abajo; al
+ * subir (p. ej. 0→5 al pasar de 00 a 59), desde arriba. Va por dígito y no por número para que
+ * solo se mueva la cifra que cambia, como en un marcador mecánico.
+ */
+function RollingDigit({ digit }: { digit: number }) {
   // Dirección de la animación guardada junto al valor que la produjo. En estado, no
   // en una ref: leer una ref durante el render impide al compilador de React saber
   // cuándo cambia el valor. Se guardan juntos para que el render extra que dispara
   // el ajuste no invierta la dirección.
-  const [prev, setPrev] = useState({ value, downward: true });
-  if (prev.value !== value) {
-    setPrev({ value, downward: value < prev.value });
+  const [prev, setPrev] = useState({ value: digit, downward: true });
+  if (prev.value !== digit) {
+    setPrev({ value: digit, downward: digit < prev.value });
   }
-  const downward = prev.value === value ? prev.downward : value < prev.value;
+  const downward = prev.value === digit ? prev.downward : digit < prev.value;
 
   return (
-    <span className="inline-flex shrink-0 items-baseline tabular-nums">
-      <span className="relative inline-block w-[2ch] shrink-0 overflow-hidden text-end">
-        <span className="invisible block select-none tabular-nums" aria-hidden>
-          {value}
-        </span>
-        <AnimatePresence initial={false}>
-          <motion.span
-            key={value}
-            initial={{ y: downward ? "100%" : "-100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: downward ? "-100%" : "100%" }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 flex items-end justify-end tabular-nums"
-          >
-            {value}
-          </motion.span>
-        </AnimatePresence>
+    <span className="relative inline-block w-[1ch] overflow-hidden text-center tabular-nums">
+      <span className="invisible block select-none" aria-hidden>
+        0
       </span>
-      <span>{suffix}</span>
+      <AnimatePresence initial={false}>
+        <m.span
+          key={digit}
+          initial={{ y: downward ? "100%" : "-100%", opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: downward ? "-100%" : "100%", opacity: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-0 flex items-center justify-center"
+        >
+          {digit}
+        </m.span>
+      </AnimatePresence>
+    </span>
+  );
+}
+
+/** Dos dígitos rodantes. */
+function RollingCountdownSegment({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(99, value));
+  return (
+    <span className="inline-flex">
+      <RollingDigit digit={Math.floor(clamped / 10)} />
+      <RollingDigit digit={clamped % 10} />
     </span>
   );
 }
@@ -65,20 +61,27 @@ function RollingCountdownSegment({
 const MS_PER_HOUR = 3600 * 1000;
 const PREFETCH_UNDER_MS = 10_000;
 
-function Countdown({
-  t,
-  onCountdownUnder10s,
-  onCountdownZero,
+/**
+ * Milisegundos hasta la próxima medianoche de Madrid, refrescados cada segundo, y los dos avisos
+ * de la home: a menos de 10 s (para precargar el día siguiente) y al pasar la medianoche.
+ *
+ * El aviso de medianoche solo salta si la cuenta atrás la ve pasar (app delante). Con la app en
+ * segundo plano los temporizadores se congelan y no la ve: de ese caso se encarga la home
+ * comparando fechas al volver a primer plano (`syncGameDay` en `HomeClient`). Los dos avisos se
+ * rearman cada día, así que una pestaña abierta varias noches los recibe todas.
+ *
+ * `0` significa «todavía sin medir»: es lo que se renderiza en servidor y al hidratar, así que no
+ * hace falta un flag `mounted` aparte.
+ */
+function useMadridCountdown({
+  onUnder10s,
+  onZero,
 }: {
-  t: (key: string) => string;
-  onCountdownUnder10s?: () => void;
-  onCountdownZero?: () => void;
-}) {
-  // ms = 0 significa "todavía sin medir": es lo que se renderiza en servidor y al
-  // hidratar, así que no hace falta un flag `mounted` aparte.
+  onUnder10s?: () => void;
+  onZero?: () => void;
+} = {}): number {
   const [ms, setMs] = useState(0);
   const prevMsRef = useRef<number | null>(null);
-  const hasTriggeredRef = useRef(false);
   const hasTriggeredUnder10Ref = useRef(false);
 
   useEffect(() => {
@@ -95,46 +98,77 @@ function Countdown({
 
   useEffect(() => {
     if (ms <= 0) return;
-    if (
-      onCountdownUnder10s &&
-      ms < PREFETCH_UNDER_MS &&
-      !hasTriggeredUnder10Ref.current
-    ) {
+    if (ms > MS_PER_HOUR) hasTriggeredUnder10Ref.current = false;
+    if (onUnder10s && ms < PREFETCH_UNDER_MS && !hasTriggeredUnder10Ref.current) {
       hasTriggeredUnder10Ref.current = true;
-      onCountdownUnder10s();
+      onUnder10s();
     }
-  }, [ms, onCountdownUnder10s]);
+  }, [ms, onUnder10s]);
 
   useEffect(() => {
-    if (ms <= 0 || !onCountdownZero || hasTriggeredRef.current) return;
+    if (ms <= 0 || !onZero) return;
     const prev = prevMsRef.current;
     prevMsRef.current = ms;
     if (prev !== null && prev < 60000 && ms > MS_PER_HOUR) {
-      hasTriggeredRef.current = true;
-      onCountdownZero();
+      onZero();
     }
-  }, [ms, onCountdownZero]);
+  }, [ms, onZero]);
 
-  const parts = ms > 0 ? getCountdownParts(ms) : null;
+  return ms;
+}
+
+/**
+ * Reloj hh:mm:ss con dígitos rodantes. Hereda tipografía y color del padre; el lector de pantalla
+ * recibe la hora entera, no cada dígito suelto.
+ */
+function ClockDigits({ ms, className }: { ms: number; className?: string }) {
+  const totalSec = Math.floor(ms / 1000);
+  const hms =
+    ms > 0 ? [Math.floor(totalSec / 3600), Math.floor((totalSec % 3600) / 60), totalSec % 60] : null;
 
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-x-1 text-xs font-medium tabular-nums">
-      <span className="shrink-0 text-muted-foreground">{t("nextSongIn")}</span>
-      {parts ? (
-        <span className="inline-flex shrink-0 items-baseline gap-1 text-primary">
-          {parts.map((p) => (
-            <RollingCountdownSegment
-              key={p.suffix}
-              value={p.value}
-              suffix={p.suffix}
-            />
+    <span
+      className={cn("inline-flex items-center tabular-nums", className)}
+      aria-label={hms ? hms.map((n) => String(n).padStart(2, "0")).join(":") : undefined}
+    >
+      {hms ? (
+        <span className="inline-flex items-center" aria-hidden>
+          {hms.map((value, i) => (
+            <span key={i} className="inline-flex items-center">
+              {i > 0 && <span className="opacity-60">:</span>}
+              <RollingCountdownSegment value={value} />
+            </span>
           ))}
         </span>
       ) : (
-        <span className="text-primary">—</span>
+        <span className="opacity-50">--:--:--</span>
       )}
     </span>
   );
 }
 
-export { Countdown, getCountdownParts };
+/** Píldora «Próxima canción en hh:mm:ss» bajo la tarjeta del reto. */
+function Countdown({
+  t,
+  onCountdownUnder10s,
+  onCountdownZero,
+  className,
+}: {
+  t: (key: string) => string;
+  onCountdownUnder10s?: () => void;
+  onCountdownZero?: () => void;
+  className?: string;
+}) {
+  const ms = useMadridCountdown({ onUnder10s: onCountdownUnder10s, onZero: onCountdownZero });
+  return (
+    <span className={cn("inline-flex items-center gap-2 text-xs font-medium", className)}>
+      <span className="text-muted-foreground">{t("nextSongIn")}</span>
+      <span className="inline-flex items-center rounded-full border border-border bg-card/80 px-2.5 py-1 font-semibold text-foreground shadow-sm backdrop-blur">
+        <span className="mr-1.5 size-1.5 animate-pulse rounded-full bg-brand" style={{ animationDuration: "2s" }} aria-hidden />
+        <ClockDigits ms={ms} />
+      </span>
+    </span>
+  );
+}
+
+export { Countdown };

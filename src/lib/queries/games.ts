@@ -1,8 +1,31 @@
 import { unstable_cache } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { unwrapToOne } from "@/lib/supabase/relations";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getEffectiveGameDate } from "@/lib/date-utils";
+
+/**
+ * Lecturas de juegos y del estado de partida de cada usuario.
+ *
+ * Dos tipos de dato, con caché distinta:
+ * - **Iguales para todos** (la canción de hoy, el calendario de días pasados, un juego por id): se
+ *   leen con service role dentro de `unstable_cache`, por día de Madrid. No cambian con las
+ *   partidas, así que ninguna jugada las invalida.
+ * - **Del usuario** (puntuaciones, partidas a medias): sin caché de servidor, con el cliente de
+ *   cookies que le pasa el llamante, y siempre filtradas por `user_id` y, si hace falta, por rango
+ *   de fechas. Nunca con `.in()` de ids: con todo el histórico la URL pasaba de 11 KB y crecía
+ *   cada día (auditoría oct. 2026, PERFDB-05).
+ *
+ * Censura de spoilers: título, artista y carátula de un día pasado solo salen si el usuario lo ha
+ * jugado (puntuación guardada). A los invitados no se les manda nunca: su progreso vive en
+ * localStorage. La tabla `ecos_songs` es legible por cualquiera, así que esto se decide aquí, en
+ * el servidor (ver supabase/schema/03_security.sql).
+ */
+
+// ---------------------------------------------------------------------------------------------
+// Tipos
+// ---------------------------------------------------------------------------------------------
 
 export interface GameWithSong {
   id: string;
@@ -15,7 +38,6 @@ export interface GameWithSong {
     album_title: string | null;
     cover_url: string;
     preview_url: string | null;
-    genre: string | null;
     /** ISO date YYYY-MM-DD desde Spotify */
     release_date: string | null;
   };
@@ -33,14 +55,82 @@ export interface PreviousDayGame {
   artist_name: string;
 }
 
-interface PreviousDaysRange {
-  fromDate?: string;
-  toDate?: string;
+export interface TodaysCompletedResult {
+  title: string;
+  artist_name: string;
+  cover_url: string;
+  score: number;
+  won: boolean;
+}
+
+export interface InProgressGuess {
+  text: string;
+  correct: boolean;
+  correctArtist?: boolean;
+  correctAlbum?: boolean;
+  attemptNumber: number;
+}
+
+export interface InProgressProgress {
+  gameId: string;
+  gameDate: string;
+  guesses: InProgressGuess[];
+  phase: "playing";
+}
+
+/** Rango de fechas `[from, to)` (YYYY-MM-DD). Cualquiera de los dos extremos es opcional. */
+export interface DateRange {
+  from?: string;
+  to?: string;
+}
+
+/** Puntuación de un usuario en un juego. */
+export interface UserScore {
+  points: number | null;
+  correct: boolean | null;
 }
 
 type SongRelation = GameWithSong["ecos_songs"];
+type SongRef = Pick<SongRelation, "cover_url" | "title" | "artist_name">;
 
-/** Fila de `ecos_games` con la canción embebida, tal y como puede llegar de PostgREST. */
+/**
+ * Día pasado tal y como se guarda en la caché del calendario (con la canción, **sin censurar**).
+ * No se manda nunca al cliente tal cual: pasa antes por {@link toPreviousDays}.
+ */
+export interface PastGameRow {
+  id: string;
+  date: string;
+  game_number: number;
+  song: SongRef | null;
+}
+
+/** Fila de `ecos_guesses` con las columnas que se devuelven al cliente. */
+export interface GuessRow {
+  guess_text: string;
+  correct: boolean | null;
+  correct_artist: boolean | null;
+  correct_album: boolean | null;
+  attempt_number: number;
+}
+
+export const GUESS_COLUMNS = "guess_text, correct, correct_artist, correct_album, attempt_number";
+
+const GAME_WITH_SONG_SELECT = `
+  id, date, game_number,
+  ecos_songs (
+    id, title, artist_name, album_title,
+    cover_url, preview_url, release_date
+  )
+`;
+
+/** Las fechas de juego no cambian, pero una corrección a mano en la BD se ve en como mucho 1 h. */
+const SHARED_CACHE_SECONDS = 3600;
+
+// ---------------------------------------------------------------------------------------------
+// Mapeos
+// ---------------------------------------------------------------------------------------------
+
+/** Fila de juego con la canción embebida, tal y como puede llegar de PostgREST. */
 interface GameRowWithSong {
   id: string;
   date: string;
@@ -64,291 +154,260 @@ function toGameWithSong(row: GameRowWithSong): GameWithSong | null {
   };
 }
 
-async function getTodaysGameWithClient(
-  supabase: SupabaseClient,
-  effectiveDateOverride?: string
-) {
-  const effectiveDate = effectiveDateOverride ?? getEffectiveGameDate();
-
-  const { data, error } = await supabase
-    .from("ecos_games")
-    .select(
-      `
-      id, date, game_number,
-      ecos_songs (
-        id, title, artist_name, album_title,
-        cover_url, preview_url, genre, release_date
-      )
-    `
-    )
-    .eq("date", effectiveDate)
-    .single();
-
-  if (error || !data) return null;
-  return toGameWithSong(data);
-}
-
-const GAME_WITH_SONG_SELECT = `
-  id, date, game_number,
-  ecos_songs (
-    id, title, artist_name, album_title,
-    cover_url, preview_url, genre, release_date
-  )
-`;
-
-export async function getTodaysGame(
-  effectiveDate?: string
-): Promise<GameWithSong | null> {
-  const supabase = await createClient();
-  return getTodaysGameWithClient(supabase, effectiveDate);
-}
-
-export async function getGameById(gameId: string): Promise<GameWithSong | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ecos_games")
-    .select(GAME_WITH_SONG_SELECT)
-    .eq("id", gameId)
-    .single();
-
-  if (error || !data) return null;
-  return toGameWithSong(data);
-}
-
-async function getPreviousDaysWithClient(
-  supabase: SupabaseClient,
-  userId: string | null,
-  limit?: number,
-  effectiveDateOverride?: string,
-  range?: PreviousDaysRange
-): Promise<PreviousDayGame[]> {
-  const effectiveDate = effectiveDateOverride ?? getEffectiveGameDate();
-
-  let baseQuery = supabase
-    .from("ecos_games")
-    .select(
-      `
-      id, date, game_number,
-      ecos_songs ( cover_url, title, artist_name )
-    `
-    );
-
-  if (range?.fromDate) {
-    baseQuery = baseQuery.gte("date", range.fromDate);
-  }
-
-  baseQuery = baseQuery.lt("date", effectiveDate);
-
-  if (range?.toDate) {
-    baseQuery = baseQuery.lt("date", range.toDate);
-  }
-
-  baseQuery = baseQuery.order("date", { ascending: false });
-
-  const { data: games, error } =
-    limit != null ? await baseQuery.limit(limit) : await baseQuery;
-
-  if (error || !games) return [];
-
-  type SongRef = { cover_url: string; title: string; artist_name: string };
-
-  // Invitados: no enviar spoilers (title, cover, artist). El cliente usará gameProgressStore local.
-  if (!userId) {
-    return games.map((g) => ({
-      id: g.id,
-      date: g.date,
-      game_number: g.game_number,
-      played: false,
-      won: false,
-      score: null,
-      cover_url: "",
-      title: "",
-      artist_name: "",
-    }));
-  }
-
-  // Usuarios autenticados: solo enviar title/cover/artist para juegos ya jugados
-  const gameIds = games.map((g) => g.id);
-  const { data: scores } = await supabase
-    .from("ecos_scores")
-    .select("game_id, points, guesses_used, correct")
-    .eq("user_id", userId)
-    .in("game_id", gameIds);
-
-  const scoreMap = new Map(scores?.map((s) => [s.game_id, s]) ?? []);
-
-  return games.map((g) => {
-    const score = scoreMap.get(g.id);
-    const song = unwrapToOne<SongRef>(g.ecos_songs);
-    const played = !!score;
-    return {
-      id: g.id,
-      date: g.date,
-      game_number: g.game_number,
-      played,
-      won: score ? (score.correct === true) : false,
-      score: score?.points ?? null,
-      cover_url: played ? (song?.cover_url ?? "") : "",
-      title: played ? (song?.title ?? "") : "",
-      artist_name: played ? (song?.artist_name ?? "") : "",
-    };
-  });
-}
-
-export async function getPreviousDays(
-  userId: string | null,
-  limit?: number,
-  effectiveDate?: string,
-  range?: PreviousDaysRange
-): Promise<PreviousDayGame[]> {
-  const supabase = await createClient();
-  return getPreviousDaysWithClient(supabase, userId, limit, effectiveDate, range);
-}
-
-export interface TodaysCompletedResult {
-  title: string;
-  artist_name: string;
-  cover_url: string;
-  score: number;
-  won: boolean;
-}
-
-export async function getTodaysCompletedResult(
-  userId: string,
-  todaysGameId: string | null
-): Promise<TodaysCompletedResult | null> {
-  if (!todaysGameId) return null;
-  const supabase = await createClient();
-  const { data: scoreRow } = await supabase
-    .from("ecos_scores")
-    .select("points, correct")
-    .eq("user_id", userId)
-    .eq("game_id", todaysGameId)
-    .single();
-  if (!scoreRow) return null;
-  const { data: game } = await supabase
-    .from("ecos_games")
-    .select("ecos_songs(cover_url, title, artist_name)")
-    .eq("id", todaysGameId)
-    .single();
-  const song = unwrapToOne<{
-    cover_url: string;
-    title: string;
-    artist_name: string;
-  }>(game?.ecos_songs);
-  if (!song) return null;
+/** Intento guardado → forma que usa el cliente. */
+export function mapGuessRow(row: GuessRow): InProgressGuess {
   return {
-    title: song.title ?? "",
-    artist_name: song.artist_name ?? "",
-    cover_url: song.cover_url ?? "",
-    score: scoreRow.points ?? 0,
-    won: scoreRow.correct === true,
+    text: row.guess_text,
+    correct: row.correct ?? false,
+    correctArtist: row.correct_artist ?? false,
+    correctAlbum: row.correct_album ?? false,
+    attemptNumber: row.attempt_number,
   };
 }
 
-export interface InProgressProgress {
-  gameId: string;
-  gameDate: string;
-  guesses: Array<{ text: string; correct: boolean; correctArtist?: boolean; correctAlbum?: boolean; attemptNumber: number }>;
-  phase: "playing";
+/** Partida a medias de un juego, o `null` si no hay ningún intento. */
+export function toInProgress(
+  gameId: string,
+  gameDate: string,
+  rows: GuessRow[]
+): InProgressProgress | null {
+  if (rows.length === 0) return null;
+  return { gameId, gameDate, guesses: rows.map(mapGuessRow), phase: "playing" };
 }
 
-/** Obtiene el progreso en curso para hoy y días anteriores (usuarios autenticados). */
-export async function getInProgressGames(
-  userId: string,
-  todaysGameId: string | null,
-  previousDayIds: string[]
-): Promise<Record<string, InProgressProgress>> {
-  const supabase = await createClient();
-  const gameIds = [todaysGameId, ...previousDayIds].filter(Boolean) as string[];
-  if (gameIds.length === 0) return {};
+// ---------------------------------------------------------------------------------------------
+// Datos iguales para todos (con caché de servidor)
+// ---------------------------------------------------------------------------------------------
 
-  const { data: scores } = await supabase
-    .from("ecos_scores")
-    .select("game_id")
-    .eq("user_id", userId)
-    .in("game_id", gameIds);
-  const completedGameIds = new Set((scores ?? []).map((s) => s.game_id));
-  const inProgressIds = gameIds.filter((id) => !completedGameIds.has(id));
-  if (inProgressIds.length === 0) return {};
-
-  const { data: guesses } = await supabase
-    .from("ecos_guesses")
-    .select("game_id, guess_text, correct, correct_artist, correct_album, attempt_number")
-    .eq("user_id", userId)
-    .in("game_id", inProgressIds)
-    .order("attempt_number", { ascending: true });
-
-  const { data: games } = await supabase
+async function fetchGameByDate(
+  client: SupabaseClient,
+  date: string
+): Promise<GameWithSong | null> {
+  const { data, error } = await client
     .from("ecos_games")
-    .select("id, date")
-    .in("id", inProgressIds);
+    .select(GAME_WITH_SONG_SELECT)
+    .eq("date", date)
+    .maybeSingle();
 
-  const gameDateMap = new Map((games ?? []).map((g) => [g.id, g.date ?? ""]));
+  if (error) {
+    console.error(`[ops] fallo al leer el juego del ${date}:`, error.code, error.message);
+    throw error;
+  }
+  if (!data) {
+    console.error(`[ops] sin juego para ${date}`);
+    return null;
+  }
+  const game = toGameWithSong(data);
+  if (!game) console.error(`[ops] el juego del ${date} no tiene canción`);
+  return game;
+}
+
+/**
+ * Juego del día de Madrid (o de `effectiveDate`), con la canción completa.
+ *
+ * Con service role: así la ruta de medianoche (`/api/home?effectiveDate=<mañana>`, solo en el
+ * último minuto del día) puede leer el de mañana, que la RLS ya no enseña. Quien llame con una
+ * fecha que no sea hoy es responsable de haberla validado.
+ *
+ * Caché por fecha, sin etiqueta: la canción del día no depende de ninguna partida. Si un día no
+ * hay juego, el `null` cacheado no se da por bueno y se vuelve a preguntar (el juego puede
+ * crearse a mano más tarde).
+ */
+export async function getTodaysGameCached(
+  effectiveDate: string = getEffectiveGameDate()
+): Promise<GameWithSong | null> {
+  const cached = await unstable_cache(
+    async () => fetchGameByDate(createServiceClient(), effectiveDate),
+    ["todays-game", effectiveDate],
+    { revalidate: SHARED_CACHE_SECONDS }
+  )();
+  if (cached) return cached;
+  return fetchGameByDate(createServiceClient(), effectiveDate);
+}
+
+/**
+ * Juego por id con la canción completa, con caché (un juego no cambia nunca). Con service role:
+ * **no filtra fechas futuras**, eso lo comprueba quien llama (`isFutureGame`) antes de mandar
+ * nada al cliente.
+ */
+export async function getGameByIdCached(gameId: string): Promise<GameWithSong | null> {
+  return unstable_cache(
+    async () => {
+      const { data, error } = await createServiceClient()
+        .from("ecos_games")
+        .select(GAME_WITH_SONG_SELECT)
+        .eq("id", gameId)
+        .maybeSingle();
+      if (error) {
+        console.error(`[ops] fallo al leer el juego ${gameId}:`, error.code, error.message);
+        throw error;
+      }
+      return data ? toGameWithSong(data) : null;
+    },
+    ["game-by-id", gameId],
+    { revalidate: SHARED_CACHE_SECONDS }
+  )();
+}
+
+/** ¿Es de un día que aún no ha llegado en Madrid? El selector crea los juegos con antelación. */
+export function isFutureGame(game: { date: string }): boolean {
+  return game.date > getEffectiveGameDate();
+}
+
+/**
+ * Todos los juegos anteriores a `beforeDate`, del más reciente al más antiguo, con la canción
+ * (sin censurar: la censura se aplica en {@link toPreviousDays}). Paginado: PostgREST corta en
+ * 1.000 filas sin avisar.
+ */
+async function fetchPastGames(beforeDate: string): Promise<PastGameRow[]> {
+  const svc = createServiceClient();
+  type Row = {
+    id: string;
+    date: string;
+    game_number: number;
+    ecos_songs: SongRef | SongRef[] | null;
+  };
+  const rows = await fetchAllRows<Row>((from, to) =>
+    svc
+      .from("ecos_games")
+      .select("id, date, game_number, ecos_songs ( cover_url, title, artist_name )")
+      .lt("date", beforeDate)
+      .order("date", { ascending: false })
+      .range(from, to)
+  );
+  return rows.map((g) => ({
+    id: g.id,
+    date: g.date,
+    game_number: g.game_number,
+    song: unwrapToOne(g.ecos_songs),
+  }));
+}
+
+/**
+ * Calendario de días anteriores a `beforeDate`. Igual para todos: una lectura por día y servidor
+ * en vez de una por usuario y carga de la home.
+ */
+export function getPastGamesCached(beforeDate: string): Promise<PastGameRow[]> {
+  return unstable_cache(() => fetchPastGames(beforeDate), ["past-games", beforeDate], {
+    revalidate: SHARED_CACHE_SECONDS,
+  })();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Datos del usuario (sin caché de servidor)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Puntuaciones del usuario por `game_id`, opcionalmente solo de los juegos de un rango de
+ * fechas. Una fila por día jugado: crece despacio, pero va paginada igual.
+ */
+export async function fetchUserScores(
+  supabase: SupabaseClient,
+  userId: string,
+  range?: DateRange
+): Promise<Map<string, UserScore>> {
+  // El embed `!inner` solo hace falta para filtrar por la fecha del juego.
+  const columns =
+    range?.from || range?.to
+      ? "game_id, points, correct, ecos_games!inner(date)"
+      : "game_id, points, correct";
+  type Row = { game_id: string; points: number | null; correct: boolean | null };
+  const rows = await fetchAllRows<Row>((from, to) => {
+    let q = supabase.from("ecos_scores").select(columns).eq("user_id", userId);
+    if (range?.from) q = q.gte("ecos_games.date", range.from);
+    if (range?.to) q = q.lt("ecos_games.date", range.to);
+    return q.order("game_id").range(from, to).overrideTypes<Row[], { merge: false }>();
+  });
+  return new Map(rows.map((s) => [s.game_id, { points: s.points, correct: s.correct }]));
+}
+
+/**
+ * Partidas a medias del usuario (con intentos y sin puntuación) en juegos hasta `upTo`
+ * (incluido) y dentro de `range`, en un solo viaje.
+ *
+ * Es un anti-join de PostgREST: juegos con algún intento del usuario (`ecos_guesses!inner`) y sin
+ * puntuación suya (`ecos_scores=is.null`, con el filtro por usuario aplicado dentro del embed).
+ * Devuelve solo las partidas abiertas, que son pocas, en vez de todos los intentos del usuario
+ * (cientos) o una lista de ids en la URL.
+ */
+export async function fetchInProgressGames(
+  supabase: SupabaseClient,
+  userId: string,
+  { upTo, from, to }: DateRange & { upTo: string }
+): Promise<Record<string, InProgressProgress>> {
+  let q = supabase
+    .from("ecos_games")
+    .select(`id, date, ecos_guesses!inner(${GUESS_COLUMNS}), ecos_scores(game_id)`)
+    .eq("ecos_guesses.user_id", userId)
+    .eq("ecos_scores.user_id", userId)
+    .is("ecos_scores", null)
+    .lte("date", upTo);
+  if (from) q = q.gte("date", from);
+  if (to) q = q.lt("date", to);
+
+  const { data, error } = await q.order("attempt_number", {
+    referencedTable: "ecos_guesses",
+    ascending: true,
+  });
+  if (error) throw error;
 
   const byGameId: Record<string, InProgressProgress> = {};
-  const byGame = new Map<string, NonNullable<typeof guesses>>();
-  for (const g of guesses ?? []) {
-    if (!byGame.has(g.game_id)) byGame.set(g.game_id, []);
-    byGame.get(g.game_id)!.push(g);
-  }
-  for (const [gameId, list] of byGame) {
-    if (list.length === 0) continue;
-    byGameId[gameId] = {
-      gameId,
-      gameDate: gameDateMap.get(gameId) ?? "",
-      guesses: list.map((g) => ({
-        text: g.guess_text,
-        correct: g.correct ?? false,
-        correctArtist: g.correct_artist ?? false,
-        correctAlbum: g.correct_album ?? false,
-        attemptNumber: g.attempt_number,
-      })),
-      phase: "playing",
-    };
+  for (const game of (data ?? []) as Array<{
+    id: string;
+    date: string | null;
+    ecos_guesses: GuessRow[];
+  }>) {
+    const progress = toInProgress(game.id, game.date ?? "", game.ecos_guesses ?? []);
+    if (progress) byGameId[game.id] = progress;
   }
   return byGameId;
 }
 
-/** Versión cacheada usando createServiceClient (no cookies). */
-export async function getTodaysGameCached() {
-  const effectiveDate = getEffectiveGameDate();
-  const cachedGame = await unstable_cache(
-    async () => getTodaysGameWithClient(createServiceClient()),
-    ["todays-game", effectiveDate],
-    { revalidate: 300, tags: ["games"] }
-  )();
-  if (cachedGame) return cachedGame;
-  return getTodaysGameWithClient(createServiceClient());
+// ---------------------------------------------------------------------------------------------
+// Composición
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Días pasados para la home, censurados: con `scores === null` (invitado) ninguno sale jugado ni
+ * con canción; con puntuaciones, solo los jugados llevan título, artista y carátula.
+ */
+export function toPreviousDays(
+  past: PastGameRow[],
+  scores: Map<string, UserScore> | null
+): PreviousDayGame[] {
+  const out: PreviousDayGame[] = [];
+  for (const g of past) {
+    const score = scores?.get(g.id);
+    const played = !!score;
+    out.push({
+      id: g.id,
+      date: g.date,
+      game_number: g.game_number,
+      played,
+      won: score ? score.correct === true : false,
+      score: score?.points ?? null,
+      cover_url: played ? (g.song?.cover_url ?? "") : "",
+      title: played ? (g.song?.title ?? "") : "",
+      artist_name: played ? (g.song?.artist_name ?? "") : "",
+    });
+  }
+  return out;
 }
 
-/** Versión cacheada usando createServiceClient (no cookies). */
-export function getPreviousDaysCached(
-  userId: string | null,
-  limit?: number,
-  range?: PreviousDaysRange
-) {
-  const effectiveDate = getEffectiveGameDate();
-  const cacheKey = limit != null ? String(limit) : "all";
-  const fromKey = range?.fromDate ?? "none";
-  const toKey = range?.toDate ?? "none";
-  return unstable_cache(
-    async () =>
-      getPreviousDaysWithClient(
-        createServiceClient(),
-        userId,
-        limit,
-        effectiveDate,
-        range
-      ),
-    [
-      "previous-days",
-      effectiveDate,
-      userId ?? "guest",
-      cacheKey,
-      fromKey,
-      toKey,
-    ],
-    { revalidate: 300, tags: ["games"] }
-  )();
+/** Resultado de hoy si el usuario ya lo ha jugado; sale de datos ya leídos, sin consultas. */
+export function getTodaysCompletedResult(
+  todaysGame: GameWithSong | null,
+  userScores: Map<string, UserScore>
+): TodaysCompletedResult | null {
+  if (!todaysGame) return null;
+  const score = userScores.get(todaysGame.id);
+  if (!score) return null;
+  const song = todaysGame.ecos_songs;
+  return {
+    title: song.title ?? "",
+    artist_name: song.artist_name ?? "",
+    cover_url: song.cover_url ?? "",
+    score: score.points ?? 0,
+    won: score.correct === true,
+  };
 }

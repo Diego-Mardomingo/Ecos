@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { readJsonBody } from "@/lib/api/body-limit";
+import { getRequestUser, handleRoute, jsonError } from "@/lib/api/route";
 
 interface PushSubscriptionKeys {
   p256dh: string;
@@ -21,60 +22,44 @@ function isValidSubscription(value: unknown): value is PushSubscriptionPayload {
   return typeof keys.p256dh === "string" && typeof keys.auth === "string";
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+export const POST = handleRoute("api/push/subscribe", async (request: NextRequest) => {
+  const body = await readJsonBody(request);
+  if (!body.ok) return body.response;
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const { supabase, user } = await getRequestUser();
+  if (!user) return jsonError(401, "Unauthorized");
 
-    const body = (await request.json()) as {
-      subscription?: unknown;
-    };
+  const subscription = (body.data as { subscription?: unknown } | null)?.subscription;
+  if (!isValidSubscription(subscription)) {
+    return jsonError(400, "invalid_subscription");
+  }
 
-    if (!isValidSubscription(body.subscription)) {
-      return NextResponse.json({ error: "invalid_subscription" }, { status: 400 });
-    }
+  const { data: existing, error: fetchError } = await supabase
+    .from("ecos_push_subscriptions")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("endpoint", subscription.endpoint)
+    .maybeSingle();
 
-    const subscription = body.subscription;
+  if (fetchError) throw fetchError;
 
-    const { data: existing, error: fetchError } = await supabase
+  if (existing) {
+    const { error } = await supabase
       .from("ecos_push_subscriptions")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("endpoint", subscription.endpoint)
-      .maybeSingle();
-
-    if (fetchError) throw fetchError;
-
-    if (existing) {
-      const { error } = await supabase
-        .from("ecos_push_subscriptions")
-        .update({
-          subscription: subscription as unknown as Record<string, unknown>,
-          enabled: true,
-        })
-        .eq("id", existing.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from("ecos_push_subscriptions").insert({
-        user_id: user.id,
+      .update({
         subscription: subscription as unknown as Record<string, unknown>,
         enabled: true,
-      });
-      if (error) throw error;
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("api/push/subscribe error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+      })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("ecos_push_subscriptions").insert({
+      user_id: user.id,
+      subscription: subscription as unknown as Record<string, unknown>,
+      enabled: true,
+    });
+    if (error) throw error;
   }
-}
+
+  return NextResponse.json({ ok: true });
+});

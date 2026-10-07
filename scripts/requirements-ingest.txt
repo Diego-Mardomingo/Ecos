@@ -1,5 +1,9 @@
+# Ingesta semanal (ingest-weekly.py) y backfill-preview-duration.py.
+# Topes de serie mayor: una mayor nueva no se instala sola en el cron sin que nadie la pruebe.
 # spotifyscraper 3.x es una reescritura de la API (sin spotify_scraper.parsers,
 # cambia SpotifyClient.get_playlist_info/get_album_info). Pinear a la serie 2.x.
-spotifyscraper>=2.0.0,<3
-supabase>=2.0.0
-mutagen>=1.47.0
+spotifyscraper>=2.1.5,<3
+supabase>=2.32,<3
+mutagen>=1.48,<2
+# zoneinfo necesita la base de zonas horarias; Linux ya la trae, Windows no.
+tzdata; sys_platform == "win32"

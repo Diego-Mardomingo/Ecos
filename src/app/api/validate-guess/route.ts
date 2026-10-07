@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { unwrapToOne } from "@/lib/supabase/relations";
-import { artistsMatch, normalizeForCompare } from "@/lib/artist-match";
-import { computeFinalizeParams } from "@/lib/ecos-finalize-helpers";
-import { getEffectiveGameDate } from "@/lib/date-utils";
-import { resolveServerAttempt, MAX_ATTEMPTS } from "@/lib/server-attempt";
+import { loadPlayableGame, submitAttempt } from "@/lib/ecos-finalize-helpers";
+import { evaluateGuess, type GuessMatchSong } from "@/lib/guess-match";
+import { readJsonBody } from "@/lib/api/body-limit";
 import { z } from "zod";
 
 const GuessSchema = z.object({
@@ -14,191 +11,119 @@ const GuessSchema = z.object({
   attemptNumber: z.number().int().min(1).max(6),
   guessText: z.string().min(1).max(500),
   songId: z.string().uuid(),
-  guessArtistName: z.string().optional(),
-  guessAlbumTitle: z.string().optional(),
+  /**
+   * Se siguen aceptando por compatibilidad con el cliente actual, pero ya no se usan: artista y
+   * álbum se comparan con los de la canción `songId` leída de la BD.
+   */
+  guessArtistName: z.string().max(500).optional(),
+  guessAlbumTitle: z.string().max(500).optional(),
+  /**
+   * Ignorado: el servidor cierra la partida siempre que la jugada la decide (acierto o sexto
+   * intento). Ver `submitAttempt` en `src/lib/ecos-finalize-helpers.ts`.
+   */
   finalize: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
   try {
+    const body = await readJsonBody(request);
+    if (!body.ok) return body.response;
+    const parsed = GuessSchema.safeParse(body.data);
+
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const serviceSupabase = createServiceClient();
+
+    // Sesión, juego y canción elegida no dependen entre sí: van en paralelo. El 401 sigue
+    // saliendo antes que cualquier otra respuesta y no se lee ni escribe nada del usuario hasta
+    // haber descartado un juego futuro.
+    const [
+      {
+        data: { user },
+      },
+      gameResult,
+      guessSongResult,
+    ] = await Promise.all([
+      supabase.auth.getUser(),
+      parsed.success ? loadPlayableGame(serviceSupabase, parsed.data.gameId) : null,
+      parsed.success
+        ? serviceSupabase
+            .from("ecos_songs")
+            .select("id, title, artist_name, album_title")
+            .eq("id", parsed.data.songId)
+            .maybeSingle()
+        : null,
+    ]);
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const parsed = GuessSchema.safeParse(body);
-
-    if (!parsed.success) {
+    if (!parsed.success || !gameResult || !guessSongResult) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const { gameId, userId, attemptNumber, guessText, songId, guessArtistName, guessAlbumTitle, finalize } =
-      parsed.data;
+    const { gameId, userId, attemptNumber, guessText } = parsed.data;
 
     if (userId && userId !== user.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const serviceSupabase = createServiceClient();
-
-    const { data: game, error: gameError } = await serviceSupabase
-      .from("ecos_games")
-      .select("id, date, ecos_songs(id, title, artist_name, album_title)")
-      .eq("id", gameId)
-      .single();
-
-    if (gameError || !game) {
-      return NextResponse.json({ error: "Game not found" }, { status: 404 });
+    if (!gameResult.ok) {
+      return NextResponse.json({ error: gameResult.error }, { status: gameResult.status });
     }
 
-    const song = unwrapToOne<{
-      id: string;
-      title: string;
-      artist_name: string;
-      album_title: string | null;
-    }>(game.ecos_songs);
-
-    if (!song) {
+    const { game } = gameResult;
+    if (!game.song) {
       return NextResponse.json({ error: "Song not found" }, { status: 404 });
     }
 
-    const gameDate = (game as { date?: string }).date ?? "";
-
-    // select-daily-game.py pre-crea el juego del día siguiente: no se puede jugar por adelantado.
-    if (gameDate > getEffectiveGameDate()) {
-      return NextResponse.json({ error: "Game not available" }, { status: 403 });
+    if (guessSongResult.error) throw guessSongResult.error;
+    const guessSong = guessSongResult.data as GuessMatchSong | null;
+    // El buscador solo ofrece canciones del catálogo: un id que no existe no es una respuesta.
+    if (!guessSong) {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const [{ data: existingScore }, { data: existingGuesses }] = await Promise.all([
-      serviceSupabase
-        .from("ecos_scores")
-        .select("points, guesses_used, correct")
-        .eq("user_id", user.id)
-        .eq("game_id", gameId)
-        .maybeSingle(),
-      serviceSupabase
-        .from("ecos_guesses")
-        .select("attempt_number, guess_text")
-        .eq("user_id", user.id)
-        .eq("game_id", gameId),
-    ]);
+    const evaluation = evaluateGuess(guessSong, game.song);
 
-    const serverAttempt = resolveServerAttempt(
-      existingGuesses ?? [],
-      attemptNumber,
-      guessText
-    );
+    const outcome = await submitAttempt(serviceSupabase, {
+      userId: user.id,
+      gameId,
+      gameDate: game.date,
+      clientAttempt: attemptNumber,
+      guessText,
+      evaluation,
+    });
 
-    const isCorrect =
-      songId === song.id ||
-      normalizeForCompare(guessText).includes(normalizeForCompare(song.title));
+    switch (outcome.kind) {
+      case "error":
+        console.error("validate-guess:", outcome.message, outcome.cause);
+        return NextResponse.json({ error: outcome.message }, { status: 500 });
 
-    const correctArtist =
-      guessArtistName != null && guessArtistName.trim()
-        ? artistsMatch(guessArtistName, song.artist_name)
-        : false;
-    const correctAlbum =
-      guessAlbumTitle != null && song.album_title != null
-        ? normalizeForCompare(guessAlbumTitle) === normalizeForCompare(song.album_title)
-        : false;
-
-    /**
-     * Partida ya cerrada: no se registra el intento ni se vuelve a puntuar (antes se podía
-     * repetir la finalización para repuntuar). Se responde 200 con la puntuación guardada, no un
-     * error: el cliente revierte la victoria en la UI ante cualquier fallo, y esta rama la
-     * alcanza también un reintento legítimo tras un problema de red.
-     */
-    if (existingScore) {
-      return NextResponse.json({
-        correct: isCorrect,
-        correctArtist,
-        correctAlbum,
-        attemptNumber: existingScore.guesses_used ?? serverAttempt,
-        totalPoints: existingScore.points ?? 0,
-        alreadyFinalized: true,
-      });
-    }
-
-    const needsFinalize = !!finalize && (isCorrect || serverAttempt >= MAX_ATTEMPTS);
-
-    if (!needsFinalize) {
-      const { error: upsertError } = await serviceSupabase.from("ecos_guesses").upsert(
-        {
-          user_id: user.id,
-          game_id: gameId,
-          attempt_number: serverAttempt,
-          guess_text: guessText,
-          correct: isCorrect,
-          correct_artist: correctArtist,
-          correct_album: correctAlbum,
-        },
-        { onConflict: "user_id,game_id,attempt_number" }
-      );
-
-      if (upsertError) {
-        console.error("validate-guess upsert error:", upsertError);
-        return NextResponse.json({ error: "Failed to save guess" }, { status: 500 });
-      }
-
-      if (!finalize) {
+      /**
+       * Partida ya cerrada: no se registra el intento ni se vuelve a puntuar (antes se podía
+       * repetir la finalización para repuntuar). Se responde 200 con la puntuación guardada, no
+       * un error: el cliente revierte la victoria en la UI ante cualquier fallo, y esta rama la
+       * alcanza también un reintento legítimo tras un problema de red.
+       */
+      case "already-finalized":
         return NextResponse.json({
-          correct: isCorrect,
-          correctArtist,
-          correctAlbum,
-          attemptNumber: serverAttempt,
+          ...evaluation,
+          attemptNumber: outcome.attemptNumber,
+          totalPoints: outcome.totalPoints,
+          alreadyFinalized: true,
         });
-      }
 
-      return NextResponse.json({ correct: false, attemptNumber: serverAttempt });
+      case "recorded":
+        return NextResponse.json({ ...evaluation, attemptNumber: outcome.attemptNumber });
+
+      case "finalized":
+        return NextResponse.json({
+          ...evaluation,
+          attemptNumber: outcome.attemptNumber,
+          ...outcome.scoreResult,
+        });
     }
-
-    const { data: leaderboard } = await serviceSupabase
-      .from("ecos_leaderboard")
-      .select("streak, last_played")
-      .eq("user_id", user.id)
-      .single();
-
-    const { newStreak, updateStreak, scoreResult } = computeFinalizeParams({
-      gameDate,
-      isCorrect,
-      attemptNumber: serverAttempt,
-      leaderboard: leaderboard ?? null,
-    });
-
-    const { error: finalizeError } = await serviceSupabase.rpc("ecos_guess_and_finalize_score", {
-      p_user_id: user.id,
-      p_game_id: gameId,
-      p_attempt_number: serverAttempt,
-      p_guess_text: guessText,
-      p_correct: isCorrect,
-      p_correct_artist: correctArtist,
-      p_correct_album: correctAlbum,
-      p_points: scoreResult.totalPoints,
-      p_guesses_used: serverAttempt,
-      p_won: isCorrect,
-      p_streak: newStreak,
-      p_update_streak: updateStreak,
-    });
-
-    if (finalizeError) {
-      console.error("ecos_guess_and_finalize_score:", finalizeError);
-      return NextResponse.json({ error: "Failed to save score" }, { status: 500 });
-    }
-
-    revalidateTag("games", "max");
-
-    return NextResponse.json({
-      correct: isCorrect,
-      correctArtist,
-      correctAlbum,
-      attemptNumber: serverAttempt,
-      ...scoreResult,
-    });
   } catch (err) {
     console.error("validate-guess error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

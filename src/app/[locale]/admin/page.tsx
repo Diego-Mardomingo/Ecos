@@ -1,28 +1,12 @@
+import { Suspense } from "react";
+import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdminPage } from "@/lib/auth/requireAdmin";
-import Link from "next/link";
-import { format } from "date-fns";
+import { formatAdminDate } from "./_lib/format";
+import { HealthSection, ReserveCard, ReserveCardFallback } from "./_lib/Health";
+import { LogBadges } from "./_lib/LogBadges";
 
 export const dynamic = "force-dynamic";
-
-function formatLogDate(iso: string | null): string {
-  if (!iso) return "";
-  return format(new Date(iso), "dd/MM/yyyy HH:mm");
-}
-
-const JOB_LABELS: Record<string, string> = {
-  ingestion: "Ingesta",
-  weekly_games: "Juegos semanales",
-  daily_game: "Juego diario",
-  report_auto_deactivate: "Desactivación por reportes",
-};
-
-const JOB_COLORS: Record<string, string> = {
-  ingestion: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
-  weekly_games: "bg-violet-500/20 text-violet-600 dark:text-violet-400",
-  daily_game: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
-  report_auto_deactivate: "bg-slate-500/20 text-slate-600 dark:text-slate-400",
-};
 
 export default async function AdminDashboardPage() {
   await requireAdminPage();
@@ -70,6 +54,14 @@ export default async function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
+      <HealthSection
+        reserve={
+          <Suspense fallback={<ReserveCardFallback />}>
+            <ReserveCard />
+          </Suspense>
+        }
+      />
+
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Métricas
@@ -121,29 +113,12 @@ export default async function AdminDashboardPage() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-                      log.status === "success"
-                        ? "bg-green-500/20 text-green-600 dark:text-green-400"
-                        : log.status === "partial"
-                          ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                          : "bg-red-500/20 text-red-600 dark:text-red-400"
-                    }`}
-                  >
-                    {log.status}
-                  </span>
-                  <span
-                    className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-                      JOB_COLORS[log.job_type] ?? "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {JOB_LABELS[log.job_type] ?? log.job_type}
-                  </span>
+                  <LogBadges status={log.status} jobType={log.job_type} />
                   <span className="text-sm">{log.summary ?? "-"}</span>
                 </div>
               </div>
               <span className="text-xs text-muted-foreground">
-                {formatLogDate(log.ran_at)}
+                {formatAdminDate(log.ran_at)}
               </span>
             </div>
           ))}

@@ -2,10 +2,11 @@
 
 import { useState, useCallback, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { useSearchSongs } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
+import { coverThumbnailUrl } from "./coverThumbnail";
 
 export type { EcosSong } from "@/lib/hooks/queries";
 
@@ -58,7 +59,13 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   const listboxId = `${baseId}-listbox`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
 
-  const { data: results = [], isLoading } = useSearchSongs(debouncedQuery);
+  const {
+    data: results = [],
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useSearchSongs(debouncedQuery);
 
   const isGuessed = useCallback(
     (song: Song) => {
@@ -246,6 +253,16 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   }, []);
 
   const isExpanded = open && results.length > 0;
+  /**
+   * Sin resultados o con la búsqueda caída, antes solo lo decía el texto para lectores de
+   * pantalla y en pantalla no se veía nada: no se sabía si cargaba, si había fallado o si la
+   * canción no estaba (UX-03, UX-04). Ahora sale una fila debajo del campo, con el mismo estilo
+   * que la lista.
+   */
+  const searchSettled = open && debouncedQuery !== "" && !isFetching;
+  const showSearchError = searchSettled && isError;
+  const showNoResults = searchSettled && !isError && results.length === 0;
+  const isPanelOpen = isExpanded || showSearchError || showNoResults;
   const showClearButton =
     !disabled && query.trim().length > CLEAR_BUTTON_MIN_CHARS;
 
@@ -264,7 +281,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
       <div className="relative">
         <span
           aria-hidden
-          className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-xl text-muted-foreground transition-colors group-focus-within:text-brand"
+          className="material-symbols-outlined pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-xl text-muted-foreground transition-[color,transform] duration-300 group-focus-within:scale-110 group-focus-within:text-brand"
         >
           search
         </span>
@@ -280,6 +297,12 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             isExpanded && activeIndex >= 0 ? optionId(activeIndex) : undefined
           }
           autoComplete="off"
+          // Que el teclado del móvil no corrija ni ponga mayúsculas a los nombres de artista
+          // («Bzrp», «Rels B») mientras se escriben (UX-14).
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          enterKeyHint="search"
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -289,11 +312,11 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
           className={cn(
             // `pr-12` fijo, aunque no siempre haya botón: reservar el hueco evita que el texto
             // salte al aparecer y desaparecer el aspa.
-            "w-full rounded-xl border-2 border-transparent bg-muted py-4 pl-12 pr-12 text-base outline-none transition-all placeholder:text-muted-foreground",
-            "focus:border-brand/50 focus:ring-0",
+            "w-full rounded-2xl border border-border bg-card py-4 pl-12 pr-12 text-base shadow-sm outline-none transition-[border-color,box-shadow,border-radius] duration-200 placeholder:text-muted-foreground",
+            "focus:border-brand/60 focus:shadow-[0_0_0_4px_color-mix(in_srgb,var(--brand)_14%,transparent),0_10px_30px_-12px_color-mix(in_srgb,var(--brand)_45%,transparent)] focus:ring-0",
             // Con la lista desplegada los dos forman una sola pieza, así que el campo pierde el
             // redondeo de abajo y la lista el de arriba.
-            isExpanded && "rounded-b-none",
+            isPanelOpen && "rounded-b-none",
             disabled && "cursor-not-allowed opacity-50"
           )}
         />
@@ -327,14 +350,16 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
       <p aria-live="polite" role="status" className="sr-only">
         {isExpanded
           ? t("searchResultsCount", { count: results.length })
-          : debouncedQuery && !isLoading
-            ? t("searchNoResults")
-            : ""}
+          : showSearchError
+            ? t("searchError")
+            : debouncedQuery && !isLoading
+              ? t("searchNoResults")
+              : ""}
       </p>
 
       <AnimatePresence>
         {isExpanded && (
-          <motion.ul
+          <m.ul
             ref={listboxRef}
             id={listboxId}
             role="listbox"
@@ -358,7 +383,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             // `divide-y` separa cada opción de la siguiente sin tocar los extremos, así que no
             // hace falta distinguir el último elemento. Misma opacidad de borde que el resto de
             // separadores de la app.
-            className="absolute top-full z-50 flex max-h-64 w-full flex-col divide-y divide-border/80 overflow-hidden overflow-y-auto rounded-b-xl border border-t-0 border-border bg-card shadow-xl shadow-black/20"
+            className="absolute top-full z-50 flex max-h-64 w-full flex-col divide-y divide-border/60 overflow-hidden overflow-y-auto rounded-b-2xl border border-t-0 border-brand/60 bg-card shadow-2xl shadow-black/25"
           >
             {results.map((song, index) => {
               const isAlreadyGuessed = isGuessed(song);
@@ -375,18 +400,24 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
                   onPointerDown={(e) => e.preventDefault()}
                   onClick={() => !isAlreadyGuessed && handleSelect(song)}
                   onMouseEnter={() => setActiveIndex(index)}
+                  // Entrada escalonada de los resultados. CSS y no framer: son elementos de
+                  // lista que cambian con cada pulsación, no merece la pena montar un motion por fila.
+                  style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
                   className={cn(
-                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                    "relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 animate-in fade-in-0 slide-in-from-top-1 fill-mode-both",
                     isAlreadyGuessed
-                      ? "cursor-not-allowed bg-destructive/15 opacity-70"
-                      : "cursor-pointer active:bg-muted/70",
-                    isActive && !isAlreadyGuessed && "bg-muted"
+                      ? "cursor-not-allowed bg-destructive/10 opacity-70"
+                      : "cursor-pointer active:bg-brand/15",
+                    isActive && !isAlreadyGuessed && "bg-brand/10"
                   )}
                 >
-                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
+                  {isActive && !isAlreadyGuessed && (
+                    <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-brand" />
+                  )}
+                  <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm">
                     {song.cover_url ? (
                       <Image
-                        src={song.cover_url}
+                        src={coverThumbnailUrl(song.cover_url)}
                         alt=""
                         fill
                         className="object-cover"
@@ -415,9 +446,34 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
                 </li>
               );
             })}
-          </motion.ul>
+          </m.ul>
         )}
       </AnimatePresence>
+
+      {(showSearchError || showNoResults) && (
+        <div className="absolute top-full z-50 w-full rounded-b-2xl border border-t-0 border-brand/60 bg-card px-4 py-3 text-left shadow-2xl shadow-black/25"
+        >
+          {showSearchError ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-destructive">{t("searchError")}</p>
+              <button
+                type="button"
+                // Mismo motivo que en las opciones: que el campo no pierda el foco.
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => void refetch()}
+                className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/10 active:bg-brand/15"
+              >
+                {t("searchRetry")}
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm font-medium">{t("searchNoResults")}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("searchNoResultsHint")}</p>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

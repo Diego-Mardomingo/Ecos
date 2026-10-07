@@ -4,9 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { IdSchema } from "../_lib/schemas";
 
-/** Los argumentos de una server action llegan del cliente: hay que validarlos igual que un body. */
-const IdSchema = z.string().uuid();
 const IngestModeSchema = z.enum(["default", "all"]);
 
 const AddPlaylistSchema = z.object({

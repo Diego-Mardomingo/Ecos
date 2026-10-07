@@ -1,135 +1,62 @@
-"use client";
-
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
- * Las dos waveforms decorativas de la home (la compacta de la cabecera y la grande de la
- * tarjeta del día) y el `useMediaQuery` que solo usa la segunda. Extraído de `HomeClient`
- * sin cambios de lógica.
+ * Ecualizador decorativo (tarjeta del reto, login y «Cómo jugar»).
+ *
+ * Antes eran `motion.div` animando `height` con framer-motion: una animación de layout por barra
+ * y por fotograma, en JS. Ahora es una animación CSS de `transform: scaleY` (`.ecos-eq-bar-center` en
+ * `globals.css`) que corre en el compositor, así que ya no hace falta que sea componente cliente
+ * ni que conozca el ancho de pantalla: las barras son `flex-1` y se reparten el sitio que haya.
  */
-function useMediaQuery(query: string) {
-  // matchMedia es exactamente el tipo de fuente externa para la que existe
-  // useSyncExternalStore: evita el setState síncrono dentro del efecto.
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      const m = window.matchMedia(query);
-      m.addEventListener("change", onChange);
-      return () => m.removeEventListener("change", onChange);
-    },
-    [query]
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => window.matchMedia(query).matches,
-    () => false
-  );
+
+type Bar = { key: number; duration: number; delay: number; from: number; to: number };
+
+/** Alturas y ritmos deterministas: mismo resultado en servidor y en cliente. */
+function buildBars(count: number, seed: number): Bar[] {
+  return Array.from({ length: count }, (_, i) => {
+    // Envolvente en campana: las barras centrales suben más, como en un espectro real.
+    const center = 1 - Math.abs(i - (count - 1) / 2) / ((count - 1) / 2);
+    const jitter = ((i * 7 + seed * 13) % 11) / 11;
+    return {
+      key: i,
+      duration: 0.7 + ((i * 5 + seed) % 9) * 0.07,
+      delay: -((i * 3 + seed) % 10) * 0.11,
+      from: 0.12 + jitter * 0.18,
+      to: 0.45 + center * 0.45 + jitter * 0.1,
+    };
+  });
 }
 
-/** Waveform compacta junto al nombre: misma lógica que WaveformBars (ola centrada verticalmente). */
-function HeaderBrandWaveform() {
-  const barCount = 12;
-  const barWidth = 2;
-  const gap = 2;
-  const heightBase = 4;
-  const heightRange = 14;
+const STAGE_BARS = buildBars(42, 7);
 
-  const bars = useMemo(
-    () =>
-      Array.from({ length: barCount }, (_, i) => ({
-        key: i,
-        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
-        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
-        duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.04,
-      })),
-    []
-  );
+function eqStyle(bar: Bar): React.CSSProperties {
+  return {
+    "--eq-duration": `${bar.duration}s`,
+    "--eq-delay": `${bar.delay}s`,
+    "--eq-from": bar.from,
+    "--eq-to": bar.to,
+  } as React.CSSProperties;
+}
 
+/**
+ * Ecualizador grande del escenario del reto. Las barras crecen desde el centro y llevan un
+ * reflejo debajo, para que se lea como una onda y no como un gráfico de barras.
+ */
+function WaveformBars({ className }: { className?: string }) {
   return (
     <div
-      className="ml-1.5 mr-1 flex min-h-0 min-w-0 max-w-[3.25rem] shrink-0 self-center opacity-75 sm:ml-2 sm:mr-2 sm:max-w-[3.75rem]"
+      className={cn("flex h-full w-full items-center gap-[3px]", className)}
       aria-hidden
     >
-      <div className="flex h-9 w-full items-center justify-center">
-        <div
-          className="flex items-center justify-center"
-          style={{ gap: `${gap}px` }}
-        >
-          {bars.map(({ key, heightA, heightB, duration, delay }) => (
-            <motion.div
-              key={key}
-              className="shrink-0 rounded-full bg-brand"
-              style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
-              animate={{ height: [`${heightA}px`, `${heightB}px`] }}
-              transition={{
-                duration,
-                repeat: Infinity,
-                repeatType: "reverse",
-                ease: "easeInOut",
-                delay,
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WaveformBars({ className }: { className?: string }) {
-  const isSm = useMediaQuery("(min-width: 640px)");
-  const isMd = useMediaQuery("(min-width: 768px)");
-
-  const { barCount, barWidth, heightBase, heightRange, gap } = useMemo(() => {
-    if (isMd) return { barCount: 52, barWidth: 4, heightBase: 12, heightRange: 32, gap: 3 };
-    if (isSm) return { barCount: 44, barWidth: 3, heightBase: 10, heightRange: 28, gap: 2.5 };
-    return { barCount: 36, barWidth: 2.5, heightBase: 8, heightRange: 24, gap: 2 };
-  }, [isSm, isMd]);
-
-  const bars = useMemo(
-    () =>
-      Array.from({ length: barCount }, (_, i) => ({
-        key: i,
-        heightA: heightBase + ((i * 7) % Math.round(heightRange)),
-        heightB: heightBase + ((i * 11 + 13) % Math.round(heightRange)),
-        duration: 0.6 + (i % 10) * 0.08,
-        delay: i * 0.02,
-      })),
-    [barCount, heightBase, heightRange]
-  );
-
-  return (
-    <div
-      className={cn(
-        "absolute inset-x-0 top-[52%] flex -translate-y-1/2 items-center justify-center px-4 opacity-60",
-        className
-      )}
-      style={{ gap: `${gap}px` }}
-    >
-      <div
-        className="flex items-center justify-center"
-        style={{ gap: `${gap}px` }}
-      >
-      {bars.map(({ key, heightA, heightB, duration, delay }) => (
-        <motion.div
-          key={key}
-          className="rounded-full bg-brand shrink-0"
-          style={{ width: `${barWidth}px`, minWidth: `${barWidth}px` }}
-          animate={{ height: [`${heightA}px`, `${heightB}px`] }}
-          transition={{
-            duration,
-            repeat: Infinity,
-            repeatType: "reverse",
-            ease: "easeInOut",
-            delay,
-          }}
+      {STAGE_BARS.map((bar) => (
+        <span
+          key={bar.key}
+          className="ecos-eq-bar-center h-full flex-1 rounded-full bg-gradient-to-t from-brand/25 via-brand to-brand/25"
+          style={eqStyle(bar)}
         />
       ))}
-      </div>
     </div>
   );
 }
 
-export { HeaderBrandWaveform, WaveformBars };
+export { WaveformBars };

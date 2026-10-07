@@ -1,39 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { readJsonBody } from "@/lib/api/body-limit";
+import { getRequestUser, handleRoute, jsonError } from "@/lib/api/route";
 
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+export const POST = handleRoute("api/push/unsubscribe", async (request: NextRequest) => {
+  // Cuerpo opcional (sin `endpoint` se desactivan todas), pero con tope de tamaño.
+  const body = await readJsonBody(request);
+  if (!body.ok && body.response.status === 413) return body.response;
+  const endpoint =
+    body.ok && typeof body.data === "object" && body.data !== null
+      ? (body.data as { endpoint?: unknown }).endpoint
+      : undefined;
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const { supabase, user } = await getRequestUser();
+  if (!user) return jsonError(401, "Unauthorized");
 
-    const body = (await request.json().catch(() => ({}))) as {
-      endpoint?: string;
-    };
+  let query = supabase
+    .from("ecos_push_subscriptions")
+    .update({ enabled: false })
+    .eq("user_id", user.id);
 
-    let query = supabase
-      .from("ecos_push_subscriptions")
-      .update({ enabled: false })
-      .eq("user_id", user.id);
-
-    if (body.endpoint) {
-      query = query.eq("endpoint", body.endpoint);
-    }
-
-    const { error } = await query;
-    if (error) throw error;
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("api/push/unsubscribe error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  if (typeof endpoint === "string" && endpoint) {
+    query = query.eq("endpoint", endpoint);
   }
-}
+
+  const { error } = await query;
+  if (error) throw error;
+
+  return NextResponse.json({ ok: true });
+});

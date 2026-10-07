@@ -1,25 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestUser, handleRoute, jsonError, PRIVATE_NO_STORE } from "@/lib/api/route";
 import { getUserStats } from "@/lib/queries/users";
 
-export async function GET() {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+export const GET = handleRoute("api/profile/stats", async () => {
+  const { supabase, user } = await getRequestUser();
+  if (!user) return jsonError(401, "Unauthorized");
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const stats = await getUserStats(user.id);
-    return NextResponse.json({ stats, userId: user.id });
-  } catch (err) {
-    console.error("api/profile/stats error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
+  const stats = await getUserStats(user.id, supabase);
+  return NextResponse.json({ stats, userId: user.id }, { headers: PRIVATE_NO_STORE });
+});

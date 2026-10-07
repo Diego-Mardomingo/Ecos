@@ -1,16 +1,21 @@
 import { Suspense } from "react";
+import type { Metadata } from "next";
+import { getPageSeo } from "@/lib/seo/pageMeta";
 import { createClient } from "@/lib/supabase/server";
 import { HomeClient } from "@/components/home/HomeClient";
 import { HomeSkeleton } from "@/components/skeletons";
-import {
-  getTodaysGameCached,
-  getPreviousDaysCached,
-  getInProgressGames,
-  getTodaysCompletedResult,
-} from "@/lib/queries/games";
-import { getUserDashboardStats } from "@/lib/queries/users";
+import { loadHomePayload } from "@/lib/queries/home";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  return getPageSeo(locale, "/");
+}
 
 async function HomePageContent() {
   const supabase = await createClient();
@@ -18,46 +23,27 @@ async function HomePageContent() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [todaysGame, previousDays, dashboard] = await Promise.all([
-    getTodaysGameCached(),
-    getPreviousDaysCached(user?.id ?? null),
-    user ? getUserDashboardStats(user.id) : Promise.resolve(undefined),
-  ]);
-
-  const userStats = dashboard?.userStats ?? null;
-  const rankingRanks = dashboard?.rankingRanks;
-  const rankingStats = dashboard?.rankingStats;
-
-  const [inProgressByGameId, todaysCompletedResult] = await Promise.all([
-    user && (todaysGame || (previousDays?.length ?? 0) > 0)
-      ? getInProgressGames(
-          user.id,
-          todaysGame?.id ?? null,
-          (previousDays ?? []).map((d) => d.id)
-        )
-      : {},
-    user && todaysGame ? getTodaysCompletedResult(user.id, todaysGame.id) : null,
-  ]);
+  const home = await loadHomePayload({ supabase, user });
 
   const gameIdsForPrefetch =
     user != null
       ? [
-          ...(todaysGame?.id ? [todaysGame.id] : []),
-          ...(previousDays ?? []).map((d) => d.id),
+          ...(home.todaysGame?.id ? [home.todaysGame.id] : []),
+          ...home.previousDays.map((d) => d.id),
         ]
       : [];
 
   return (
     <HomeClient
       initialData={{
-        todaysGame,
-        userStats,
-        userId: user?.id ?? null,
-        previousDays: previousDays ?? [],
-        inProgressByGameId,
-        todaysCompletedResult: todaysCompletedResult ?? null,
-        rankingRanks,
-        rankingStats,
+        todaysGame: home.todaysGame,
+        userStats: home.userStats,
+        userId: home.userId,
+        previousDays: home.previousDays,
+        inProgressByGameId: home.inProgressByGameId,
+        todaysCompletedResult: home.todaysCompletedResult,
+        rankingRanks: home.rankingRanks,
+        rankingStats: home.rankingStats,
         prefetchGameIds: gameIdsForPrefetch,
       }}
     />

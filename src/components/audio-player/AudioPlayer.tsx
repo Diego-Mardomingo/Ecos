@@ -2,13 +2,20 @@
 
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle, memo } from "react";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export interface AudioPlayerHandle {
   togglePlay: () => void;
   /** Si está reproduciendo, pausa y resetea el fragmento (mismo efecto que pulsar Stop). */
   stopIfPlaying: () => void;
+  /**
+   * Lleva el cabezal a ese segundo, sin reproducir ni parar. Sonando, salta y sigue; parado, el
+   * siguiente play arranca desde ahí. Se acota al fragmento disponible (`maxDuration`).
+   */
+  seekTo: (seconds: number) => void;
+  /** Vuelve a cargar el audio después de un fallo de carga (UX-06). */
+  retry: () => void;
 }
 
 interface AudioPlayerProps {
@@ -19,6 +26,8 @@ interface AudioPlayerProps {
   onTimeUpdate?: (currentTime: number) => void;
   onPlayingChange?: (isPlaying: boolean) => void;
   onLoadedChange?: (isLoaded: boolean) => void;
+  /** Avisa cuando la carga del audio falla (red, proxy caído…) y cuando deja de estar fallida. */
+  onErrorChange?: (failed: boolean) => void;
   /** Cuando true, no se muestra la barra ni el botón (el padre dibuja el control grande) */
   hideControls?: boolean;
   className?: string;
@@ -31,6 +40,7 @@ const AudioPlayerComponent = ({
   onTimeUpdate,
   onPlayingChange,
   onLoadedChange,
+  onErrorChange,
   hideControls = false,
   className,
 }: AudioPlayerProps,
@@ -60,6 +70,9 @@ ref: React.Ref<AudioPlayerHandle>) => {
   /** Listener "ended" activo del preview, para poder retirarlo y no acumularlos. */
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const maxDurationRef = useRef(maxDuration);
+  /** Segundo desde el que arrancará el siguiente play, fijado por `seekTo` con el audio parado. */
+  const pendingStartRef = useRef(0);
+  const onEndedRef = useRef(onEnded);
   const [isPlaying, setIsPlaying] = useState(false);
   /**
    * Solo alimenta los controles propios del reproductor. Con `hideControls` no se pinta, y el
@@ -76,6 +89,12 @@ ref: React.Ref<AudioPlayerHandle>) => {
   );
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  /**
+   * Se incrementa en cada reintento: el efecto que crea el `<audio>` depende de él, así que un
+   * reintento monta un elemento nuevo. Antes, si fallaba la carga, el botón se quedaba girando
+   * para siempre y no había forma de volver a intentarlo sin recargar la página.
+   */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const isPlayingRef = useRef(false);
   const isLoadedRef = useRef(false);
 
@@ -85,6 +104,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
   // del compilador de React.
   useEffect(() => {
     maxDurationRef.current = maxDuration;
+    onEndedRef.current = onEnded;
     isPlayingRef.current = isPlaying;
     isLoadedRef.current = isLoaded;
   });
@@ -130,11 +150,29 @@ ref: React.Ref<AudioPlayerHandle>) => {
     }
     cancelPlaybackLoop();
     cancelHardStop();
+    pendingStartRef.current = 0;
     setCurrentTime(0);
     setIsPlaying(false);
     clearMediaSession();
     onTimeUpdate?.(0);
   }, [cancelPlaybackLoop, cancelHardStop, clearMediaSession, onTimeUpdate]);
+
+  /**
+   * Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil. Se programa con lo que
+   * *queda* de fragmento desde `fromSeconds`, no con el fragmento entero: tras un salto hacia
+   * atrás, contar desde el play original cortaría el audio antes de tiempo.
+   */
+  const scheduleHardStop = useCallback(
+    (fromSeconds: number) => {
+      cancelHardStop();
+      const remaining = Math.max(0, maxDurationRef.current - fromSeconds);
+      stopTimeoutRef.current = window.setTimeout(() => {
+        stopAndReset();
+        onEndedRef.current?.();
+      }, (remaining + 0.5) * 1000);
+    },
+    [cancelHardStop, stopAndReset]
+  );
 
   useEffect(() => {
     onPlayingChange?.(isPlaying);
@@ -143,6 +181,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
   useEffect(() => {
     onLoadedChange?.(isLoaded);
   }, [isLoaded, onLoadedChange]);
+
+  useEffect(() => {
+    onErrorChange?.(hasError);
+  }, [hasError, onErrorChange]);
 
   // Reset al cambiar de pista, ajustando el estado durante el render en lugar de
   // en el efecto de montaje del reproductor. En el primer render no hace nada,
@@ -217,7 +259,16 @@ ref: React.Ref<AudioPlayerHandle>) => {
       audioRef.current = null;
       clearMediaSession();
     };
-  }, [previewUrl, clearMediaSession, stopAndReset]);
+    // `loadAttempt` no se lee dentro: está para que un reintento vuelva a crear el `<audio>`.
+  }, [previewUrl, loadAttempt, clearMediaSession, stopAndReset]);
+
+  const retry = useCallback(() => {
+    if (!previewUrl) return;
+    setHasError(false);
+    setIsLoaded(false);
+    setIsPlaying(false);
+    setLoadAttempt((n) => n + 1);
+  }, [previewUrl]);
 
   const stopIfPlaying = useCallback(() => {
     if (!isLoadedRef.current || !isPlayingRef.current) return;
@@ -237,7 +288,10 @@ ref: React.Ref<AudioPlayerHandle>) => {
       return;
     }
 
-    audio.currentTime = 0;
+    // Arranca donde lo dejó `seekTo` con el audio parado; si no hubo salto, desde el principio.
+    const startAt = Math.min(pendingStartRef.current, Math.max(0, maxDuration - 0.05));
+    pendingStartRef.current = 0;
+    audio.currentTime = startAt;
     // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
     // manejarlo para no quedar con isPlaying=true sin audio.
     void audio.play().catch(() => {
@@ -271,7 +325,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
         });
         // playbackState "none" evita que aparezca en controles del sistema
         navigator.mediaSession.playbackState = "none";
-        updateMediaSessionPosition(0);
+        updateMediaSessionPosition(startAt);
         navigator.mediaSession.setActionHandler("seekto", (details) => {
           const audio = audioRef.current;
           if (!audio) return;
@@ -287,12 +341,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
       }
     }
 
-    // Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil
-    cancelHardStop();
-    stopTimeoutRef.current = window.setTimeout(() => {
-      stopAndReset();
-      onEnded?.();
-    }, (maxDuration + 0.5) * 1000);
+    scheduleHardStop(startAt);
 
     cancelPlaybackLoop();
     const tickPreview = () => {
@@ -321,17 +370,45 @@ ref: React.Ref<AudioPlayerHandle>) => {
       playbackRafRef.current = requestAnimationFrame(tickPreview);
     };
     playbackRafRef.current = requestAnimationFrame(tickPreview);
-  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle]);
+  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle, scheduleHardStop]);
+
+  const seekTo = useCallback(
+    (seconds: number) => {
+      if (!isLoadedRef.current) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      // Un pelo antes del final: caer justo en `maxDuration` dispararía el corte de fin de fragmento.
+      const clamped = Math.min(Math.max(0, seconds), Math.max(0, maxDurationRef.current - 0.05));
+      if (isPlayingRef.current) {
+        audio.currentTime = clamped;
+        scheduleHardStop(clamped);
+        updateMediaSessionPosition(clamped);
+      } else {
+        pendingStartRef.current = clamped;
+      }
+      setCurrentTimeIfVisible(clamped);
+      // Parado también se notifica: así quien pinta la onda deja el cabezal donde se tocó.
+      onTimeUpdate?.(clamped);
+    },
+    [scheduleHardStop, updateMediaSessionPosition, setCurrentTimeIfVisible, onTimeUpdate]
+  );
 
   useImperativeHandle(ref, () => ({
     togglePlay,
     stopIfPlaying,
-  }), [togglePlay, stopIfPlaying]);
+    seekTo,
+    retry,
+  }), [togglePlay, stopIfPlaying, seekTo, retry]);
 
   if (!previewUrl || hasError) {
+    // Distingue «esta canción no tiene audio» de «no se ha podido cargar», que tiene arreglo
+    // (reintentar desde el botón de play). `role="alert"` para que se anuncie al aparecer.
     return (
-      <div className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}>
-        {t("noAudio")}
+      <div
+        role="alert"
+        className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}
+      >
+        {previewUrl ? t("audioLoadError") : t("noAudio")}
       </div>
     );
   }
@@ -376,7 +453,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
 
       {/* El contenido es una ligadura de Material Symbols ("stop" / "play_arrow"), que el lector
           de pantalla leeria literalmente: va oculta y el nombre lo da el aria-label. */}
-      <motion.button
+      <m.button
         type="button"
         onClick={togglePlay}
         whileTap={{ scale: 0.92 }}
@@ -407,7 +484,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
             progress_activity
           </span>
         )}
-      </motion.button>
+      </m.button>
     </div>
   );
 };

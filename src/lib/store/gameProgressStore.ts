@@ -16,6 +16,13 @@ export interface GameProgress {
   correctAttempt?: number;
 }
 
+/** Partida terminada (acertada o perdida). Admite `null`/`undefined` para no repetir la guarda. */
+export function isTerminalProgress(
+  progress: Pick<GameProgress, "phase"> | null | undefined
+): boolean {
+  return progress?.phase === "won" || progress?.phase === "lost";
+}
+
 interface GameProgressState {
   byGameId: Record<string, GameProgress>;
   saveProgress: (progress: GameProgress) => void;
@@ -38,7 +45,8 @@ export const useGameProgressStore = create<GameProgressState>()(
 
       removeProgress: (gameId) =>
         set((state) => {
-          const { [gameId]: _, ...rest } = state.byGameId;
+          const rest = { ...state.byGameId };
+          delete rest[gameId];
           return { byGameId: rest };
         }),
 
