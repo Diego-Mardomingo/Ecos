@@ -1,50 +1,44 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
+import {
+  getSafeRedirectTarget,
+  LOGIN_REDIRECT_COOKIE,
+  LOGIN_REDIRECT_COOKIE_PATH,
+} from "@/lib/auth/safeRedirectPath";
+import { resolvePostLoginPath } from "@/lib/auth/postLoginPath";
+import { localeFromPath, localizedPath } from "@/lib/i18n/localizedPath";
 
 /**
- * Solo se permiten rutas internas relativas como destino post-login.
- * Bloquea "//evil.com", "https://evil.com" y esquemas raros para evitar open redirects.
+ * Vuelta del login con Google (OAuth + PKCE). Canjea el código por la sesión, que escribe las
+ * cookies a través de `createClient()`, y redirige al destino que había pedido el login.
+ *
+ * El destino llega en `?next=` o, en el flujo normal, en la cookie que deja `LoginClient` antes de
+ * salir hacia Google (ver `LOGIN_REDIRECT_COOKIE`). Se sanea en los dos casos.
  */
-function safeNext(raw: string | null): string {
-  if (!raw) return "/";
-  // Debe empezar por una sola barra y no ser "//" (que el navegador interpreta como host).
-  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-    return "/";
-  }
-  return raw;
-}
-
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
-  const next = safeNext(searchParams.get("next"));
+  const target =
+    getSafeRedirectTarget(searchParams.get("next")) ??
+    getSafeRedirectTarget(request.cookies.get(LOGIN_REDIRECT_COOKIE)?.value) ??
+    "/";
+  const locale = localeFromPath(target);
+
+  let destination = `${localizedPath(locale, "/login")}?error=auth_failed`;
 
   if (code) {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          },
-        },
-      }
-    );
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (!error) {
-      return NextResponse.redirect(new URL(next, request.url));
+    if (!error && data.user) {
+      destination = await resolvePostLoginPath(supabase, data.user.id, target, locale);
     }
   }
 
-  return NextResponse.redirect(new URL("/login?error=auth_failed", request.url));
+  const response = NextResponse.redirect(new URL(destination, request.url));
+  response.cookies.set(LOGIN_REDIRECT_COOKIE, "", {
+    path: LOGIN_REDIRECT_COOKIE_PATH,
+    maxAge: 0,
+  });
+  return response;
 }

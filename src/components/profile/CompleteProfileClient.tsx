@@ -7,7 +7,8 @@ import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useUpdateProfileMutation } from "@/lib/hooks/queries";
-import { localizedPath, safeRelativeInternalPath } from "@/lib/i18n/localizedPath";
+import { localizedPath } from "@/lib/i18n/localizedPath";
+import { getSafeRedirectTarget } from "@/lib/auth/safeRedirectPath";
 
 const rise: Variants = {
   hidden: { opacity: 0, y: 14 },
@@ -22,10 +23,7 @@ export function CompleteProfileClient() {
   const locale = useLocale();
   const searchParams = useSearchParams();
   const defaultDest = localizedPath(locale, "/profile");
-  const redirectTo = safeRelativeInternalPath(
-    searchParams.get("redirect"),
-    defaultDest
-  );
+  const redirectTo = getSafeRedirectTarget(searchParams.get("redirect")) ?? defaultDest;
   const updateProfile = useUpdateProfileMutation();
 
   const [username, setUsername] = useState("");
