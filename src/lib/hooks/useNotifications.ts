@@ -57,6 +57,115 @@ async function getRegistration(): Promise<ServiceWorkerRegistration | null> {
   return navigator.serviceWorker.ready;
 }
 
+/*
+ * Las cuatro funciones siguientes contienen los `try` que antes vivían dentro del hook. El React
+ * Compiler no admite `finally` ni condicionales (`?:`, `&&`, `?.`) dentro de un `try` y, al
+ * encontrarlos, dejaba sin compilar `useNotifications` entero (lo usa `NotificationsModal`,
+ * montado en todas las páginas). Ninguna lanza.
+ */
+
+/** Estado de la suscripción en el servidor, o `null` si no se pudo leer. */
+async function fetchPushStatus(): Promise<PushStatusResponse | null> {
+  try {
+    const res = await fetch("/api/push/status", { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as PushStatusResponse;
+  } catch (err) {
+    console.error("useNotifications: refreshStatus failed", err);
+    return null;
+  }
+}
+
+/** Pide permiso, suscribe y guarda en BD. Devuelve `true` si quedó activada. */
+async function subscribePush(
+  publicKey: string,
+  onPermission: (permission: NotificationPermission) => void
+): Promise<boolean> {
+  try {
+    const result = await Notification.requestPermission();
+    onPermission(result);
+    if (result !== "granted") {
+      return false;
+    }
+
+    const registration = await getRegistration();
+    if (!registration) {
+      console.error("useNotifications: no service worker registration");
+      return false;
+    }
+
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+      });
+    }
+
+    const res = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: subscription.toJSON() }),
+    });
+
+    if (!res.ok) {
+      console.error("useNotifications: subscribe API failed");
+      await subscription.unsubscribe().catch(() => undefined);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("useNotifications.enable error:", err);
+    return false;
+  }
+}
+
+/** Elimina la suscripción y la desactiva en BD. Devuelve `false` si algo lanzó por el camino. */
+async function unsubscribePush(): Promise<boolean> {
+  try {
+    const registration = await getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    const endpoint = subscription?.endpoint;
+
+    if (subscription) {
+      await subscription.unsubscribe().catch(() => undefined);
+    }
+
+    await fetch("/api/push/unsubscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(endpoint ? { endpoint } : {}),
+    }).catch(() => undefined);
+
+    return true;
+  } catch (err) {
+    console.error("useNotifications.disable error:", err);
+    return false;
+  }
+}
+
+/** Registra en BD un cierre del modal. Devuelve el contador que guarda el servidor, si lo da. */
+async function postModalDismiss(exhaust: boolean): Promise<number | null> {
+  try {
+    const res = await fetch("/api/push/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(exhaust ? { exhaust: true } : {}),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      notifications_modal_dismiss_count?: number;
+    };
+    return typeof data.notifications_modal_dismiss_count === "number"
+      ? data.notifications_modal_dismiss_count
+      : null;
+  } catch (err) {
+    console.error("useNotifications.recordModalDismiss error:", err);
+    return null;
+  }
+}
+
 /**
  * Hook centralizado para Web Push: estado de suscripción, permisos, y
  * operaciones de alta/baja sincronizadas con la tabla `ecos_push_subscriptions`.
@@ -89,22 +198,28 @@ export function useNotifications(options?: {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialized, setIsInitialized] = useState(hasInitialStatus);
 
+  /*
+   * La regla `react-hooks/set-state-in-effect` marca los dos efectos de abajo. Estuvo oculto hasta
+   * oct. 2026 porque los `try/finally` dejaban el hook sin analizar (ni por el lint ni por el
+   * compilador). El primero lee APIs del navegador que no existen en el SSR; el segundo solo
+   * escribe estado tras el `await` de la petición. Se silencia línea a línea para no cambiar el
+   * momento en que se ofrece el modal; no impide compilar el hook.
+   */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const supported =
       "Notification" in window &&
       "serviceWorker" in navigator &&
       "PushManager" in window;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver nota de arriba
     setIsSupported(supported);
     setPermission(supported ? Notification.permission : "unsupported");
   }, []);
 
   const refreshStatus = useCallback(async () => {
     if (!queryEnabled || !isSupported) return;
-    try {
-      const res = await fetch("/api/push/status", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as PushStatusResponse;
+    const data = await fetchPushStatus();
+    if (data) {
       setIsEnabled(data.enabled);
       setModalDismissCount(
         Math.min(
@@ -112,15 +227,13 @@ export function useNotifications(options?: {
           NOTIFICATIONS_MODAL_MAX_DISMISSES
         )
       );
-    } catch (err) {
-      console.error("useNotifications: refreshStatus failed", err);
-    } finally {
-      setIsInitialized(true);
     }
+    setIsInitialized(true);
   }, [queryEnabled, isSupported]);
 
   useEffect(() => {
     if (hasInitialStatus) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver nota de arriba
     void refreshStatus();
   }, [hasInitialStatus, refreshStatus]);
 
@@ -133,73 +246,18 @@ export function useNotifications(options?: {
     }
 
     setIsLoading(true);
-    try {
-      const result = await Notification.requestPermission();
-      setPermission(result);
-      if (result !== "granted") {
-        return false;
-      }
-
-      const registration = await getRegistration();
-      if (!registration) {
-        console.error("useNotifications: no service worker registration");
-        return false;
-      }
-
-      let subscription = await registration.pushManager.getSubscription();
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
-        });
-      }
-
-      const res = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscription: subscription.toJSON() }),
-      });
-
-      if (!res.ok) {
-        console.error("useNotifications: subscribe API failed");
-        await subscription.unsubscribe().catch(() => undefined);
-        return false;
-      }
-
-      setIsEnabled(true);
-      return true;
-    } catch (err) {
-      console.error("useNotifications.enable error:", err);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+    const ok = await subscribePush(publicKey, setPermission);
+    if (ok) setIsEnabled(true);
+    setIsLoading(false);
+    return ok;
   }, [isSupported]);
 
   const disable = useCallback(async () => {
     if (!isSupported) return;
     setIsLoading(true);
-    try {
-      const registration = await getRegistration();
-      const subscription = await registration?.pushManager.getSubscription();
-      const endpoint = subscription?.endpoint;
-
-      if (subscription) {
-        await subscription.unsubscribe().catch(() => undefined);
-      }
-
-      await fetch("/api/push/unsubscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(endpoint ? { endpoint } : {}),
-      }).catch(() => undefined);
-
-      setIsEnabled(false);
-    } catch (err) {
-      console.error("useNotifications.disable error:", err);
-    } finally {
-      setIsLoading(false);
-    }
+    const ok = await unsubscribePush();
+    if (ok) setIsEnabled(false);
+    setIsLoading(false);
   }, [isSupported]);
 
   const recordModalDismiss = useCallback(
@@ -212,27 +270,9 @@ export function useNotifications(options?: {
           Math.min(c + 1, NOTIFICATIONS_MODAL_MAX_DISMISSES)
         );
       }
-      try {
-        const res = await fetch("/api/push/status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(exhaust ? { exhaust: true } : {}),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as {
-            notifications_modal_dismiss_count?: number;
-          };
-          if (typeof data.notifications_modal_dismiss_count === "number") {
-            setModalDismissCount(
-              Math.min(
-                data.notifications_modal_dismiss_count,
-                NOTIFICATIONS_MODAL_MAX_DISMISSES
-              )
-            );
-          }
-        }
-      } catch (err) {
-        console.error("useNotifications.recordModalDismiss error:", err);
+      const serverCount = await postModalDismiss(exhaust);
+      if (serverCount !== null) {
+        setModalDismissCount(Math.min(serverCount, NOTIFICATIONS_MODAL_MAX_DISMISSES));
       }
     },
     []
