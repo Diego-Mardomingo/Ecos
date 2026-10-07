@@ -151,6 +151,9 @@ export function HomeTodayHero({
       >
         <motion.div
           whileTap={{ scale: 0.985 }}
+          // framer hace enfocable (tabindex=0) lo que lleva `whileTap`. Esta tarjeta no tiene rol
+          // ni nombre y el botón de dentro hace lo mismo: fuera del orden de tabulación (UX-13).
+          tabIndex={-1}
           onMouseEnter={onPrefetch}
           onClick={onPlay}
           className="@container relative flex cursor-pointer flex-col gap-4 p-[18px]"

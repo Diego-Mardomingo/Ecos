@@ -75,6 +75,9 @@ export function HomeRecentDays({
               <motion.div
                 whileHover={{ y: -4 }}
                 whileTap={{ scale: 0.96 }}
+                // framer hace enfocable (tabindex=0) lo que lleva `whileTap`: sin esto, cada
+                // tarjeta eran dos paradas de tabulación, este div sin nombre y el enlace (UX-13).
+                tabIndex={-1}
               >
                 <Link
                   href={`/play/${day.id}`}

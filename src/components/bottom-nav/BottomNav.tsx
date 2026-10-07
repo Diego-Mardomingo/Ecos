@@ -79,6 +79,9 @@ export function BottomNav() {
               <motion.span
                 aria-hidden
                 whileTap={{ scale: 0.85 }}
+                // framer hace enfocable (tabindex=0) lo que lleva `whileTap`, y esto es un icono
+                // dentro del enlace: una parada de tabulación vacía de más (UX-13).
+                tabIndex={-1}
                 className="material-symbols-outlined relative text-2xl"
                 style={{ fontVariationSettings: `'FILL' ${active ? 1 : 0}, 'wght' 500` }}
               >

@@ -182,6 +182,9 @@ function WinnerCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       whileTap={{ scale: 0.97 }}
+      // framer hace enfocable (tabindex=0) lo que lleva `whileTap`: el enlace de dentro ya es la
+      // parada de tabulación de la tarjeta (UX-13).
+      tabIndex={-1}
       className={className}
     >
       <Link
