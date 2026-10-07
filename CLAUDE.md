@@ -179,7 +179,8 @@ con `Cache-Control: public` (`publicCacheHeaders`) **nunca** con el `createClien
 `Set-Cookie` se quedaría en la CDN. Los route handlers usan el andamiaje de `src/lib/api/route.ts`
 (`getRequestUser`, `jsonError`, `handleRoute`, `parseIntParam`) y todo cuerpo JSON se lee con
 `readJsonBody` (`src/lib/api/body-limit.ts`, tope de tamaño). El límite de frecuencia no está en
-código: es una regla de rate limit del firewall de Vercel.
+código: va en una regla de rate limit del firewall de Vercel, que se configura a mano en el panel
+(no está en el repo; compruébalo allí antes de darla por puesta).
 
 ## Invitado, audio y fugas
 
