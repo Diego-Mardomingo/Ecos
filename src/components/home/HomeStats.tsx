@@ -229,11 +229,8 @@ export function HomeProgress({
 export function HomeGuestCard() {
   const t = useTranslations("home");
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-    >
+    // Entrada en CSS: con framer llegaba con `opacity:0` en el HTML del servidor (PERF-04).
+    <section className="animate-in fade-in slide-in-from-bottom-3 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] [--tw-animation-delay:120ms] fill-mode-backwards">
       <Link
         href="/login"
         className="group relative flex items-center gap-3 overflow-hidden rounded-3xl border border-brand/25 bg-gradient-to-br from-brand/12 via-card to-card px-4 py-4 transition-[border-color,transform] duration-200 hover:border-brand/50 active:scale-[0.98]"
@@ -251,6 +248,6 @@ export function HomeGuestCard() {
           arrow_forward
         </span>
       </Link>
-    </motion.section>
+    </section>
   );
 }

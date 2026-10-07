@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,6 +9,10 @@ import { cn } from "@/lib/utils";
  *
  * El vinilo se queda quieto y ladeado, como un disco que se ha parado: es el «algo no suena» de
  * la app, y da a estas pantallas el mismo lenguaje que el resto en lugar de un icono suelto.
+ *
+ * Las entradas van en CSS y no en framer-motion: con framer, lo que llegaba en el HTML del
+ * servidor venía con `opacity:0` hasta hidratar (PERF-04), y una pantalla de error no debería
+ * depender de que cargue más JS para verse. Las curvas con rebote imitan los muelles que tenían.
  */
 export function StatusScreen({
   icon,
@@ -44,11 +47,8 @@ export function StatusScreen({
         />
       </div>
 
-      <motion.div
-        initial={{ scale: 0.6, opacity: 0, rotate: -40 }}
-        animate={{ scale: 1, opacity: 1, rotate: -12 }}
-        transition={{ type: "spring", stiffness: 200, damping: 16 }}
-        className="relative mb-8 size-36"
+      <div
+        className="relative mb-8 size-36 -rotate-12 animate-in fade-in zoom-in-60 spin-in-[-28deg] animation-duration-700 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)]"
         aria-hidden
       >
         <div className="ecos-vinyl size-full rounded-full shadow-[0_20px_40px_-16px_rgba(0,0,0,0.6)]">
@@ -60,40 +60,28 @@ export function StatusScreen({
           />
           <div className="absolute inset-[47%] rounded-full bg-background" />
         </div>
-        <motion.span
-          initial={{ scale: 0, rotate: 12 }}
-          animate={{ scale: 1, rotate: 12 }}
-          transition={{ delay: 0.35, type: "spring", stiffness: 420, damping: 18 }}
+        <span
           className={cn(
-            "absolute -bottom-1 -right-1 flex size-14 items-center justify-center rounded-2xl shadow-lg ring-4 ring-background",
+            "absolute -bottom-1 -right-1 flex size-14 rotate-12 items-center justify-center rounded-2xl shadow-lg ring-4 ring-background",
+            "animate-in zoom-in animation-duration-500 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)] [--tw-animation-delay:350ms] fill-mode-backwards",
             tone === "danger" ? "bg-destructive text-white" : "bg-card text-foreground"
           )}
         >
           <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
             {icon}
           </span>
-        </motion.span>
-      </motion.div>
+        </span>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-        className="max-w-sm"
-      >
+      <div className="max-w-sm animate-in fade-in slide-in-from-bottom-3 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] [--tw-animation-delay:150ms] fill-mode-backwards">
         <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
         {description ? <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
-      </motion.div>
+      </div>
 
       {children ? (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-8 flex w-full max-w-xs flex-col items-center gap-3"
-        >
+        <div className="mt-8 flex w-full max-w-xs flex-col items-center gap-3 animate-in fade-in slide-in-from-bottom-3 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] [--tw-animation-delay:250ms] fill-mode-backwards">
           {children}
-        </motion.div>
+        </div>
       ) : null}
     </div>
   );

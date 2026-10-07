@@ -65,11 +65,14 @@ export function HomeRecentDays({
         {days.map((day, i) => {
           const d = deriveHomeDayFromHistory(day, userId, inProgressByGameId[day.id], byGameId);
           return (
-            <div key={day.id} className="shrink-0 snap-start">
+            // Entrada en CSS (no oculta la tarjeta en el HTML del servidor, PERF-04); el hover y el
+            // toque siguen en framer, en el nodo de dentro.
+            <div
+              key={day.id}
+              className="shrink-0 snap-start animate-in fade-in slide-in-from-right-6 animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards"
+              style={{ animationDelay: `${150 + i * 50}ms` }}
+            >
               <motion.div
-                initial={{ opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15 + i * 0.05, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
                 whileHover={{ y: -4 }}
                 whileTap={{ scale: 0.96 }}
               >

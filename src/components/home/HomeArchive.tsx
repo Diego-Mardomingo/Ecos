@@ -384,13 +384,12 @@ function HomeArchive({
 
       {/* Aviso de pendientes del mes */}
       {pending.length > 0 && (
+        // Entrada en CSS para no llegar con `opacity:0` en el HTML del servidor (PERF-04).
         <motion.button
           type="button"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => openGame([...pending].reverse()[0])}
-          className="mt-2.5 flex w-full items-center gap-2.5 rounded-2xl bg-brand/10 px-3.5 py-3 text-left text-[13px] font-semibold"
+          className="mt-2.5 flex w-full animate-in items-center gap-2.5 rounded-2xl bg-brand/10 px-3.5 py-3 text-left text-[13px] font-semibold fade-in slide-in-from-bottom-[6px] animation-duration-300 [--tw-ease:cubic-bezier(0.22,1,0.36,1)]"
         >
           <span aria-hidden className="material-symbols-outlined text-xl text-brand" style={{ fontVariationSettings: "'FILL' 1" }}>
             headphones
