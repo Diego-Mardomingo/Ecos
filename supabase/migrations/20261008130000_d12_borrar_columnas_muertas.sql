@@ -1,5 +1,6 @@
+-- ESTADO: APLICADA en producción el 2026-10-08, tras desplegar (migración ecos_d12_borrar_columnas_muertas).
 -- ============================================================================================
--- NO APLICAR HASTA DESPLEGAR.  BD-2 parte 2 / D12 (DEAD-18, DATA-03).
+-- (Había que aplicarla después de desplegar.)  BD-2 parte 2 / D12 (DEAD-18, DATA-03).
 --
 -- Esta migración es destructiva y no se puede deshacer: borra seis columnas de ecos_songs. Hay
 -- que aplicarla DESPUÉS de que esté en producción (Vercel) el código de la rama lote/bd-2 que

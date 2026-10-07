@@ -5,7 +5,7 @@
 --    `drop policy ecos_guesses_own_insert`. En su lugar, la política se limitó a filas de salto
 --    (guess_text = 'skipped' y todo a false), porque el código desplegado entonces aún registraba
 --    los saltos con el cliente de cookies.
---  - PENDIENTE, aplicar SOLO tras desplegar el código nuevo (que salta con service role):
+--  - Segunda parte APLICADA el 2026-10-08 tras desplegar (migración ecos_guesses_sin_insert_de_clientes):
 --      revoke insert on public.ecos_guesses from authenticated;
 --      drop policy if exists ecos_guesses_own_insert on public.ecos_guesses;
 -- ============================================================================================

@@ -67,21 +67,6 @@ depende de políticas que, si no se versionan, no salen en ningún diff. Están 
   anon/authenticated recibir solo el canal `ecos:ranking` (aviso de «el ranking ha cambiado»).
   Nada puede emitir salvo la service role.
 
-## Desfase conocido
-
-Dos cosas del volcado van por delante o por detrás de la BD hasta que se aplique lo que queda
-pendiente en `supabase/migrations/` (su README lo detalla, y la cabecera `ESTADO` de cada migración
-manda):
-
-- `ecos_guesses`: `03_security.sql` ya no tiene política ni privilegio de `INSERT`; la BD conserva
-  `ecos_guesses_own_insert`, limitada a filas de salto, hasta desplegar el código que salta con
-  service role.
-- `ecos_songs`: `01_tables.sql` sigue con `genre`, `popularity`, `tempo`, `danceability`, `energy` y
-  `raw_spotify_data`, que siguen en la BD hasta aplicar `20261008130000_d12_borrar_columnas_muertas.sql`
-  tras desplegar. Al aplicarla, se quitan del volcado en el mismo commit.
-
-Cuando se apliquen, borra esta sección.
-
 ## Cómo regenerarlo
 
 No hay script: se hizo con consultas a través del MCP de Supabase. Las fuentes, por si hay que
