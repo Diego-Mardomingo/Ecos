@@ -41,6 +41,21 @@ function medal(rank: number | null): { icon: string; color: string } {
   return { icon: "military_tech", color: "text-muted-foreground" };
 }
 
+/**
+ * Último periodo elegido (localStorage), o `null` si no hay o no es válido. Va fuera del
+ * componente porque el React Compiler no admite condicionales dentro de un `try` y dejaría sin
+ * compilar `HomeProgress` entero.
+ */
+function readSavedPeriod(): Period | null {
+  try {
+    const saved = localStorage.getItem(HOME_STATS_PERIOD_STORAGE_KEY);
+    if (saved && (PERIODS as readonly string[]).includes(saved)) return saved as Period;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export function HomeProgress({
   rankingStats,
   completedGames,
@@ -62,12 +77,8 @@ export function HomeProgress({
   const [restored, setRestored] = useState(false);
   if (mounted && !restored) {
     setRestored(true);
-    try {
-      const saved = localStorage.getItem(HOME_STATS_PERIOD_STORAGE_KEY);
-      if (saved && (PERIODS as readonly string[]).includes(saved)) setPeriod(saved as Period);
-    } catch {
-      /* ignore */
-    }
+    const saved = readSavedPeriod();
+    if (saved) setPeriod(saved);
   }
 
   const choose = (next: Period) => {
