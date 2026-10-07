@@ -1,7 +1,5 @@
 <div align="center">
 
-<div align="center">
-
 <span style="display:inline-flex; align-items:center; gap: 16px;">
   <img src="public/ecos_icon_v2.png" alt="Logo ECOS" width="48" height="48" style="vertical-align:middle;" />
   <span style="font-size:2.35rem; font-weight:800; letter-spacing:1px; line-height:1;">ECOS</span>
@@ -66,13 +64,38 @@ Visión general.
 
 | Área | Herramientas |
 |------|----------------|
-| **Estado y datos en cliente** | [Zustand](https://github.com/pmndrs/zustand) · [TanStack Query](https://tanstack.com/query) v5 (con persistencia opcional) |
-| **Formularios y validación** | [React Hook Form](https://react-hook-form.com) · [Zod](https://zod.dev) |
-| **Audio** | [Howler.js](https://howlerjs.com) |
-| **Animación** | [Framer Motion](https://www.framer.com/motion/) |
+| **Estado y datos en cliente** | [Zustand](https://github.com/pmndrs/zustand) · [TanStack Query](https://tanstack.com/query) v5 (caché persistida en el navegador) |
+| **Validación** | [Zod](https://zod.dev) |
+| **Audio** | Elemento `<audio>` nativo; el fragmento llega por un proxy propio |
+| **Animación** | [Framer Motion](https://www.framer.com/motion/) (carga diferida) |
+| **Iconos** | [Material Symbols](https://fonts.google.com/icons) (subset autoalojado) |
 | **Tema** | [next-themes](https://github.com/pacocoursey/next-themes) (claro / oscuro) |
 | **i18n** | [next-intl](https://next-intl-docs.vercel.app) |
 | **PWA** | [Serwist](https://serwist.pages.dev) (service worker, página offline) |
+
+### Datos y despliegue
+
+| Área | Herramientas |
+|------|----------------|
+| **Hosting** | [Vercel](https://vercel.com) (`master` es producción) |
+| **Tareas programadas** | [GitHub Actions](https://docs.github.com/actions) con scripts de Python en `scripts/`: elegir la canción del día, ingerir playlists de Spotify, comprobar que hay juego y enviar notificaciones push |
+
+---
+
+## Desarrollo
+
+```bash
+pnpm install
+pnpm dev          # http://localhost:3000
+```
+
+Hace falta un `.env.local` con las claves de Supabase y de Google (los nombres están en
+[`CLAUDE.md`](CLAUDE.md)). No hay tests: antes de dar algo por bueno se pasan `pnpm lint`,
+`pnpm typecheck` y `pnpm build`, que es también lo que ejecuta la integración continua.
+
+La base de datos se comparte con otra aplicación; el esquema de Ecos está versionado en
+[`supabase/schema/`](supabase/schema/README.md). Las reglas de trabajo, la arquitectura y las trampas
+conocidas están en [`CLAUDE.md`](CLAUDE.md).
 
 ---
 

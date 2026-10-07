@@ -16,3 +16,8 @@ Se movieron a este directorio, así que dos cosas dejaron de funcionar tal cual:
   repo).
 - `backfill-preview-duration.py` busca `.env.local` en `scripts/`, no en la raíz: exporta las
   variables de entorno a mano. (`backfill-games.py` ya lo carga bien con `common.load_env`.)
+
+Otro fallo en camino: `backfill-games.py` todavía pide `genre` en sus `select` (`SONG_COLUMNS` y la
+consulta de `ecos_games`). Fallará en cuanto se aplique `20261008130000_d12_borrar_columnas_muertas.sql`, que
+borra esa columna: si algún día se reutiliza, quítalo antes. El selector (`selection.py`) ya no
+lo usa: la rotación de géneros mira el nombre de la playlist.
