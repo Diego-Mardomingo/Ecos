@@ -95,19 +95,25 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
       client_id: googleClientId,
       callback: async (response: { credential: string }) => {
         setLoading(true);
+        /*
+         * Sin `throw` dentro del `try`: el React Compiler no lo admite y dejaba sin compilar
+         * `LoginClient` entero.
+         */
+        let signedIn = false;
         try {
           const { error } = await supabase.auth.signInWithIdToken({
             provider: "google",
             token: response.credential,
           });
-          if (!error) {
-            // Recarga completa de esta misma página (conserva `?redirect=`): el servidor ya ve la
-            // sesión y redirige al destino, o antes al onboarding si falta el nombre de usuario.
-            window.location.reload();
-          } else {
-            throw error;
-          }
+          signedIn = !error;
         } catch {
+          signedIn = false;
+        }
+        if (signedIn) {
+          // Recarga completa de esta misma página (conserva `?redirect=`): el servidor ya ve la
+          // sesión y redirige al destino, o antes al onboarding si falta el nombre de usuario.
+          window.location.reload();
+        } else {
           setLoading(false);
         }
       },

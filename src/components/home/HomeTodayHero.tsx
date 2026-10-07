@@ -34,6 +34,13 @@ import {
 const MAX_ATTEMPTS = 6;
 
 /**
+ * Énfasis del titular (`<em>` de `t.rich`). Fuera del componente y con otro nombre: si se llama
+ * `em` y vive dentro, el React Compiler confunde la etiqueta `<em>` con la propia variable y deja
+ * sin compilar `HomeTodayHero` entero.
+ */
+const renderEm = (chunks: React.ReactNode) => <em className="not-italic text-brand">{chunks}</em>;
+
+/**
  * Entradas en CSS y no en framer-motion: con framer, el HTML del servidor llegaba con
  * `opacity:0` y la tarjeta (el LCP de la home) no se veía hasta hidratar (PERF-04). La animación
  * CSS corre desde el primer pintado, sin esperar al JS. `prefers-reduced-motion` la anula desde
@@ -127,8 +134,6 @@ export function HomeTodayHero({
   const slots = attemptSlots(guesses, completed, won, wonAttempt);
   const attemptsLeft = Math.max(0, MAX_ATTEMPTS - guesses.length);
   const discOut = completed || inProgress;
-
-  const em = (chunks: React.ReactNode) => <em className="not-italic text-brand">{chunks}</em>;
 
   const sticker = completed
     ? won
@@ -306,7 +311,9 @@ export function HomeTodayHero({
           ) : (
             <div className={cn(RISE, "flex flex-col gap-2.5")} style={riseDelay(1)}>
               <h2 className="font-display text-[28px] font-extrabold leading-none tracking-[-0.035em]">
-                {inProgress ? t.rich("heroTitleInProgress", { em }) : t.rich("heroTitleNew", { em })}
+                {inProgress
+                  ? t.rich("heroTitleInProgress", { em: renderEm })
+                  : t.rich("heroTitleNew", { em: renderEm })}
               </h2>
               {inProgress && (
                 <div className="flex items-center gap-2.5 text-xs text-muted-foreground">

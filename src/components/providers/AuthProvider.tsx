@@ -10,6 +10,12 @@ import {
   syncCachedSessionUser,
 } from "@/lib/auth/clearSessionScopedClientData";
 
+/**
+ * El `import()` va en una función de módulo porque el React Compiler todavía no admite
+ * expresiones `import()` dentro de un componente y dejaría `AuthProvider` sin compilar.
+ */
+const loadBrowserClient = () => import("@/lib/supabase/client");
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -27,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
        * El estado de sesión ya arranca en `loading`, así que llegar unos cientos de ms más tarde
        * no cambia nada en pantalla.
        */
-      const { createClient } = await import("@/lib/supabase/client");
+      const { createClient } = await loadBrowserClient();
       if (cancelled) return;
       const supabase = createClient();
 

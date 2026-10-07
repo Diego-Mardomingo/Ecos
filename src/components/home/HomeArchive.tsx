@@ -69,6 +69,21 @@ function cellStatus(d: DerivedHomeDayState | undefined): CellStatus {
   return "pending";
 }
 
+/**
+ * Mes que se estaba viendo antes de abrir una partida (sessionStorage), si es válido y no es
+ * posterior al actual. Va fuera del componente porque el React Compiler no admite condicionales
+ * dentro de un `try` y dejaría sin compilar `HomeArchive` entero.
+ */
+function readSavedMonth(currentMonth: string): string | null {
+  try {
+    const saved = sessionStorage.getItem(HOME_ARCHIVE_MONTH_STORAGE_KEY);
+    if (saved && /^\d{4}-\d{2}$/.test(saved) && saved <= currentMonth) return saved;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function HomeArchive({
   previousDays,
   userId,
@@ -107,12 +122,8 @@ function HomeArchive({
   const [restored, setRestored] = useState(false);
   if (mounted && !restored) {
     setRestored(true);
-    try {
-      const saved = sessionStorage.getItem(HOME_ARCHIVE_MONTH_STORAGE_KEY);
-      if (saved && /^\d{4}-\d{2}$/.test(saved) && saved <= currentMonth) setMonth(saved);
-    } catch {
-      /* ignore */
-    }
+    const saved = readSavedMonth(currentMonth);
+    if (saved) setMonth(saved);
   }
 
   const dayByDate = useMemo(() => {
