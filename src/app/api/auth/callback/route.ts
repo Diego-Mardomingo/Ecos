@@ -1,48 +1,22 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
+import { getSafeRedirectTarget } from "@/lib/auth/safeRedirectPath";
 
 /**
- * Solo se permiten rutas internas relativas como destino post-login.
- * Bloquea "//evil.com", "https://evil.com" y esquemas raros para evitar open redirects.
+ * Vuelta del login con Google (OAuth + PKCE). Canjea el código por la sesión, que escribe las
+ * cookies a través de `createClient()`, y redirige al destino de `?next=`, ya saneado.
  */
-function safeNext(raw: string | null): string {
-  if (!raw) return "/";
-  // Debe empezar por una sola barra y no ser "//" (que el navegador interpreta como host).
-  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-    return "/";
-  }
-  return raw;
-}
-
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
-  const next = safeNext(searchParams.get("next"));
+  const target = getSafeRedirectTarget(searchParams.get("next")) ?? "/";
 
   if (code) {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          },
-        },
-      }
-    );
-
+    const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      return NextResponse.redirect(new URL(next, request.url));
+      return NextResponse.redirect(new URL(target, request.url));
     }
   }
 
