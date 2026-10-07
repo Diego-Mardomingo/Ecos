@@ -1,3 +1,8 @@
+-- ATENCIÓN: HISTÓRICA, NO REAPLICAR (DOC-01, oct. 2026).
+-- Esta migración está desfasada respecto a lo que corre en producción: usa CURRENT_DATE (UTC) en
+-- vez de la fecha de Madrid y no respeta ecos_profiles.show_avatar_in_rankings. La definición vigente
+-- de estas funciones está en supabase/schema/04_leaderboard.sql. Ejecutarla de nuevo las regresiona.
+
 -- Extend leaderboard by period with optional reference date (historical weeks/months).
 -- Add batch summaries for history cards.
 
