@@ -38,7 +38,6 @@ export interface GameWithSong {
     album_title: string | null;
     cover_url: string;
     preview_url: string | null;
-    genre: string | null;
     /** ISO date YYYY-MM-DD desde Spotify */
     release_date: string | null;
   };
@@ -120,7 +119,7 @@ const GAME_WITH_SONG_SELECT = `
   id, date, game_number,
   ecos_songs (
     id, title, artist_name, album_title,
-    cover_url, preview_url, genre, release_date
+    cover_url, preview_url, release_date
   )
 `;
 
