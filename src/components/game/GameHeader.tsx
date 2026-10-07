@@ -46,7 +46,8 @@ export function GameHeader({ game, action }: { game: GameWithSong; action?: Reac
           <Link
             href="/"
             onClick={navigateBackToHome}
-            className="group flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-foreground transition-[transform,border-color] duration-200 hover:border-brand/40 active:scale-90"
+            // Mide 40 px; el pseudo-elemento lleva la zona táctil a 44 sin cambiar el aspecto (UX-12).
+            className="group relative flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-foreground transition-[transform,border-color] duration-200 before:absolute before:-inset-0.5 before:rounded-full before:content-[''] hover:border-brand/40 active:scale-90"
             aria-label={tc("back")}
           >
             <span aria-hidden className="material-symbols-outlined text-xl transition-transform duration-200 group-hover:-translate-x-0.5">

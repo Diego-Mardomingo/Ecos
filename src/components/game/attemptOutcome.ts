@@ -1,3 +1,5 @@
+import { SKIPPED_GUESS_TEXT } from "@/lib/store/gameStore";
+
 /**
  * Clasificación de un intento y su lenguaje visual (color, icono, etiqueta).
  *
@@ -18,7 +20,7 @@ export type AttemptKind = "correct" | "album" | "artist" | "skipped" | "wrong";
 
 export function attemptKind(guess: AttemptOutcome): AttemptKind {
   if (guess.correct) return "correct";
-  if (guess.text === "skipped") return "skipped";
+  if (guess.text === SKIPPED_GUESS_TEXT) return "skipped";
   if (guess.correctAlbum) return "album";
   if (guess.correctArtist) return "artist";
   return "wrong";
