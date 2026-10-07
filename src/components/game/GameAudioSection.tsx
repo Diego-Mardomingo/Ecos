@@ -129,11 +129,12 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       )}
     >
       {isGuest && (
-        <motion.div
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
+        // Entrada en CSS: con framer, el aviso (el LCP de `/play` para invitados) llegaba con
+        // `opacity:0` en el HTML del servidor y no se veía hasta hidratar (PERF-04).
+        <div
           className={cn(
             "flex items-center gap-2.5 rounded-2xl border border-brand/25 bg-brand/8 px-3 transition-[padding]",
+            "animate-in fade-in slide-in-from-top-[6px] animation-duration-300",
             KEYBOARD_TRANSITION,
             // Se aprieta, no se oculta: es información que el invitado sigue necesitando mientras
             // escribe, y hacerla desaparecer sería justo el salto que se intenta evitar.
@@ -152,7 +153,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
           >
             {tc("enter")}
           </Link>
-        </motion.div>
+        </div>
       )}
 
       {/* Tarjeta de la onda */}
