@@ -80,6 +80,19 @@ const swCsp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  /**
+   * React Compiler con el plugin de Babel estable (`babel-plugin-react-compiler`, devDependency),
+   * modo `infer` y `panicThreshold: "none"` (los valores por defecto): compila los componentes y
+   * hooks que puede y deja tal cual, sin romper el build, los que no. Activo desde oct. 2026; antes
+   * solo estaban las reglas de lint (PERF-06). No se usa `experimental.turbopackRustReactCompiler`
+   * porque sigue siendo experimental.
+   *
+   * Comprobar que se aplica: `grep -l memo_cache_sentinel .next/static/chunks/*.js` debe devolver
+   * chunks de la app, no solo el runtime de React. Lo que el compilador no admite (`try/finally`,
+   * `throw` o `?:`/`&&`/`?.` dentro de un `try`, `import()` dentro del componente) deja sin compilar
+   * el componente entero: en este repo esos bloques van en funciones de módulo.
+   */
+  reactCompiler: true,
   async headers() {
     return [
       {
