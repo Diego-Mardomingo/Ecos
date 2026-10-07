@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { MAX_ATTEMPTS } from "@/lib/server-attempt";
 
 export type GamePhase = "idle" | "playing" | "won" | "lost";
+
+/**
+ * Texto con el que se guarda un intento saltado, en `ecos_guesses.guess_text` y en el progreso
+ * local. Lo escribe también `/api/skip-attempt`.
+ */
+export const SKIPPED_GUESS_TEXT = "skipped";
 
 export interface GuessEntry {
   text: string;
@@ -9,6 +16,14 @@ export interface GuessEntry {
   correctArtist?: boolean;
   correctAlbum?: boolean;
   attemptNumber: number;
+}
+
+/** Estado completo de una partida, para sustituir el del store de una vez. */
+export interface GameSnapshot {
+  guesses: GuessEntry[];
+  phase: "playing" | "won" | "lost";
+  score: number | null;
+  correctAttempt?: number;
 }
 
 export interface GameState {
@@ -33,13 +48,15 @@ export interface GameState {
   // Acciones
   startGame: (gameId: string, gameDate: string) => void;
   loadProgress: (gameId: string, gameDate: string, guesses: GuessEntry[], currentAttempt: number) => void;
+  /**
+   * Sustituye la partida por un estado conocido: el que confirma el servidor, o el anterior a
+   * una jugada que no se pudo guardar (deshacer varias jugadas en cola es lo mismo que volver
+   * al último estado bueno).
+   */
+  setSnapshot: (gameId: string, gameDate: string, snapshot: GameSnapshot) => void;
   addGuess: (guess: GuessEntry) => void;
-  /** Quita el último intento (p. ej. si falló el guardado en servidor). */
-  removeLastGuess: () => void;
-  /** Deshace el último intento incorrecto/salto tras fallo de sync (restaura intento y audio). */
-  revertLastGuessAfterFailedSync: () => void;
-  /** Deshace acierto optimista tras fallo de sync (vuelve a playing). */
-  revertWinAfterFailedSync: () => void;
+  /** Corrige un intento ya apuntado (p. ej. los aciertos de artista/álbum que decide el servidor). */
+  patchGuess: (attemptNumber: number, patch: Partial<Omit<GuessEntry, "attemptNumber">>) => void;
   setPlaying: (playing: boolean) => void;
   useHint: () => void;
   setWon: (attempt: number, score: number) => void;
@@ -50,12 +67,16 @@ export interface GameState {
 // Duración en segundos del fragmento según el intento
 const ATTEMPT_DURATIONS = [1, 2, 4, 8, 16, 30];
 
+function durationForAttempt(attempt: number): number {
+  return ATTEMPT_DURATIONS[attempt - 1] ?? 30;
+}
+
 const initialState = {
   gameId: null,
   gameDate: null,
   phase: "idle" as GamePhase,
   currentAttempt: 1,
-  maxAttempts: 6,
+  maxAttempts: MAX_ATTEMPTS,
   guesses: [],
   hintsUsed: 0,
   maxHints: 2,
@@ -87,8 +108,29 @@ export const useGameStore = create<GameState>()(
           phase: "playing",
           guesses,
           currentAttempt,
-          audioDuration: ATTEMPT_DURATIONS[currentAttempt - 1] ?? 30,
+          audioDuration: durationForAttempt(currentAttempt),
         }),
+
+      setSnapshot: (gameId, gameDate, snapshot) => {
+        const { guesses, phase } = snapshot;
+        // Igual que `addGuess`: en una partida terminada el intento actual es el último jugado;
+        // en curso, el siguiente.
+        const currentAttempt = Math.min(
+          Math.max(phase === "playing" ? guesses.length + 1 : guesses.length, 1),
+          MAX_ATTEMPTS
+        );
+        set({
+          ...initialState,
+          gameId,
+          gameDate,
+          phase,
+          guesses,
+          currentAttempt,
+          audioDuration: durationForAttempt(currentAttempt),
+          finalScore: phase === "won" ? snapshot.score : null,
+          correctAttempt: phase === "won" ? (snapshot.correctAttempt ?? currentAttempt) : null,
+        });
+      },
 
       addGuess: (guess) => {
         const { currentAttempt, maxAttempts, guesses } = get();
@@ -108,50 +150,18 @@ export const useGameStore = create<GameState>()(
         set({
           guesses: newGuesses,
           currentAttempt: nextAttempt,
-          audioDuration: ATTEMPT_DURATIONS[nextAttempt - 1] ?? 30,
+          audioDuration: durationForAttempt(nextAttempt),
           isPlaying: false,
         });
       },
 
-      removeLastGuess: () => {
+      patchGuess: (attemptNumber, patch) => {
         const { guesses } = get();
-        if (guesses.length === 0) return;
-        set({
-          guesses: guesses.slice(0, -1),
-          isPlaying: true,
-        });
-      },
-
-      revertLastGuessAfterFailedSync: () => {
-        const { guesses, maxAttempts, phase } = get();
-        if (guesses.length === 0) return;
-        const newGuesses = guesses.slice(0, -1);
-        const nextAttempt = newGuesses.length + 1;
-        const ca = Math.min(nextAttempt, maxAttempts);
-        set({
-          guesses: newGuesses,
-          phase: phase === "lost" ? "playing" : phase,
-          currentAttempt: ca,
-          audioDuration: ATTEMPT_DURATIONS[ca - 1] ?? 30,
-          isPlaying: false,
-        });
-      },
-
-      revertWinAfterFailedSync: () => {
-        const { guesses, maxAttempts } = get();
-        if (guesses.length === 0) return;
-        const newGuesses = guesses.slice(0, -1);
-        const nextAttempt = newGuesses.length + 1;
-        const ca = Math.min(nextAttempt, maxAttempts);
-        set({
-          guesses: newGuesses,
-          phase: "playing",
-          finalScore: null,
-          correctAttempt: null,
-          currentAttempt: ca,
-          audioDuration: ATTEMPT_DURATIONS[ca - 1] ?? 30,
-          isPlaying: false,
-        });
+        const index = guesses.findIndex((g) => g.attemptNumber === attemptNumber);
+        if (index < 0) return;
+        const next = [...guesses];
+        next[index] = { ...guesses[index], ...patch };
+        set({ guesses: next });
       },
 
       setPlaying: (playing) => set({ isPlaying: playing }),

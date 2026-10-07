@@ -14,7 +14,7 @@ import type { UserStats } from "@/lib/queries/users";
  * dependencia circular con el módulo que lo usa.
  */
 
-export interface RankingStatsPeriod {
+interface RankingStatsPeriod {
   points: number;
   rank: number | null;
 }
@@ -90,22 +90,37 @@ export interface GameCacheSnapshot {
 
 export type GameMutationEvent = "attemptSaved" | "gameCompleted";
 
-export type QueryDiagnosticRecord = {
-  key: string;
-  count: number;
-  lastEvent: string;
-  lastAt: number;
-};
+/**
+ * Cambio optimista de la caché al hacer una jugada: la partida sigue en curso o queda terminada.
+ * Lo comparten las dos mutaciones de partida y los constructores de `gameProgressSnapshots.ts`.
+ */
+export type GameOptimistic =
+  | {
+      type: "inProgress";
+      inProgress: InProgressProgress;
+    }
+  | {
+      type: "completion";
+      won: boolean;
+      score: number | null;
+      completedProgress?: {
+        gameDate?: string;
+        guesses?: GameProgress["guesses"];
+        correctAttempt?: number;
+      };
+    };
 
+/**
+ * Cuerpo de `/api/validate-guess`. El servidor decide por su cuenta si la jugada cierra la
+ * partida y compara artista y álbum con la canción `songId` de la BD: no hace falta mandarle
+ * nada más (S-1, auditoría oct. 2026).
+ */
 export interface ValidateGuessRequest {
   gameId: string;
   userId: string;
   attemptNumber: number;
   guessText: string;
   songId: string;
-  guessArtistName?: string;
-  guessAlbumTitle?: string;
-  finalize?: boolean;
 }
 
 export interface ValidateGuessResponse {
