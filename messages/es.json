@@ -295,7 +295,7 @@
     },
     "audioFragment": "ECOS – Fragmento",
     "searchLabel": "Buscar canción o artista",
-    "searchResultsCount": "{count} resultados disponibles. Usa las flechas para elegir.",
+    "searchResultsCount": "{count, plural, one {# resultado disponible} other {# resultados disponibles}}. Usa las flechas para elegir.",
     "searchNoResults": "Sin resultados",
     "clearSearch": "Borrar la búsqueda",
     "optionAlreadyGuessed": "ya intentado",

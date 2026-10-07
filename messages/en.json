@@ -295,7 +295,7 @@
     },
     "audioFragment": "ECOS – Snippet",
     "searchLabel": "Search song or artist",
-    "searchResultsCount": "{count} results available. Use the arrow keys to choose.",
+    "searchResultsCount": "{count, plural, one {# result available} other {# results available}}. Use the arrow keys to choose.",
     "searchNoResults": "No results",
     "clearSearch": "Clear the search",
     "optionAlreadyGuessed": "already guessed",
