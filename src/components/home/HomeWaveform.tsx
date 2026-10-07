@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
  * Ecualizador decorativo (tarjeta del reto, login y «Cómo jugar»).
  *
  * Antes eran `motion.div` animando `height` con framer-motion: una animación de layout por barra
- * y por fotograma, en JS. Ahora es una animación CSS de `transform: scaleY` (`.ecos-eq-bar` en
+ * y por fotograma, en JS. Ahora es una animación CSS de `transform: scaleY` (`.ecos-eq-bar-center` en
  * `globals.css`) que corre en el compositor, así que ya no hace falta que sea componente cliente
  * ni que conozca el ancho de pantalla: las barras son `flex-1` y se reparten el sitio que haya.
  */
