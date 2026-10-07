@@ -10,7 +10,8 @@ Reglas, en orden:
    la misma canción (`version_key`: "Hey" / "Hey - Spanish"), ni el mismo audio (`preview_url`).
 2. Preferir playlists que no han salido en los ROTATION_DAYS días alrededor de la fecha.
 3. No repetir la década del día anterior ni la del siguiente (si ya existe).
-4. No repetir el género especial (flamenco, rap, reggaeton) del día anterior ni del siguiente.
+4. No repetir el género especial (flamenco, rap, reggaeton, según el nombre de la playlist) del día
+   anterior ni del siguiente.
 5. No repetir artista en ROTATION_DAYS días, comparando artista a artista.
 6. Si las reglas 3-5 dejan cero candidatos, sorteo entre todas las no usadas.
 
@@ -70,9 +71,14 @@ def get_song_decade(song: dict) -> str | None:
     return get_decade(song.get("release_date"))
 
 
-def get_special_genre(genre: str | None, playlist_name: str | None) -> str | None:
-    """Detecta si la canción es Flamenco, Rap o Reggaeton (géneros con rotación)."""
-    text = " ".join(filter(None, [genre or "", playlist_name or ""])).lower()
+def get_special_genre(playlist_name: str | None) -> str | None:
+    """
+    Detecta si la canción es Flamenco, Rap o Reggaeton (géneros con rotación).
+
+    Solo mira el nombre de la playlist: la columna `genre` de `ecos_songs` nunca se rellenó (todas
+    NULL) y D12 la borra.
+    """
+    text = (playlist_name or "").lower()
     for g in SPECIAL_GENRES:
         if g in text:
             return g
@@ -155,7 +161,7 @@ def build_rotation_context(nearby_games: list[dict], target_date: str) -> Rotati
     """
     Contexto de rotación para `target_date`.
 
-    `nearby_games`: juegos con `date` y `ecos_songs` (release_date, genre, spotify_playlist_id,
+    `nearby_games`: juegos con `date` y `ecos_songs` (release_date, spotify_playlist_id,
     spotify_playlist_name, artist_name), en cualquier orden y de cualquier fecha; aquí se
     filtran los que caen a ROTATION_DAYS días o menos de la fecha objetivo, antes o después
     (después solo hay juegos cuando se rellena un hueco).
@@ -177,7 +183,7 @@ def build_rotation_context(nearby_games: list[dict], target_date: str) -> Rotati
             decade = get_song_decade(song)
             if decade:
                 ctx.neighbor_decades.add(decade)
-            genre = get_special_genre(song.get("genre"), song.get("spotify_playlist_name"))
+            genre = get_special_genre(song.get("spotify_playlist_name"))
             if genre:
                 ctx.neighbor_genres.add(genre)
         ctx.artists |= artist_names(song.get("artist_name"))
@@ -192,7 +198,7 @@ def passes_rotation(song: dict, ctx: RotationContext) -> bool:
     decade = get_song_decade(song)
     if decade and decade in ctx.neighbor_decades:
         return False  # Regla 3
-    genre = get_special_genre(song.get("genre"), song.get("spotify_playlist_name"))
+    genre = get_special_genre(song.get("spotify_playlist_name"))
     if genre and genre in ctx.neighbor_genres:
         return False  # Regla 4
     if artist_names(song.get("artist_name")) & ctx.artists:

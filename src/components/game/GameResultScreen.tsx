@@ -202,8 +202,7 @@ function ResultScreen({
   const won = phase === "won";
   const metaAlbum = song.album_title?.trim();
   const metaYear = releaseYearFromReleaseDate(song.release_date);
-  const metaGenre = song.genre?.trim();
-  const songMeta = [metaAlbum, metaYear, metaGenre].filter(Boolean) as string[];
+  const songMeta = [metaAlbum, metaYear].filter(Boolean) as string[];
   const [shareCopied, setShareCopied] = useState(false);
   const navigateBackToHome = useNavigateBackToHome();
   const loginHref = useLoginHref();

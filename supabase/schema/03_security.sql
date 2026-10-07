@@ -61,7 +61,7 @@ create policy ecos_profiles_own_read on public.ecos_profiles
   for select to authenticated using ((select auth.uid()) = user_id);
 
 create policy ecos_profiles_own_insert on public.ecos_profiles
-  for insert to authenticated with check (auth.uid() = user_id);
+  for insert to authenticated with check ((select auth.uid()) = user_id);
 
 create policy ecos_profiles_own_write on public.ecos_profiles
   for update to authenticated
@@ -75,14 +75,16 @@ create policy ecos_profiles_own_write on public.ecos_profiles
 -- directamente, va por las funciones SECURITY DEFINER de get_leaderboard_*.
 -- ---------------------------------------------------------------------------------------------
 
+-- Todas las políticas con auth.uid() lo envuelven en (select ...) para que Postgres lo evalúe una
+-- vez por consulta y no por fila (PERFDB-11). Misma semántica.
 create policy ecos_guesses_own_read on public.ecos_guesses
-  for select to public using (auth.uid() = user_id);
+  for select to public using ((select auth.uid()) = user_id);
 
 create policy ecos_guesses_own_insert on public.ecos_guesses
-  for insert to public with check (auth.uid() = user_id);
+  for insert to public with check ((select auth.uid()) = user_id);
 
 create policy ecos_scores_own_read on public.ecos_scores
-  for select to public using (auth.uid() = user_id);
+  for select to public using ((select auth.uid()) = user_id);
 
 create policy ecos_leaderboard_read on public.ecos_leaderboard
   for select to public using (true);
@@ -92,23 +94,24 @@ create policy ecos_leaderboard_read on public.ecos_leaderboard
 -- ---------------------------------------------------------------------------------------------
 
 create policy ecos_push_subscriptions_own_select on public.ecos_push_subscriptions
-  for select to public using (auth.uid() = user_id);
+  for select to public using ((select auth.uid()) = user_id);
 
 create policy ecos_push_subscriptions_own_insert on public.ecos_push_subscriptions
-  for insert to public with check (auth.uid() = user_id);
+  for insert to public with check ((select auth.uid()) = user_id);
 
 create policy ecos_push_subscriptions_own_update on public.ecos_push_subscriptions
-  for update to public using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update to public
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 
 create policy ecos_push_subscriptions_own_delete on public.ecos_push_subscriptions
-  for delete to public using (auth.uid() = user_id);
+  for delete to public using ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------------------------
 -- Reportes: se pueden crear, no leer
 -- ---------------------------------------------------------------------------------------------
 
 create policy authenticated_insert_own_report on public.ecos_reports
-  for insert to authenticated with check (auth.uid() = user_id);
+  for insert to authenticated with check ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------------------------
 -- Sin políticas, a propósito: ecos_feedback y ecos_system_logs
@@ -183,16 +186,16 @@ revoke execute on function public.ecos_guess_and_finalize_score(
 revoke execute on function public.ecos_finalize_game_score(
   uuid, uuid, integer, integer, boolean, boolean, integer, boolean
 ) from public, anon, authenticated;
-revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean, integer)
-  from public, anon, authenticated;
 revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean, integer, boolean)
   from public, anon, authenticated;
 
--- Solo trigger (on auth.users) y pg_cron: nadie las llama por la API. Un trigger no comprueba
--- EXECUTE al dispararse, así que el alta de usuarios no se ve afectada.
+-- Solo trigger (on auth.users): nadie la llama por la API. Un trigger no comprueba EXECUTE al
+-- dispararse, así que el alta de usuarios no se ve afectada.
 revoke execute on function public.ecos_handle_new_user() from public, anon, authenticated;
-revoke execute on function public.run_daily_game_selector_at_midnight_spain()
-  from public, anon, authenticated;
+
+-- run_daily_game_selector_at_midnight_spain() y los jobs de pg_cron 3 y 6 se borraron el
+-- 2026-10-08 (migración 20261008120000_bd2_rendimiento_y_limpieza): daily-game.yml ya hace ese
+-- trabajo. Tampoco existe la sobrecarga de 4 argumentos de ecos_update_leaderboard.
 
 -- Estadísticas personales: solo con sesión, y cada función comprueba dentro que p_user_id sea
 -- auth.uid() (si no, devuelve vacío / 0). Hasta oct. 2026 cualquiera con la anon key leía las
@@ -223,3 +226,43 @@ create policy ecos_ranking_broadcast_receive
     realtime.messages.extension = 'broadcast'
     and (select realtime.topic()) = 'ecos:ranking'
   );
+
+-- ---------------------------------------------------------------------------------------------
+-- Storage: bucket `avatars` (DOC-17)
+--
+-- Fotos de perfil. Las sube el propio navegador con el cliente de cookies (EditProfileClient.tsx),
+-- siempre a `<user_id>/avatar.<ext>` y con `upsert: true`, de ahí que haga falta INSERT y UPDATE.
+-- Creado con las migraciones de Supabase `create_avatars_bucket` y `avatars_storage_policies`; se
+-- versiona aquí porque `storage` es un esquema de la plataforma y el volcado del resto no lo cubre.
+--
+-- Bucket público: las imágenes se sirven por URL pública, sin pasar por la RLS. La política de
+-- lectura de abajo solo afecta a listar/descargar por la API de Storage.
+-- Límites que impone el servidor: 2 MiB y jpeg/png/webp (el cliente los comprueba antes también).
+-- ---------------------------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 2097152, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do nothing;
+
+-- Escritura: solo dentro de la carpeta del propio usuario (`<auth.uid()>/…`).
+create policy "Users can upload own avatar" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (auth.uid())::text
+  );
+
+create policy "Users can update own avatar" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (auth.uid())::text
+  );
+
+create policy "Public read avatars" on storage.objects
+  for select to public
+  using (bucket_id = 'avatars');
+
+-- No hay política de DELETE: un usuario no puede borrar su foto, solo sustituirla. Si cambia de
+-- formato (png -> webp) la anterior queda huérfana en el bucket. Conocido y aceptado; a revisar
+-- si algún día se añade «quitar foto».
