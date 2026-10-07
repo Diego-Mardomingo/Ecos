@@ -15,6 +15,14 @@ const FAKE_ORIGIN = "http://ecos.invalid";
 const DANGEROUS_CHARS = /[\\\u0000-\u001f\u007f]|%(?:5c|7f|[01][0-9a-f])/i;
 
 /**
+ * Cookie con el destino post-login mientras dura el viaje a Google y vuelta. Va en cookie y no en
+ * el `redirectTo` del OAuth porque Supabase solo acepta las URLs de vuelta de su lista blanca, y
+ * una entrada exacta (sin comodín) no casa en cuanto se le añade una query. La lee el callback.
+ */
+export const LOGIN_REDIRECT_COOKIE = "ecos_login_redirect";
+export const LOGIN_REDIRECT_COOKIE_PATH = "/api/auth/callback";
+
+/**
  * Devuelve la ruta normalizada (`pathname + search + hash`) si es interna, o `null` si no lo es.
  */
 export function getSafeRedirectTarget(candidate: unknown): string | null {

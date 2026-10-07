@@ -9,6 +9,10 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
+import {
+  LOGIN_REDIRECT_COOKIE,
+  LOGIN_REDIRECT_COOKIE_PATH,
+} from "@/lib/auth/safeRedirectPath";
 import { WaveformBars } from "@/components/home/HomeWaveform";
 
 const rise: Variants = {
@@ -40,7 +44,23 @@ declare global {
   }
 }
 
-export function LoginClient() {
+/**
+ * Guarda el destino post-login para el callback de OAuth. Solo viaja a `/api/auth/callback` y
+ * caduca en 10 minutos, que sobra para ir a Google y volver.
+ */
+function rememberLoginRedirect(target: string) {
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie =
+    `${LOGIN_REDIRECT_COOKIE}=${encodeURIComponent(target)}; Path=${LOGIN_REDIRECT_COOKIE_PATH}` +
+    `; Max-Age=600; SameSite=Lax${secure}`;
+}
+
+type LoginClientProps = {
+  /** Destino tras entrar, ya saneado en el servidor (`getSafeRedirectTarget`). */
+  redirectTo: string;
+};
+
+export function LoginClient({ redirectTo }: LoginClientProps) {
   const t = useTranslations("auth");
   const tCommon = useTranslations("common");
   const router = useRouter();
@@ -54,11 +74,16 @@ export function LoginClient() {
   const initializeOneTap = useCallback(async () => {
     if (!googleClientId || !window.google?.accounts?.id) return;
 
+    // getUser() y no getSession(): si la sesión se cerró en el servidor pero el navegador aún
+    // guarda las cookies, getSession() la daría por buena y mandaría a un destino protegido que
+    // devolvería aquí, en bucle.
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session) {
-      router.push("/");
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      // `redirectTo` ya lleva el prefijo de locale: por eso el router de next/navigation y no
+      // el de next-intl, que se lo volvería a poner.
+      router.push(redirectTo);
       return;
     }
 
@@ -72,8 +97,9 @@ export function LoginClient() {
             token: response.credential,
           });
           if (!error) {
-            router.push("/");
-            router.refresh();
+            // Recarga completa de esta misma página (conserva `?redirect=`): el servidor ya ve la
+            // sesión y redirige al destino.
+            window.location.reload();
           } else {
             throw error;
           }
@@ -84,7 +110,7 @@ export function LoginClient() {
       use_fedcm_for_prompt: true,
     });
     window.google.accounts.id.prompt();
-  }, [googleClientId, supabase, router]);
+  }, [googleClientId, supabase, router, redirectTo]);
 
   useEffect(() => {
     if (oneTapReady && googleClientId) {
@@ -94,6 +120,7 @@ export function LoginClient() {
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
+    rememberLoginRedirect(redirectTo);
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
