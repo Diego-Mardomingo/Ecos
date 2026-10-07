@@ -31,11 +31,13 @@ const supabaseHost = new URL(supabaseUrl).hostname;
  *                            avatares de Google y de Supabase Storage (<img> plano).
  *  - supabase (https+wss) -> REST, Storage y realtime.
  *
- * Las imágenes también van en connect-src por el service worker: la caché por defecto de Serwist
- * intercepta todas las peticiones a otros orígenes y las repite con fetch() desde el SW, y ese
- * fetch() lo gobierna el connect-src de la CSP con la que se sirve /serwist/sw.js (esta misma).
- * Sin ellas, con la CSP bloqueante la PWA dejaría de cargar avatares y miniaturas. Esas
- * violaciones salen en la consola del SW, no en la de la página.
+ * El service worker lleva su propia CSP (`swCsp`): la caché por defecto de Serwist intercepta
+ * todas las peticiones a otros orígenes (imágenes, Supabase, el script de Google) y las repite con
+ * fetch() desde el SW, y ese fetch() lo gobierna el connect-src de la CSP con la que se sirve
+ * /serwist/sw.js. Por eso su connect-src incluye los CDN de imágenes, y el de las páginas no: así
+ * la página no puede hacer fetch() a esos orígenes, solo pintarlos como <img>. Sin ellos en la
+ * del SW, con la CSP bloqueante la PWA dejaría de cargar avatares y miniaturas. Esas violaciones
+ * salen en la consola del SW, no en la de la página.
  *
  * 'unsafe-inline' en script-src sigue siendo necesario: Next inyecta su bootstrap inline y
  * next-themes un script inline para evitar el flash de tema. Quitarlo exige pasar a nonces, que
@@ -61,12 +63,7 @@ const csp = [
   "font-src 'self' data:",
   ["img-src 'self' data: blob:", ...imageHosts].join(" "),
   "media-src 'self' blob:",
-  [
-    "connect-src 'self'",
-    `wss://${supabaseHost}`,
-    "https://accounts.google.com",
-    ...imageHosts,
-  ].join(" "),
+  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com`,
   "frame-src https://accounts.google.com",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
@@ -74,6 +71,15 @@ const csp = [
   "form-action 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
+].join("; ");
+
+/** CSP del service worker: solo carga su propio script y repite peticiones (ver arriba). */
+const swCsp = [
+  "default-src 'self'",
+  "script-src 'self'",
+  ["connect-src 'self'", "https://accounts.google.com", ...imageHosts].join(" "),
+  "base-uri 'self'",
+  "object-src 'none'",
 ].join("; ");
 
 const nextConfig: NextConfig = {
@@ -92,6 +98,12 @@ const nextConfig: NextConfig = {
           },
           { key: cspHeaderName, value: csp },
         ],
+      },
+      {
+        // Va después a propósito: con la misma clave, la última regla que encaja sustituye a la
+        // anterior, así que /serwist/sw.js recibe solo esta.
+        source: "/serwist/:path*",
+        headers: [{ key: cspHeaderName, value: swCsp }],
       },
     ];
   },
