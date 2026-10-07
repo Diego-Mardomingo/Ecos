@@ -65,6 +65,11 @@ const PREFETCH_UNDER_MS = 10_000;
  * Milisegundos hasta la próxima medianoche de Madrid, refrescados cada segundo, y los dos avisos
  * de la home: a menos de 10 s (para precargar el día siguiente) y al pasar la medianoche.
  *
+ * El aviso de medianoche solo salta si la cuenta atrás la ve pasar (app delante). Con la app en
+ * segundo plano los temporizadores se congelan y no la ve: de ese caso se encarga la home
+ * comparando fechas al volver a primer plano (`syncGameDay` en `HomeClient`). Los dos avisos se
+ * rearman cada día, así que una pestaña abierta varias noches los recibe todas.
+ *
  * `0` significa «todavía sin medir»: es lo que se renderiza en servidor y al hidratar, así que no
  * hace falta un flag `mounted` aparte.
  */
@@ -77,7 +82,6 @@ function useMadridCountdown({
 } = {}): number {
   const [ms, setMs] = useState(0);
   const prevMsRef = useRef<number | null>(null);
-  const hasTriggeredRef = useRef(false);
   const hasTriggeredUnder10Ref = useRef(false);
 
   useEffect(() => {
@@ -94,6 +98,7 @@ function useMadridCountdown({
 
   useEffect(() => {
     if (ms <= 0) return;
+    if (ms > MS_PER_HOUR) hasTriggeredUnder10Ref.current = false;
     if (onUnder10s && ms < PREFETCH_UNDER_MS && !hasTriggeredUnder10Ref.current) {
       hasTriggeredUnder10Ref.current = true;
       onUnder10s();
@@ -101,11 +106,10 @@ function useMadridCountdown({
   }, [ms, onUnder10s]);
 
   useEffect(() => {
-    if (ms <= 0 || !onZero || hasTriggeredRef.current) return;
+    if (ms <= 0 || !onZero) return;
     const prev = prevMsRef.current;
     prevMsRef.current = ms;
     if (prev !== null && prev < 60000 && ms > MS_PER_HOUR) {
-      hasTriggeredRef.current = true;
       onZero();
     }
   }, [ms, onZero]);
@@ -167,4 +171,4 @@ function Countdown({
   );
 }
 
-export { ClockDigits, Countdown, useMadridCountdown };
+export { Countdown };

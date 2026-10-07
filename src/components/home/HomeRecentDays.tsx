@@ -1,28 +1,20 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
-import {
-  HOME_DAY_STATUS_STALE_MS,
-  prefetchGameProgressById,
-  prefetchHomeDayStatusById,
-  queryKeys,
-  type HomeDayStatusData,
-  type InProgressProgress,
-} from "@/lib/hooks/queries";
+import type { InProgressProgress } from "@/lib/hooks/queries";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import type { PlaySkeletonVariant } from "@/lib/navigation/playSkeletonStorage";
-import { Link, useRouter } from "@/i18n/navigation";
-import { PrefetchPlayOnVisible } from "@/components/home/PrefetchPlayOnVisible";
-import { deriveHomeDayState } from "@/components/home/homeDayDerived";
+import { Link } from "@/i18n/navigation";
+import { deriveHomeDayFromHistory } from "@/components/home/homeDayDerived";
 import { titleCaseWords } from "@/components/home/homeHelpers";
+import { usePrefetchPlayRoute } from "@/components/home/usePrefetchPlayRoute";
 
 /**
  * «Últimos días»: carril horizontal con los siete retos anteriores, que es lo que casi siempre se
@@ -47,8 +39,6 @@ export function HomeRecentDays({
 }) {
   const t = useTranslations("home");
   const tc = useTranslations("common");
-  const queryClient = useQueryClient();
-  const router = useRouter();
   const { dateFnsLocale, formatNumber } = useAppFormatters();
   const byGameId = useGameProgressStore((s) => s.byGameId);
 
@@ -61,40 +51,7 @@ export function HomeRecentDays({
     [previousDays, todayDate]
   );
 
-  // Estado fresco de estos siete días (comparte caché con el calendario del archivo).
-  const statusQueries = useQueries({
-    queries: days.map((day) => ({
-      queryKey: queryKeys.home.dayStatus(day.id),
-      queryFn: async (): Promise<HomeDayStatusData> => {
-        const res = await fetch(`/api/home/day/${day.id}/status`, { cache: "no-store" });
-        if (!res.ok) throw new Error("Failed to fetch day status");
-        return res.json();
-      },
-      staleTime: HOME_DAY_STATUS_STALE_MS,
-      enabled: !!userId,
-      initialData: {
-        gameId: day.id,
-        played: day.played,
-        won: day.won,
-        score: day.score,
-        title: day.title,
-        artist_name: day.artist_name,
-        cover_url: day.cover_url,
-        inProgress: inProgressByGameId?.[day.id] ?? null,
-      } satisfies HomeDayStatusData,
-    })),
-  });
-
-  const prefetchPlayRoute = useCallback(
-    (gameId: string) => {
-      router.prefetch(`/play/${gameId}`);
-      if (userId) {
-        void prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
-      }
-      void prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
-    },
-    [queryClient, router, userId]
-  );
+  const prefetchPlayRoute = usePrefetchPlayRoute(userId);
 
   if (days.length === 0) return null;
 
@@ -106,10 +63,9 @@ export function HomeRecentDays({
           también recorta en vertical: el pt-2 deja sitio al ring de la tarjeta y al salto del hover. */}
       <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pt-2 pb-2[scrollbar-width:none] min-[670px]:[mask-image:linear-gradient(90deg,transparent,black_1rem,black_calc(100%-2.5rem),transparent)] [&::-webkit-scrollbar]:hidden">
         {days.map((day, i) => {
-          const status = userId ? statusQueries[i]?.data : null;
-          const d = deriveHomeDayState(day, userId, status ?? null, byGameId);
+          const d = deriveHomeDayFromHistory(day, userId, inProgressByGameId[day.id], byGameId);
           return (
-            <PrefetchPlayOnVisible key={day.id} gameId={day.id} onPrefetch={prefetchPlayRoute} className="shrink-0 snap-start">
+            <div key={day.id} className="shrink-0 snap-start">
               <motion.div
                 initial={{ opacity: 0, x: 24 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -121,7 +77,8 @@ export function HomeRecentDays({
                   href={`/play/${day.id}`}
                   prefetch={false}
                   onClick={() => onNavigateToGame?.(d.completed ? "completed" : "in_progress")}
-                  onMouseEnter={() => prefetchPlayRoute(day.id)}
+                  onPointerEnter={() => prefetchPlayRoute(day.id)}
+                  onTouchStart={() => prefetchPlayRoute(day.id)}
                   onFocus={() => prefetchPlayRoute(day.id)}
                   className="group block w-[124px] rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
@@ -175,7 +132,7 @@ export function HomeRecentDays({
                   )}
                 </Link>
               </motion.div>
-            </PrefetchPlayOnVisible>
+            </div>
           );
         })}
       </div>

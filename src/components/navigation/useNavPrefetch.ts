@@ -5,20 +5,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
   fetchLeaderboardPeriodData,
-  fetchHomePreviousDaysData,
-  fetchHomeTodayData,
-  fetchHomeUserStatsData,
-  fetchProfileCoreData,
-  fetchProfileStatsData,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
-  HOME_TODAY_STALE_MS,
-  PROFILE_STALE_MS,
+  homeUserStatsQueryOptions,
+  profileCoreQueryOptions,
+  profileStatsQueryOptions,
   queryKeys,
   RANKING_STALE_MS,
 } from "@/lib/hooks/queries";
 import { usePathname } from "@/i18n/navigation";
-import { getMadridDate } from "@/lib/date-utils";
 import { hasRecentGameCompleted } from "@/lib/consistencySync";
 import { stripLocalePrefix } from "@/i18n/locale-path";
 
@@ -33,6 +26,11 @@ const RECENT_COMPLETION_WINDOW_MS = 2 * 60 * 1000;
  * - `handleNavClick`: pulsar la pestaña activa sube al principio; pulsar otra precarga sus datos
  *   para que la página llegue con la caché ya llena. Si se acaba de terminar una partida, los
  *   datos se piden frescos (`staleTime: 0`), porque puntos, ranking y estadísticas han cambiado.
+ *
+ * Para «Inicio» solo se precargan las estadísticas: «hoy» y el histórico llegan en el RSC de la
+ * propia página, que la home adopta en caché. Antes se pedía además el mes en curso por API, y esa
+ * respuesta (que dice que hay meses anteriores) era la que disparaba el recorrido de todo el
+ * histórico mes a mes al volver a la home (PDATA-05).
  */
 export function useNavPrefetch() {
   const pathname = usePathname();
@@ -57,26 +55,12 @@ export function useNavPrefetch() {
       const uid = user?.id ?? null;
       const fresh = hasRecentGameCompleted(uid, RECENT_COMPLETION_WINDOW_MS);
 
-      if (href === "/") {
-        const monthKey = getMadridDate().slice(0, 7);
+      if (href === "/" && uid) {
+        const options = homeUserStatsQueryOptions(uid);
         void queryClient.prefetchQuery({
-          queryKey: queryKeys.home.today(uid),
-          queryFn: fetchHomeTodayData,
-          staleTime: fresh ? 0 : HOME_TODAY_STALE_MS,
+          ...options,
+          staleTime: fresh ? 0 : options.staleTime,
         });
-        void queryClient.prefetchQuery({
-          queryKey: queryKeys.home.previousDays(monthKey, uid),
-          queryFn: () => fetchHomePreviousDaysData(monthKey),
-          staleTime: fresh ? 0 : HOME_PREVIOUS_DAYS_STALE_MS,
-          gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-        });
-        if (uid) {
-          void queryClient.prefetchQuery({
-            queryKey: queryKeys.home.userStats(uid),
-            queryFn: fetchHomeUserStatsData,
-            staleTime: fresh ? 0 : HOME_TODAY_STALE_MS,
-          });
-        }
       }
 
       if (href === "/ranking") {
@@ -93,15 +77,11 @@ export function useNavPrefetch() {
       }
 
       if (href === "/profile" && user) {
+        void queryClient.prefetchQuery(profileCoreQueryOptions(user.id));
+        const statsOptions = profileStatsQueryOptions(user.id);
         void queryClient.prefetchQuery({
-          queryKey: queryKeys.profile.section("core", user.id),
-          queryFn: fetchProfileCoreData,
-          staleTime: PROFILE_STALE_MS,
-        });
-        void queryClient.prefetchQuery({
-          queryKey: queryKeys.profile.section("stats", user.id),
-          queryFn: fetchProfileStatsData,
-          staleTime: fresh ? 0 : PROFILE_STALE_MS,
+          ...statsOptions,
+          staleTime: fresh ? 0 : statsOptions.staleTime,
         });
       }
     },

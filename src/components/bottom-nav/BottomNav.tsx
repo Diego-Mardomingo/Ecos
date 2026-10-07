@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store/authStore";
-import { useProfile } from "@/lib/hooks/queries";
-import { Link, useRouter } from "@/i18n/navigation";
+import { useProfileCore } from "@/lib/hooks/queries";
+import { Link } from "@/i18n/navigation";
 import { useNavPrefetch } from "@/components/navigation/useNavPrefetch";
 
 /**
@@ -25,17 +24,12 @@ const TAB_WIDTH = 74;
 const TAB_GAP = 4;
 
 export function BottomNav() {
-  const router = useRouter();
   const t = useTranslations("nav");
   const tc = useTranslations("common");
   const user = useAuthStore((s) => s.user);
-  const { data } = useProfile(user?.id ?? null, undefined, { enabled: !!user });
+  // Solo el núcleo del perfil: el nombre de la pestaña. Antes se pedían también las estadísticas.
+  const { data } = useProfileCore(user?.id ?? null);
   const { isActive, handleNavClick } = useNavPrefetch();
-
-  useEffect(() => {
-    // Mantener Home prefetcheada reduce el delay al volver desde otras secciones.
-    router.prefetch("/");
-  }, [router]);
 
   const profileLabel = user ? (data?.profile?.display_name ?? t("profile")) : tc("enter");
   const activeIndex = ITEMS.findIndex((item) => isActive(item.href));
@@ -72,7 +66,9 @@ export function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              prefetch
+              // Sin sesión, «Entrar» lleva a /profile, que redirige a /login: precargarlo
+              // renderizaba la página de login entera en cada carga (PDATA-04).
+              prefetch={item.href !== "/profile" || user != null}
               onClick={(e) => handleNavClick(item.href, e)}
               aria-current={active ? "page" : undefined}
               className={cn(

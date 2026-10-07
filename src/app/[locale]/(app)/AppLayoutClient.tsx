@@ -5,7 +5,6 @@ import { BottomNav } from "@/components/bottom-nav/BottomNav";
 import { SidebarNav } from "@/components/sidebar-nav/SidebarNav";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { PlayNavigationPendingOverlay } from "@/components/navigation/PlayNavigationPendingOverlay";
-import { NotificationsModal } from "@/components/notifications/NotificationsModal";
 import { cn } from "@/lib/utils";
 import { stripLocalePrefix } from "@/i18n/locale-path";
 
@@ -27,7 +26,7 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
           className={cn(
             "flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto",
             showNav
-              ? "pt-6 pt-safe pb-24 min-[670px]:pt-8 min-[670px]:pb-6"
+              ? "pt-safe pb-24 min-[670px]:pt-8 min-[670px]:pb-6"
               : "pt-0 pb-6"
           )}
         >
@@ -36,7 +35,6 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
       </div>
       <PlayNavigationPendingOverlay />
       {showNav && <BottomNav />}
-      <NotificationsModal />
     </>
   );
 }

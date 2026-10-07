@@ -1,12 +1,22 @@
 import type { PreviousDayGame } from "@/lib/queries/games";
-import type { InProgressProgress } from "@/lib/hooks/queries";
+import type {
+  HomeDayStatusData,
+  HomePreviousDaysData,
+  HomeTodayData,
+  InProgressProgress,
+} from "@/lib/hooks/queries";
 
 /**
- * Constantes y helpers puros de la home, extraídos de `HomeClient` sin cambiar nada.
+ * Constantes y helpers puros de la home.
  *
- * Aquí solo va lo que no toca React: claves de almacenamiento, topes del prefetch, las funciones
- * de fusión de días y el batching. La lógica derivada de un día concreto vive en
+ * Aquí solo va lo que no toca React: claves de almacenamiento y las funciones que combinan lo que
+ * llega del servidor con lo que ya hay en caché. La lógica derivada de un día concreto vive en
  * `homeDayDerived.ts`.
+ *
+ * Todas las fusiones devuelven **la misma referencia** si el resultado no cambia. No es una
+ * micro-optimización: con una copia nueva cada vez, cualquier sitio que escriba el resultado en la
+ * caché y reaccione a ella entraría en un bucle de renders («Maximum update depth exceeded», que
+ * ya pasó con el histórico).
  */
 
 /** Iconos Material para los pasos del diálogo «Cómo se juega» (mismo orden que `howToPlayStepsList` en i18n). */
@@ -21,27 +31,22 @@ export const HOME_STATS_PERIOD_STORAGE_KEY = "ecos-home-stats-period";
 /** Mes que se estaba viendo en el calendario del archivo (sessionStorage). */
 export const HOME_ARCHIVE_MONTH_STORAGE_KEY = "ecos-home-archive-month";
 
-/**
- * Solo red de seguridad si la API devolviera nextMonth de forma errónea.
- * El histórico real termina cuando nextMonth es null.
- */
-export const MAX_PREFETCH_HISTORY_MONTHS_SAFETY = 600;
-const PREFETCH_BATCH_SIZE = 8;
-/**
- * Tope del prefetch eager de partidas. El mes en curso nunca pasa de 31 días, así que esto solo
- * actúa si `previousDaysMerged` llegara con fechas inesperadas.
- */
-export const HOME_EAGER_PREFETCH_MAX = 31;
-export const HOME_PREFETCH_STRATEGY: "sequential" | "full-parallel" =
-  process.env.NEXT_PUBLIC_HOME_PREFETCH_STRATEGY === "sequential"
-    ? "sequential"
-    : "full-parallel";
 export function titleCaseWords(input: string): string {
   return input
     .split(" ")
     .map((token) => (/^\p{L}/u.test(token) ? token[0]!.toUpperCase() + token.slice(1) : token))
     .join(" ");
 }
+
+function guessCount(p: InProgressProgress | null | undefined): number {
+  return p?.guesses?.length ?? 0;
+}
+
+/**
+ * Une dos listas de días (del más reciente al más antiguo). Gana lo que llega, salvo que un día
+ * ya terminado llegue «sin jugar»: eso es una copia vieja (el RSC que el router guarda para el
+ * botón atrás, por ejemplo), y una partida terminada no vuelve atrás.
+ */
 export function mergePreviousDays(
   current: PreviousDayGame[],
   incoming: PreviousDayGame[]
@@ -51,85 +56,142 @@ export function mergePreviousDays(
   for (const day of current) map.set(day.id, day);
   for (const day of incoming) {
     const existing = map.get(day.id);
-    if (!existing) {
-      map.set(day.id, day);
-      continue;
-    }
-    /**
-     * Evita downgrade visual por snapshots stale:
-     * si ya estaba completado y llega un bloque "sin empezar", conservamos completado.
-     */
-    if (existing.played && !day.played) {
-      map.set(day.id, existing);
-      continue;
-    }
+    if (existing?.played && !day.played) continue;
     map.set(day.id, day);
   }
   const merged = [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
-
-  /**
-   * Si el resultado es el mismo, devolver la MISMA referencia y no una copia.
-   *
-   * No es una micro-optimización: es lo que corta un bucle infinito de renders. La home escribe
-   * `previousDaysAll` en la caché desde un efecto, una suscripción a la caché reacciona con
-   * `setPreviousDaysMerged(mergePreviousDays(...))`, y ese estado es dependencia del efecto. Si
-   * aquí se devolviera siempre un array nuevo, el estado cambiaría siempre, el efecto volvería a
-   * escribir, y así hasta que React aborta con «Maximum update depth exceeded».
-   */
-  if (
-    merged.length === current.length &&
-    merged.every((day, i) => day === current[i])
-  ) {
+  if (merged.length === current.length && merged.every((day, i) => day === current[i])) {
     return current;
   }
-
   return merged;
 }
 
-export function mergeInProgressByGameId(
+/**
+ * Partidas a medias del histórico: por juego, la que tenga más intentos, y ninguna de un día que
+ * ya figura como terminado (una copia vieja podría volver a traerla).
+ */
+function mergeHistoryInProgress(
   current: Record<string, InProgressProgress>,
-  incoming?: Record<string, InProgressProgress>
+  incoming: Record<string, InProgressProgress> | undefined,
+  days: PreviousDayGame[]
 ): Record<string, InProgressProgress> {
-  if (!incoming) return current;
-
-  // Misma referencia si no aporta nada nuevo, por el mismo motivo que en mergePreviousDays.
-  const incomingIds = Object.keys(incoming);
-  if (
-    incomingIds.length > 0 &&
-    incomingIds.every((id) => current[id] === incoming[id])
-  ) {
-    return current;
+  let next = current;
+  for (const [id, progress] of Object.entries(incoming ?? {})) {
+    if (guessCount(next[id]) >= guessCount(progress) && next[id]) continue;
+    if (next === current) next = { ...current };
+    next[id] = progress;
   }
-  if (incomingIds.length === 0) return current;
-
-  return { ...current, ...incoming };
+  for (const day of days) {
+    if (!day.played || !(day.id in next)) continue;
+    if (next === current) next = { ...current };
+    delete next[day.id];
+  }
+  return next;
 }
 
-/** Por juego, conserva el mapa con más intentos (caché RQ tras /play vs snapshot RSC). */
-export function mergeInProgressPreferringMoreGuesses(
-  a: Record<string, InProgressProgress>,
-  b: Record<string, InProgressProgress>
-): Record<string, InProgressProgress> {
-  const out: Record<string, InProgressProgress> = { ...a };
-  for (const [id, bProg] of Object.entries(b)) {
-    const aProg = out[id];
-    if (
-      !aProg ||
-      (bProg.guesses?.length ?? 0) > (aProg.guesses?.length ?? 0)
+/**
+ * Histórico en caché + uno que llega (RSC de la visita, `/api/home`). Ver `mergePreviousDays`
+ * para la regla de cada día.
+ */
+export function mergeHistoryBlock(
+  prev: HomePreviousDaysData | undefined,
+  incoming: HomePreviousDaysData
+): HomePreviousDaysData {
+  const prevDays = prev?.previousDays ?? [];
+  const prevInProgress = prev?.inProgressByGameId ?? {};
+  const previousDays = mergePreviousDays(prevDays, incoming.previousDays ?? []);
+  const inProgressByGameId = mergeHistoryInProgress(
+    prevInProgress,
+    incoming.inProgressByGameId,
+    previousDays
+  );
+  const userId = incoming.userId ?? prev?.userId ?? null;
+  if (
+    prev &&
+    previousDays === prev.previousDays &&
+    inProgressByGameId === prev.inProgressByGameId &&
+    userId === prev.userId
+  ) {
+    return prev;
+  }
+  return { ...prev, previousDays, inProgressByGameId, userId };
+}
+
+/**
+ * Lleva al histórico el estado de días sueltos (`home.dayStatus`, lo que escribe la partida).
+ *
+ * - `authoritative`: el estado acaba de llegar del servidor y manda tal cual.
+ * - Si no, solo se usa para no ir hacia atrás: un día terminado en el estado se marca terminado,
+ *   y una partida a medias con más intentos sustituye a la que hubiera.
+ */
+export function applyDayStatusesToHistory(
+  block: HomePreviousDaysData,
+  statuses: HomeDayStatusData[],
+  authoritative: boolean
+): HomePreviousDaysData {
+  let days = block.previousDays;
+  let inProgress = block.inProgressByGameId ?? {};
+  const original = { days, inProgress };
+
+  for (const status of statuses) {
+    const idx = days.findIndex((d) => d.id === status.gameId);
+    const row = idx >= 0 ? days[idx] : undefined;
+
+    if (row && (status.played ? authoritative || !row.played : false)) {
+      const patched: PreviousDayGame = {
+        ...row,
+        played: true,
+        won: status.won,
+        score: status.score,
+        title: status.title,
+        artist_name: status.artist_name,
+        cover_url: status.cover_url,
+      };
+      const changed = (Object.keys(patched) as Array<keyof PreviousDayGame>).some(
+        (k) => patched[k] !== row[k]
+      );
+      if (changed) {
+        if (days === original.days) days = [...days];
+        days[idx] = patched;
+      }
+    }
+
+    const current = inProgress[status.gameId];
+    if (status.played || row?.played) {
+      if (current) {
+        if (inProgress === original.inProgress) inProgress = { ...inProgress };
+        delete inProgress[status.gameId];
+      }
+    } else if (
+      status.inProgress &&
+      status.inProgress !== current &&
+      (authoritative || guessCount(status.inProgress) > guessCount(current))
     ) {
-      out[id] = bProg;
+      if (inProgress === original.inProgress) inProgress = { ...inProgress };
+      inProgress[status.gameId] = status.inProgress;
     }
   }
-  return out;
+
+  if (days === original.days && inProgress === original.inProgress) return block;
+  return { ...block, previousDays: days, inProgressByGameId: inProgress };
 }
 
-export async function runBatched<T>(
-  items: T[],
-  worker: (item: T) => Promise<unknown>,
-  batchSize: number = PREFETCH_BATCH_SIZE
-) {
-  for (let i = 0; i < items.length; i += batchSize) {
-    const chunk = items.slice(i, i + batchSize);
-    await Promise.allSettled(chunk.map((item) => worker(item)));
-  }
+/**
+ * «Hoy» en caché + uno que llega. Gana el día más reciente; dentro del mismo día, una partida
+ * terminada no vuelve a «en curso» por una copia vieja (vuelta atrás desde `/play`), y entre dos
+ * partidas a medias gana la de más intentos.
+ */
+export function mergeTodayData(
+  prev: HomeTodayData | undefined,
+  incoming: HomeTodayData
+): HomeTodayData {
+  if (!prev) return incoming;
+  const prevDate = prev.todaysGame?.date ?? "";
+  const incomingDate = incoming.todaysGame?.date ?? "";
+  if (prevDate !== incomingDate) return incomingDate > prevDate ? incoming : prev;
+  if (incoming.todaysCompletedResult) return incoming;
+  if (prev.todaysCompletedResult) return prev;
+  return guessCount(prev.todaysInProgress) > guessCount(incoming.todaysInProgress)
+    ? prev
+    : incoming;
 }
