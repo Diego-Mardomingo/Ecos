@@ -108,11 +108,14 @@ export default async function LocaleLayout({ children, params }: Props) {
           href="/web-app-manifest-512x512.png"
           sizes="512x512"
         />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        {/* Fuente de iconos autoalojada (ver globals.css): todas las páginas la usan desde el
+            primer pintado, así que se pide en paralelo al CSS en vez de esperar a descubrirla. */}
         <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
+          rel="preload"
+          href="/fonts/material-symbols-outlined-d8bbd45b.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin=""
         />
       </head>
       <body

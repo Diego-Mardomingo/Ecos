@@ -129,24 +129,81 @@
 }
 
 /**
- * Tamaño de los iconos de Material Symbols.
+ * Iconos: Material Symbols Outlined, autoalojada y recortada a los iconos que usa la app.
  *
- * La hoja de Google Fonts declara `.material-symbols-outlined { font-size: 24px }` sin capa, y en
- * la cascada lo que no tiene capa gana siempre a lo que sí la tiene: a todas las utilidades de
- * Tailwind. Resultado, todos los iconos medían 24 px dijera lo que dijera su `text-*`.
+ * Antes se pedía a Google Fonts la fuente variable completa: 4 MB para unos 75 iconos, y hasta
+ * que llegaba los iconos se veían como texto («play_arrow», «leaderboard»…). El recorte pesa
+ * unos 45 KB.
  *
- * Arreglo en dos partes: el 24 px por defecto pasa a la capa base, y una regla sin capa (con más
- * especificidad que la de Google) devuelve `font-size` a lo que digan las capas con
- * `revert-layer`. Así manda la utilidad si la hay, y si no, el 24 px de la base.
+ * **Si usas un icono nuevo, hay que regenerar el fichero**: un nombre que no esté en el recorte
+ * se pinta como texto. Cómo:
+ *  1. Añade el nombre a la lista de abajo (orden alfabético: Google lo exige).
+ *  2. Pide la hoja con un User-Agent de Chrome (para que sirva woff2):
+ *     https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=<lista separada por comas>&display=block
+ *  3. Descarga el woff2 que enlaza, guárdalo en `public/fonts/` con los 8 primeros caracteres de
+ *     su sha256 en el nombre (se sirve como inmutable: el nombre tiene que cambiar con el
+ *     contenido) y actualiza la ruta aquí y en el `preload` de `[locale]/layout.tsx`.
+ *
+ * Ejes: `opsz` 20..48 porque el navegador ajusta el tamaño óptico al `font-size` de cada icono
+ * (`font-optical-sizing: auto`); `wght` 400..700 y `FILL` 0..1 son los que se usan vía
+ * `fontVariationSettings`; `GRAD` fijo en 0.
+ *
+ * Iconos (75): add_a_photo, admin_panel_settings, album, alternate_email, analytics, arrow_back,
+ * arrow_forward, arrow_upward, bug_report, calendar_month, calendar_today, cancel, celebration,
+ * check, check_circle, chevron_left, chevron_right, close, cloud_off, contrast, drag_indicator,
+ * edit, emoji_events, error, expand_less, expand_more, flag, graphic_eq, headphones, heart_broken,
+ * help, history, home, ios_share, leaderboard, library_music, lightbulb, link_off,
+ * local_fire_department, login, logout, mail, manage_accounts, military_tech, music_note,
+ * music_off, notifications, notifications_active, pause, person, photo_camera, play_arrow,
+ * play_circle, priority_high, progress_activity, question_mark, queue_music, refresh, report,
+ * search, search_off, send, settings, skip_next, south, stop, terminal, today, translate, trophy,
+ * visibility, volunteer_activism, whatshot, wifi_off, workspace_premium
+ */
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: block;
+  src: url("/fonts/material-symbols-outlined-d8bbd45b.woff2") format("woff2");
+}
+
+/**
+ * La misma regla que traía la hoja de Google, sin capa a propósito: así sigue ganando a las
+ * utilidades de Tailwind como hasta ahora y los iconos se ven exactamente igual. En concreto,
+ * `line-height: 1` gana al interlineado que añaden las utilidades `text-*` (si no, la caja de
+ * cada icono crecería), y `font-weight: normal` deja el grosor en manos de
+ * `fontVariationSettings` (un `font-bold` en el propio icono no tiene efecto).
+ */
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+}
+
+/**
+ * Lo que sí se puede sobrescribir con utilidades va en la capa base:
+ *  - `font-size`: 24 px salvo que el icono lleve su `text-*`.
+ *  - Caja de 1 em de ancho desde el primer pintado. Sin ella, mientras la fuente no ha llegado
+ *    cada icono ocupa el ancho de su nombre escrito y encoge al cargar: era todo el CLS medido.
+ *    `overflow-x: clip` (y no `hidden`) recorta ese texto sin cambiar la línea base del icono ni
+ *    recortar en vertical.
  */
 @layer base {
   .material-symbols-outlined {
     font-size: 24px;
+    width: 1em;
+    overflow-x: clip;
   }
-}
-
-.material-symbols-outlined.material-symbols-outlined {
-  font-size: revert-layer;
 }
 
 /* Safe area para dispositivos con notch */

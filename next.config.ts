@@ -23,8 +23,6 @@ const supabaseHost = new URL(supabaseUrl).hostname;
  *
  * Origenes, todos verificados en el codigo:
  *  - accounts.google.com  -> Google Identity Services (LoginClient.tsx)
- *  - fonts.googleapis.com -> hoja de Material Symbols ([locale]/layout.tsx)
- *  - fonts.gstatic.com    -> ficheros de fuente
  *  - transparenttextures  -> background-image en HomeClient.tsx
  *  - los CDN de caratulas -> avatares y portadas van por <img> plano (ver CLAUDE.md)
  *  - supabase (https+wss) -> REST y realtime
@@ -36,8 +34,8 @@ const supabaseHost = new URL(supabaseUrl).hostname;
 const cspReportOnly = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
   [
     "img-src 'self' data: blob:",
     "https://lh3.googleusercontent.com",
@@ -76,6 +74,14 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy-Report-Only",
             value: cspReportOnly,
           },
+        ],
+      },
+      {
+        // Fuente de iconos autoalojada: el nombre lleva el hash del contenido (ver globals.css),
+        // así que se puede cachear para siempre. Por defecto Next sirve `public/` con max-age=0.
+        source: "/fonts/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
       },
     ];
