@@ -9,17 +9,14 @@ const supabaseUrl =
 const supabaseHost = new URL(supabaseUrl).hostname;
 
 /**
- * Content-Security-Policy, todavía en modo **Report-Only**.
+ * Content-Security-Policy bloqueante (promovida en oct. 2026 tras recorrer home, partida, ranking y
+ * login de Google sin violaciones en Report-Only).
  *
- * Se despliega así porque una CSP mal ajustada rompe la app en silencio: bloquear
- * accounts.google.com impide iniciar sesión. En Report-Only el navegador no bloquea nada, solo
- * registra las violaciones en la consola.
- *
- * Para promoverla: revisar la consola en la home, en una partida y en el login (con el inicio de
- * sesión de Google completo, One Tap incluido), en tema claro y oscuro, y también la consola del
- * service worker (ver connect-src). Si no aparecen violaciones, cambiar `cspHeaderName` a
- * "Content-Security-Policy". Mientras siga en Report-Only, quien protege contra clickjacking es
- * el X-Frame-Options de abajo.
+ * Ojo al añadir orígenes: una CSP mal ajustada rompe la app en silencio (bloquear
+ * accounts.google.com impide iniciar sesión). Antes de tocarla, pasar `cspHeaderName` a
+ * "Content-Security-Policy-Report-Only", recorrer home, partida y login de Google (One Tap
+ * incluido) en claro y oscuro mirando la consola de la página y la del service worker, y volver a
+ * la bloqueante solo sin violaciones.
  *
  * El audio sale de /api/audio-proxy, que es mismo origen: lo cubre el 'self' de media-src.
  *
@@ -44,7 +41,7 @@ const supabaseHost = new URL(supabaseUrl).hostname;
  * obliga a renderizar todo en dinámico; es un cambio aparte. 'unsafe-eval' solo hace falta en
  * desarrollo (el refresco en caliente de Next evalúa código); el build de producción no lo usa.
  */
-const cspHeaderName = "Content-Security-Policy-Report-Only";
+const cspHeaderName = "Content-Security-Policy";
 
 const imageHosts = [
   "https://lh3.googleusercontent.com",
