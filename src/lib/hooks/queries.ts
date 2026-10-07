@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueries,
@@ -11,21 +12,21 @@ import type {
   InProgressProgress,
   TodaysCompletedResult,
 } from "@/lib/queries/games";
+import { isTerminalProgress } from "@/lib/store/gameProgressStore";
 
 import {
-  HOME_DAY_STATUS_STALE_MS,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
-  HOME_TODAY_STALE_MS,
+  HOME_HISTORY_GC_MS,
+  HOME_USER_STATS_STALE_MS,
   PROFILE_STALE_MS,
   RANKING_STALE_MS,
+  SEARCH_STALE_MS,
   homeSessionSegment,
   queryKeys,
+  staleUntilMadridMidnight,
 } from "./queryKeys";
 import {
   fetchGameProgressById,
   fetchHomeDayStatusById,
-  fetchHomePreviousDaysData,
   fetchHomeTodayData,
   fetchHomeUserStatsData,
   fetchLeaderboardPeriodData,
@@ -40,6 +41,7 @@ import {
   takeGameCacheSnapshot,
 } from "./gameCacheSync";
 import type {
+  HomeData,
   ProfileData,
   SkipAttemptRequest,
   SkipAttemptResponse,
@@ -60,15 +62,11 @@ import type {
 
 /**
  * Módulo central de datos en cliente y punto de importación de toda la app
- * (`@/lib/hooks/queries`). Aquí viven los hooks; las claves están en `queryKeys.ts`, las formas
- * de datos en `queryTypes.ts`, los fetchers en `queryFetchers.ts` y el parcheado de caché en
- * `gameCacheSync.ts`. Se re-exporta solo lo que se importa desde fuera.
+ * (`@/lib/hooks/queries`). Aquí viven los hooks y las opciones de cada query; las claves están en
+ * `queryKeys.ts`, las formas de datos en `queryTypes.ts`, los fetchers en `queryFetchers.ts` y el
+ * parcheado de caché en `gameCacheSync.ts`. Se re-exporta solo lo que se importa desde fuera.
  */
 export {
-  HOME_DAY_STATUS_STALE_MS,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
-  HOME_TODAY_STALE_MS,
   PROFILE_STALE_MS,
   RANKING_STALE_MS,
   homeSessionSegment,
@@ -76,7 +74,6 @@ export {
 };
 export {
   fetchHomeDayStatusById,
-  fetchHomePreviousDaysData,
   fetchHomeTodayData,
   fetchHomeUserStatsData,
   fetchLeaderboardPeriodData,
@@ -86,7 +83,6 @@ export {
 export { ApiError } from "./queryFetchers";
 export {
   applyConfirmedProgressCaches,
-  primeHomeDayStatusCache,
   primePlayQueriesFromHomeInitialData,
 } from "./gameCacheSync";
 export type {
@@ -96,44 +92,109 @@ export type {
   HomeDayStatusData,
   HomePreviousDaysData,
   HomeTodayData,
+  HomeUserStatsData,
   RankingData,
 } from "./queryTypes";
 export type { InProgressProgress, TodaysCompletedResult };
+
+/* -------------------------------------------------------------------------------------------- */
+/* Home                                                                                          */
+/* -------------------------------------------------------------------------------------------- */
+
+/**
+ * Carga completa de la home (`/api/home`): hoy, histórico y estadísticas en una sola petición.
+ * `effectiveDate` solo para la precarga del día siguiente en el último minuto antes de medianoche
+ * (la ruta lo ignora fuera de esa ventana).
+ */
+export async function fetchHomeData(effectiveDate?: string): Promise<HomeData> {
+  const url = effectiveDate
+    ? `/api/home?effectiveDate=${encodeURIComponent(effectiveDate)}`
+    : "/api/home";
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch home data");
+  return res.json();
+}
+
+export function homeTodayFromHomeData(data: HomeData): HomeTodayData {
+  return {
+    todaysGame: data.todaysGame,
+    todaysCompletedResult: data.todaysCompletedResult ?? null,
+    todaysInProgress: data.todaysGame
+      ? (data.inProgressByGameId?.[data.todaysGame.id] ?? null)
+      : null,
+    userId: data.userId,
+  };
+}
+
+export function homeHistoryFromHomeData(data: HomeData): HomePreviousDaysData {
+  return {
+    previousDays: data.previousDays,
+    userId: data.userId,
+    inProgressByGameId: data.inProgressByGameId ?? {},
+  };
+}
+
+export function homeUserStatsFromHomeData(data: HomeData): HomeUserStatsData {
+  return {
+    userStats: data.userStats ?? null,
+    rankingRanks: data.rankingRanks,
+    rankingStats: data.rankingStats,
+    userId: data.userId,
+  };
+}
+
+/**
+ * Opciones de cada query de la home: clave, fetcher y frescura juntos, para que el hook, los
+ * `prefetchQuery` y los `fetchQuery` no los vuelvan a declarar cada uno a su manera (DUP-10).
+ *
+ * `today` e histórico solo cambian con el día de juego o por jugadas propias (que se parchean en
+ * caché), así que son frescos hasta la medianoche de Madrid. Además, la home los vuelve a sembrar
+ * con el RSC de cada visita (`HomeClient`), así que en la práctica no se piden por API.
+ */
+export function homeTodayQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.home.today(userId),
+    queryFn: fetchHomeTodayData,
+    staleTime: staleUntilMadridMidnight,
+  });
+}
+
+/**
+ * Histórico completo de la home. Normalmente lo trae el RSC; esta petición es el respaldo para
+ * cuando la página no lo trae alineado con la sesión del cliente (un cambio de usuario en curso).
+ * Antes se reconstruía pidiendo `/api/home/months` y un `previous-days` por mes, en cada vuelta a
+ * la home: 13 peticiones que crecían una al mes (PDATA-05).
+ */
+export function homeHistoryQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.home.previousDaysAll(userId),
+    queryFn: async () => homeHistoryFromHomeData(await fetchHomeData()),
+    staleTime: staleUntilMadridMidnight,
+    gcTime: HOME_HISTORY_GC_MS,
+  });
+}
+
+export function homeUserStatsQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.home.userStats(userId),
+    queryFn: fetchHomeUserStatsData,
+    staleTime: HOME_USER_STATS_STALE_MS,
+  });
+}
 
 export function useHomeToday(
   userId: string | null,
   initialData?: HomeTodayData
 ) {
-  return useQuery({
-    queryKey: queryKeys.home.today(userId),
-    queryFn: fetchHomeTodayData,
-    initialData,
-    staleTime: HOME_TODAY_STALE_MS,
-    /**
-     * Refetch en montaje solo cuando está stale.
-     * Los casos críticos play->home se fuerzan con señal de sincronización dirigida.
-     */
-    refetchOnMount: true,
-  });
+  return useQuery({ ...homeTodayQueryOptions(userId), initialData });
 }
 
-export function useHomePreviousDays(
-  month: string,
+/** `initialData` puede ser una función: el histórico solo se construye si la query aún no existe. */
+export function useHomeHistory(
   userId: string | null,
-  initialData?: HomePreviousDaysData
+  initialData?: HomePreviousDaysData | (() => HomePreviousDaysData)
 ) {
-  return useQuery({
-    queryKey: queryKeys.home.previousDays(month, userId),
-    queryFn: () => fetchHomePreviousDaysData(month),
-    initialData,
-    staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-    gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-    /**
-     * Refetch en montaje solo cuando está stale.
-     * Los casos críticos play->home se fuerzan con señal de sincronización dirigida.
-     */
-    refetchOnMount: true,
-  });
+  return useQuery({ ...homeHistoryQueryOptions(userId), initialData });
 }
 
 export function useHomeUserStats(
@@ -141,11 +202,9 @@ export function useHomeUserStats(
   initialData?: HomeUserStatsData
 ) {
   return useQuery({
-    queryKey: queryKeys.home.userStats(userId),
-    queryFn: fetchHomeUserStatsData,
+    ...homeUserStatsQueryOptions(userId),
     initialData,
     enabled: userId != null,
-    staleTime: HOME_TODAY_STALE_MS,
   });
 }
 
@@ -180,6 +239,23 @@ export function fetchFreshGameProgress(
   });
 }
 
+/**
+ * Frescura del progreso **para precargarlo**. Una partida terminada con su lista de intentos ya no
+ * puede cambiar: no hace falta volver a pedirla. Lo demás se precarga como mucho cada 30 s, para
+ * que pasar el dedo o el ratón varias veces por el mismo día no repita la petición (`/play` la
+ * vuelve a pedir al montar de todas formas).
+ */
+function gameProgressStaleTime(query: { state: { data?: GameProgressData } }): number {
+  const progress = query.state.data?.progress;
+  return isTerminalProgress(progress) && (progress?.guesses?.length ?? 0) > 0
+    ? Infinity
+    : 30 * 1000;
+}
+
+/**
+ * Precarga el progreso de una partida antes de abrirla (intención del usuario en la home). Si la
+ * caché ya tiene la partida terminada con sus intentos, no hace nada.
+ */
 export function prefetchGameProgressById(
   queryClient: QueryClient,
   gameId: string
@@ -188,20 +264,7 @@ export function prefetchGameProgressById(
   return queryClient.prefetchQuery({
     queryKey: queryKeys.game.progress(gameId),
     queryFn: () => fetchGameProgressById(gameId),
-    /** Alineado con `useGameProgressById` — el GET debe poder sustituir seeds de la home. */
-    staleTime: 0,
-  });
-}
-
-export function prefetchHomeDayStatusById(
-  queryClient: QueryClient,
-  gameId: string
-) {
-  if (!gameId) return Promise.resolve();
-  return queryClient.prefetchQuery({
-    queryKey: queryKeys.home.dayStatus(gameId),
-    queryFn: () => fetchHomeDayStatusById(gameId),
-    staleTime: HOME_DAY_STATUS_STALE_MS,
+    staleTime: gameProgressStaleTime,
   });
 }
 
@@ -447,6 +510,35 @@ export function useLeaderboardHistoryDetail(
   });
 }
 
+export function profileCoreQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.profile.section("core", userId),
+    queryFn: fetchProfileCoreData,
+    staleTime: PROFILE_STALE_MS,
+  });
+}
+
+export function profileStatsQueryOptions(userId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.profile.section("stats", userId),
+    queryFn: fetchProfileStatsData,
+    staleTime: PROFILE_STALE_MS,
+  });
+}
+
+/**
+ * Solo el núcleo del perfil (nombre, avatar). Para las barras de navegación, que antes usaban
+ * `useProfile` y pedían también las estadísticas (dos RPC pesadas) solo para pintar el nombre
+ * (PDATA-10).
+ */
+export function useProfileCore(userId: string | null) {
+  return useQuery({
+    ...profileCoreQueryOptions(userId),
+    retry: 1,
+    enabled: userId != null,
+  });
+}
+
 export function useProfile(
   profileUserId: string | null,
   initialData?: ProfileData,
@@ -468,20 +560,16 @@ export function useProfile(
   const [coreQuery, statsQuery] = useQueries({
     queries: [
       {
-        queryKey: queryKeys.profile.section("core", profileUserId),
-        queryFn: fetchProfileCoreData,
+        ...profileCoreQueryOptions(profileUserId),
         initialData: initialCoreData,
         retry: 1,
         enabled,
-        staleTime: PROFILE_STALE_MS,
       },
       {
-        queryKey: queryKeys.profile.section("stats", profileUserId),
-        queryFn: fetchProfileStatsData,
+        ...profileStatsQueryOptions(profileUserId),
         initialData: initialStatsData,
         retry: 1,
         enabled,
-        staleTime: PROFILE_STALE_MS,
       },
     ],
   });
@@ -534,6 +622,6 @@ export function useSearchSongs(query: string) {
       return json.data ?? [];
     },
     enabled: query.trim().length >= 2,
-    staleTime: 60 * 1000,
+    staleTime: SEARCH_STALE_MS,
   });
 }

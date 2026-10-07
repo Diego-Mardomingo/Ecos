@@ -180,6 +180,7 @@
     "avgAttemptsLabel": "Average · {avg} tries",
     "avgAttemptsEmpty": "No games yet",
     "monthSummary": "{played}/{total} played · {hits} guessed",
+    "monthSummaryCount": "{played}/{total} played · {hits} guessed",
     "legendWonAttempt": "Guessed (try no.)",
     "legendLostShort": "Missed",
     "legendPending": "Pending",

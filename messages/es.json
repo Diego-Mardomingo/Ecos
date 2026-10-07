@@ -180,6 +180,7 @@
     "avgAttemptsLabel": "Media · {avg} int.",
     "avgAttemptsEmpty": "Aún sin partidas",
     "monthSummary": "{played}/{total} jugados · {hits} aciertos",
+    "monthSummaryCount": "{played}/{total} jugados · {hits, plural, one {# acierto} other {# aciertos}}",
     "legendWonAttempt": "Acierto (nº intento)",
     "legendLostShort": "Fallada",
     "legendPending": "Pendiente",

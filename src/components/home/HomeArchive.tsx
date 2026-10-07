@@ -5,27 +5,20 @@ import { useLocale, useTranslations } from "next-intl";
 import Image from "next/image";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import { format, parseISO } from "date-fns";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { getEffectiveGameDate } from "@/lib/date-utils";
+import { getEffectiveGameDate, shiftMonthKey } from "@/lib/date-utils";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
 import { ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import { attemptFromScore } from "@/lib/scoring";
-import {
-  HOME_DAY_STATUS_STALE_MS,
-  prefetchGameProgressById,
-  prefetchHomeDayStatusById,
-  queryKeys,
-  type HomeDayStatusData,
-  type InProgressProgress,
-} from "@/lib/hooks/queries";
+import type { InProgressProgress } from "@/lib/hooks/queries";
 import type { PreviousDayGame } from "@/lib/queries/games";
 import { cn } from "@/lib/utils";
 import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import type { PlaySkeletonVariant } from "@/lib/navigation/playSkeletonStorage";
 import { useRouter } from "@/i18n/navigation";
-import { deriveHomeDayState, type DerivedHomeDayState } from "@/components/home/homeDayDerived";
+import { deriveHomeDayFromHistory, type DerivedHomeDayState } from "@/components/home/homeDayDerived";
 import { HOME_ARCHIVE_MONTH_STORAGE_KEY } from "@/components/home/homeHelpers";
+import { usePrefetchPlayRoute } from "@/components/home/usePrefetchPlayRoute";
 
 /**
  * Archivo de la home (mockup «Escenario»): un mes navegable en calendario.
@@ -34,8 +27,9 @@ import { HOME_ARCHIVE_MONTH_STORAGE_KEY } from "@/components/home/homeHelpers";
  * está pendiente y un punto naranja si está a medias. Tocar un día lo selecciona y abre su ficha
  * debajo, con el botón para jugarlo o verlo; un aviso al pie empuja a jugar los pendientes del mes.
  *
- * El estado de cada día sale de `deriveHomeDayState` y de las queries de estado por día, que solo
- * se piden para el mes a la vista.
+ * El estado de cada día sale del histórico de la home (`deriveHomeDayFromHistory`). El de hoy lo
+ * pasa `HomeClient` ya resuelto: la celda se pinta como cualquier otro día, con un anillo que la
+ * distingue, y cuenta en el resumen del mes en cuanto se juega.
  */
 
 /** Desplazamiento horizontal (px) a partir del cual un arrastre sobre el calendario cambia de mes. */
@@ -49,21 +43,19 @@ const WEEKDAY_INITIALS: Record<string, string[]> = {
 
 type TodayInfo = {
   date: string;
-  completed: boolean;
-  won: boolean;
-  inProgress: boolean;
+  gameNumber: number;
+  /** Estado del reto de hoy, con la misma forma que el de los días anteriores. */
+  derived: DerivedHomeDayState;
 } | null;
 
-type CellStatus = "future" | "empty" | "today" | "won" | "lost" | "playing" | "pending";
+type CellStatus = "future" | "empty" | "won" | "lost" | "playing" | "pending";
 
 function monthKeyOf(date: string): string {
   return date.slice(0, 7);
 }
 
 function shiftMonth(key: string, delta: number): string {
-  const [y, m] = key.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return shiftMonthKey(key, delta) ?? key;
 }
 
 function capitalize(text: string): string {
@@ -92,7 +84,6 @@ function HomeArchive({
   today: TodayInfo;
   onPlayToday: () => void;
 }) {
-  const queryClient = useQueryClient();
   const router = useRouter();
   const t = useTranslations("home");
   const locale = useLocale();
@@ -136,49 +127,15 @@ function HomeArchive({
     return monthKeyOf(oldest);
   }, [previousDays, currentMonth]);
 
-  const prefetchPlayRoute = useCallback(
-    (gameId: string) => {
-      router.prefetch(`/play/${gameId}`);
-      if (userId) {
-        void prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
-      }
-      void prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
-    },
-    [queryClient, router, userId]
-  );
-
-  // Estado por día: solo se pide para el mes a la vista.
-  const dayStatusQueries = useQueries({
-    queries: previousDays.map((day) => ({
-      queryKey: queryKeys.home.dayStatus(day.id),
-      queryFn: async (): Promise<HomeDayStatusData> => {
-        const res = await fetch(`/api/home/day/${day.id}/status`, { cache: "no-store" });
-        if (!res.ok) throw new Error("Failed to fetch day status");
-        return res.json();
-      },
-      staleTime: HOME_DAY_STATUS_STALE_MS,
-      enabled: !!userId && monthKeyOf(day.date) === month,
-      initialData: {
-        gameId: day.id,
-        played: day.played,
-        won: day.won,
-        score: day.score,
-        title: day.title,
-        artist_name: day.artist_name,
-        cover_url: day.cover_url,
-        inProgress: inProgressByGameId?.[day.id] ?? null,
-      } satisfies HomeDayStatusData,
-    })),
-  });
+  const prefetchPlayRoute = usePrefetchPlayRoute(userId);
 
   const derivedById = useMemo(() => {
     const map = new Map<string, DerivedHomeDayState>();
-    previousDays.forEach((day, index) => {
-      const status = userId ? dayStatusQueries[index]?.data : null;
-      map.set(day.id, deriveHomeDayState(day, userId, status ?? null, byGameId));
-    });
+    for (const day of previousDays) {
+      map.set(day.id, deriveHomeDayFromHistory(day, userId, inProgressByGameId[day.id], byGameId));
+    }
     return map;
-  }, [previousDays, dayStatusQueries, userId, byGameId]);
+  }, [previousDays, inProgressByGameId, userId, byGameId]);
 
   // --- Mes a la vista ------------------------------------------------------------------------
   const [y, m] = month.split("-").map(Number);
@@ -187,12 +144,21 @@ function HomeArchive({
   const monthLabel = capitalize(format(new Date(y, m - 1, 1), "LLLL yyyy", { locale: dateFnsLocale }));
   const monthName = format(new Date(y, m - 1, 1), "LLLL", { locale: dateFnsLocale });
 
-  type Cell = { date: string; dayNum: number; status: CellStatus; game?: PreviousDayGame; derived?: DerivedHomeDayState };
+  type Cell = {
+    date: string;
+    dayNum: number;
+    status: CellStatus;
+    isToday?: boolean;
+    game?: PreviousDayGame;
+    derived?: DerivedHomeDayState;
+  };
   const cells: Cell[] = [];
+  let todayCell: Cell | null = null;
   for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
     const date = `${month}-${String(dayNum).padStart(2, "0")}`;
     if (date === todayDate && today) {
-      cells.push({ date, dayNum, status: "today" });
+      todayCell = { date, dayNum, status: cellStatus(today.derived), isToday: true, derived: today.derived };
+      cells.push(todayCell);
       continue;
     }
     if (date > todayDate) {
@@ -205,8 +171,11 @@ function HomeArchive({
   }
 
   const past = cells.filter((c) => c.game);
-  const played = past.filter((c) => c.status === "won" || c.status === "lost").length;
-  const hits = past.filter((c) => c.status === "won").length;
+  /** Retos del mes hasta hoy, el de hoy incluido: cuenta en el resumen en cuanto se juega. */
+  const monthGames = todayCell ? [...past, todayCell] : past;
+  const played = monthGames.filter((c) => c.status === "won" || c.status === "lost").length;
+  const hits = monthGames.filter((c) => c.status === "won").length;
+  // El de hoy no entra en «pendientes»: ya está arriba, en la tarjeta del reto.
   const pending = past.filter((c) => c.status === "pending" || c.status === "playing");
   /** Acierto del mes: de las partidas terminadas, cuántas se acertaron. */
   const hitRatio = played ? hits / played : 0;
@@ -287,7 +256,7 @@ function HomeArchive({
               >
                 <h3 className="font-display text-lg font-bold tracking-[-0.02em]">{monthLabel}</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {t("monthSummary", { played, total: past.length, hits })}
+                  {t("monthSummaryCount", { played, total: monthGames.length, hits })}
                 </p>
               </motion.div>
             </AnimatePresence>
@@ -362,15 +331,13 @@ function HomeArchive({
                   index={leadingBlanks + index}
                   isSelected={cell.date === selectedDate}
                   ariaLabel={
-                    cell.game
-                      ? t("calendarDayAria", {
+                    cell.game || (cell.isToday && today)
+                      ? `${cell.isToday ? `${t("today")}, ` : ""}${t("calendarDayAria", {
                           date: format(parseISO(cell.date), "PPP", { locale: dateFnsLocale }),
-                          number: cell.game.game_number,
+                          number: cell.game?.game_number ?? today?.gameNumber ?? 0,
                           status: statusLabel(cell.status),
-                        })
-                      : cell.status === "today"
-                        ? t("today")
-                        : undefined
+                        })}`
+                      : undefined
                   }
                   onSelect={() => {
                     if (pannedRef.current) return;
@@ -394,7 +361,7 @@ function HomeArchive({
 
       {/* Ficha del día seleccionado */}
       <AnimatePresence mode="popLayout" initial={false}>
-        {selectedCell && (selectedCell.game || selectedCell.status === "today") ? (
+        {selectedCell && (selectedCell.game || selectedCell.isToday) ? (
           <motion.div
             key={selectedCell.date}
             initial={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -405,10 +372,10 @@ function HomeArchive({
           >
             <DayDetail
               cell={selectedCell}
-              gameNumber={selectedCell.game?.game_number ?? null}
+              gameNumber={selectedCell.game?.game_number ?? (selectedCell.isToday ? (today?.gameNumber ?? null) : null)}
               dateLabel={format(parseISO(selectedCell.date), "EEE d MMM", { locale: dateFnsLocale }).replace(/\./g, "")}
               formatNumber={formatNumber}
-              onOpen={() => (selectedCell.status === "today" ? onPlayToday() : openGame(selectedCell))}
+              onOpen={() => (selectedCell.isToday ? onPlayToday() : openGame(selectedCell))}
               onScrollTop={() => window.scrollTo({ top: 0, behavior: "smooth" })}
             />
           </motion.div>
@@ -447,14 +414,14 @@ function DayCell({
   onSelect,
   onPrefetch,
 }: {
-  cell: { date: string; dayNum: number; status: CellStatus; derived?: DerivedHomeDayState };
+  cell: { date: string; dayNum: number; status: CellStatus; isToday?: boolean; derived?: DerivedHomeDayState };
   index: number;
   isSelected: boolean;
   ariaLabel?: string;
   onSelect: () => void;
   onPrefetch?: () => void;
 }) {
-  const { status, derived } = cell;
+  const { status, derived, isToday } = cell;
   const style = { animationDelay: `${Math.min(index, 40) * 12}ms` };
   const base =
     "animate-in fade-in-0 zoom-in-75 fill-mode-both duration-300 relative grid aspect-square place-items-center overflow-hidden rounded-[11px] font-mono text-xs font-semibold";
@@ -482,8 +449,10 @@ function DayCell({
         base,
         "border border-transparent outline-offset-2 transition-transform duration-150 active:scale-[0.94]",
         isSelected && "outline outline-2 outline-foreground",
-        status === "today" && "bg-brand font-bold text-primary-foreground",
-        status === "pending" && "border-[1.5px] border-dashed border-muted-foreground/55 bg-muted text-foreground",
+        // Hoy se distingue por el anillo; el relleno es el de su estado, como el resto de días.
+        isToday && "font-bold ring-2 ring-brand ring-offset-2 ring-offset-card",
+        status === "pending" && !isToday && "border-[1.5px] border-dashed border-muted-foreground/55 bg-muted text-foreground",
+        status === "pending" && isToday && "bg-brand/15 text-foreground",
         status === "playing" && "border-[1.5px] border-[#ffb547] bg-[#ffb547]/12 text-foreground",
         (status === "won" || status === "lost") && "text-white"
       )}
@@ -528,7 +497,7 @@ function DayDetail({
   onOpen,
   onScrollTop,
 }: {
-  cell: { status: CellStatus; derived?: DerivedHomeDayState };
+  cell: { status: CellStatus; isToday?: boolean; derived?: DerivedHomeDayState };
   gameNumber: number | null;
   dateLabel: string;
   formatNumber: (n: number) => string;
@@ -549,7 +518,7 @@ function DayDetail({
   let body: React.ReactNode;
   let action: React.ReactNode;
 
-  if (status === "today") {
+  if (cell.isToday) {
     art = (
       <span className="grid size-14 place-items-center rounded-[14px] bg-brand text-primary-foreground">
         <span aria-hidden className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>today</span>

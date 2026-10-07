@@ -1,53 +1,47 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   getEffectiveGameDate,
   getMadridDate,
   getTomorrowMadridDate,
 } from "@/lib/date-utils";
-import { useGameProgressStore, type GameProgress } from "@/lib/store/gameProgressStore";
-import { useQueryClient } from "@tanstack/react-query";
 import {
-  useHomeToday,
-  useHomePreviousDays,
-  useHomeUserStats,
+  isTerminalProgress,
+  useGameProgressStore,
+  type GameProgress,
+} from "@/lib/store/gameProgressStore";
+import {
+  fetchHomeData,
   fetchHomeDayStatusById,
-  fetchHomeUserStatsData,
+  homeHistoryFromHomeData,
+  homeTodayFromHomeData,
+  homeTodayQueryOptions,
+  homeUserStatsFromHomeData,
   prefetchGameProgressById,
-  prefetchHomeDayStatusById,
-  primeHomeDayStatusCache,
   primePlayQueriesFromHomeInitialData,
-  homeSessionSegment,
   queryKeys,
-  fetchHomePreviousDaysData,
-  HOME_PREVIOUS_DAYS_GC_MS,
-  HOME_PREVIOUS_DAYS_STALE_MS,
+  useHomeHistory,
+  useHomeToday,
+  useHomeUserStats,
   type HomeData,
+  type HomeDayStatusData,
+  type HomePreviousDaysData,
   type HomeTodayData,
   type InProgressProgress,
-  type HomePreviousDaysData,
+  type TodaysCompletedResult,
 } from "@/lib/hooks/queries";
 import type { PreviousDayGame, GameWithSong } from "@/lib/queries/games";
+import type { UserStats } from "@/lib/queries/users";
 import { HomeSkeleton } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from "@/i18n/navigation";
 import {
-  HOME_EAGER_PREFETCH_MAX,
-  HOME_PREFETCH_STRATEGY,
-  MAX_PREFETCH_HISTORY_MONTHS_SAFETY,
-  mergeInProgressByGameId,
-  mergeInProgressPreferringMoreGuesses,
-  mergePreviousDays,
-  runBatched,
+  applyDayStatusesToHistory,
+  mergeHistoryBlock,
+  mergeTodayData,
 } from "@/components/home/homeHelpers";
 import { HomeGuestCard, HomeProgress, type CompletedGame } from "@/components/home/HomeStats";
 import { HomeArchive } from "@/components/home/HomeArchive";
@@ -55,7 +49,7 @@ import { HomeHeader } from "@/components/home/HomeHeader";
 import { HomeTodayHero } from "@/components/home/HomeTodayHero";
 import { HomeRecentDays } from "@/components/home/HomeRecentDays";
 import { Countdown } from "@/components/home/HomeCountdown";
-import { deriveHomeDayState } from "@/components/home/homeDayDerived";
+import { deriveHomeDayState, type DerivedHomeDayState } from "@/components/home/homeDayDerived";
 import { attemptFromScore } from "@/lib/scoring";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
@@ -63,16 +57,17 @@ import {
   type PlaySkeletonVariant,
 } from "@/lib/navigation/playSkeletonStorage";
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
+import { PLAY_FROM_HOME_STORAGE_KEY } from "@/lib/navigation/useNavigateBackToHome";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
 
 interface Props {
   initialData?: {
     todaysGame: GameWithSong | null;
-    userStats: import("@/lib/queries/users").UserStats | null;
+    userStats: UserStats | null;
     userId: string | null;
     previousDays: PreviousDayGame[];
-    inProgressByGameId?: Record<string, import("@/lib/hooks/queries").InProgressProgress>;
-    todaysCompletedResult?: import("@/lib/hooks/queries").TodaysCompletedResult | null;
+    inProgressByGameId?: Record<string, InProgressProgress>;
+    todaysCompletedResult?: TodaysCompletedResult | null;
     rankingRanks?: { global: number | null; weekly: number | null; monthly: number | null };
     rankingStats?: HomeData["rankingStats"];
     /** Ids que la home prefetchea, para sembrar su estado de progreso en caché. */
@@ -80,581 +75,270 @@ interface Props {
   };
 }
 
+const EMPTY_DAYS: PreviousDayGame[] = [];
+const EMPTY_IN_PROGRESS: Record<string, InProgressProgress> = {};
+
+/** Cada cuánto se comprueba, con la home abierta, si ha cambiado el día de juego. */
+const DAY_CHECK_INTERVAL_MS = 30 * 1000;
+/** Si el servidor todavía no ha cambiado de día (reloj del cliente adelantado), se reintenta… */
+const DAY_CHANGE_RETRY_MS = 60 * 1000;
+/** …como mucho estas veces por día, para no insistir sin fin con un reloj muy desajustado. */
+const DAY_CHANGE_MAX_ATTEMPTS = 5;
+
+/** Fecha de juego a la que corresponden los datos de «hoy» que hay en caché. */
+function cachedTodayDate(queryClient: QueryClient, userId: string | null): string | null {
+  const state = queryClient.getQueryState<HomeTodayData>(queryKeys.home.today(userId));
+  if (!state?.data) return null;
+  return (
+    state.data.todaysGame?.date ??
+    (state.dataUpdatedAt ? getMadridDate(new Date(state.dataUpdatedAt)) : null)
+  );
+}
+
+/**
+ * Lleva a la caché lo que trae la página (RSC) o `/api/home`: «hoy» y el histórico, fusionados con
+ * lo que ya hubiera (ver `mergeTodayData` y `mergeHistoryBlock`: lo terminado no vuelve atrás).
+ *
+ * Así cada visita a la home deja la caché al día sin pedir nada por API. Antes la caché ganaba al
+ * RSC y, en cuanto pasaban 3 minutos, la home volvía a pedir hoy, el mes y, con él, todo el
+ * histórico mes a mes. Si el payload no es del día de juego actual (una copia vieja del router),
+ * no se adopta: marcaría como frescos datos de ayer, y del cambio de día ya se encarga
+ * `syncGameDay`.
+ */
+function adoptHomePayload(queryClient: QueryClient, payload: HomeData, withUserStats: boolean) {
+  if (payload.todaysGame && payload.todaysGame.date !== getEffectiveGameDate()) return;
+  const userId = payload.userId ?? null;
+
+  queryClient.setQueryData(queryKeys.home.today(userId), (prev: HomeTodayData | undefined) =>
+    mergeTodayData(prev, homeTodayFromHomeData(payload))
+  );
+
+  // Lo que la partida haya dejado en el estado por día (si la home no estaba en caché cuando se
+  // jugó, el histórico no se pudo parchear entonces).
+  const statuses = userId
+    ? queryClient
+        .getQueriesData<HomeDayStatusData>({ queryKey: ["home", "day-status"] })
+        .flatMap(([, status]) => (status ? [status] : []))
+    : [];
+  queryClient.setQueryData(
+    queryKeys.home.previousDaysAll(userId),
+    (prev: HomePreviousDaysData | undefined) => {
+      const merged = mergeHistoryBlock(prev, homeHistoryFromHomeData(payload));
+      return statuses.length ? applyDayStatusesToHistory(merged, statuses, false) : merged;
+    }
+  );
+
+  if (withUserStats && userId) {
+    queryClient.setQueryData(queryKeys.home.userStats(userId), homeUserStatsFromHomeData(payload));
+  }
+}
+
+/**
+ * Al volver de una partida (señal de `gameCacheSync`): lo justo para que la home refleje la
+ * jugada aunque la sincronización en segundo plano no hubiera terminado.
+ */
+async function refreshAfterGameEvent(
+  queryClient: QueryClient,
+  userId: string,
+  gameId: string,
+  completed: boolean
+) {
+  const tasks: Array<Promise<unknown>> = [];
+  const today = queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId));
+  if (today?.todaysGame?.id === gameId) {
+    tasks.push(queryClient.fetchQuery({ ...homeTodayQueryOptions(userId), staleTime: 0 }));
+  } else {
+    tasks.push(
+      queryClient
+        .fetchQuery({
+          queryKey: queryKeys.home.dayStatus(gameId),
+          queryFn: () => fetchHomeDayStatusById(gameId),
+          staleTime: 0,
+        })
+        .then((status) =>
+          queryClient.setQueryData(
+            queryKeys.home.previousDaysAll(userId),
+            (prev: HomePreviousDaysData | undefined) =>
+              prev ? applyDayStatusesToHistory(prev, [status], true) : prev
+          )
+        )
+    );
+  }
+  if (completed) {
+    tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.home.userStats(userId) }));
+  }
+  await Promise.allSettled(tasks);
+}
+
 export function HomeClient({ initialData }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const authUser = useAuthStore((s) => s.user);
-  const currentMonthKey = getMadridDate().slice(0, 7);
-  /** Sesión efectiva: store primero; si aún no hidrata, coincide con el RSC. */
-  const cacheUserId = authUser?.id ?? initialData?.userId ?? null;
-  const initialDataAligned =
-    initialData != null &&
-    (initialData.userId ?? null) === (cacheUserId ?? null);
-
-  const initialTodayData =
-    initialDataAligned && initialData
-      ? {
-          todaysGame: initialData.todaysGame,
-          todaysCompletedResult: initialData.todaysCompletedResult ?? null,
-          todaysInProgress: initialData.todaysGame
-            ? (initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null)
-            : null,
-          userId: initialData.userId,
-        }
-      : undefined;
-  const initialPreviousDaysData =
-    initialDataAligned && initialData
-      ? {
-          previousDays: initialData.previousDays,
-          userId: initialData.userId,
-          month: currentMonthKey,
-          nextMonth: null,
-          hasMoreOlder: false,
-          inProgressByGameId: initialData.inProgressByGameId,
-        }
-      : undefined;
-  const initialUserStatsData =
-    initialDataAligned && initialData
-      ? {
-          userStats: initialData.userStats ?? null,
-          rankingRanks: initialData.rankingRanks,
-          rankingStats: initialData.rankingStats,
-          userId: initialData.userId,
-        }
-      : undefined;
+  const authLoading = useAuthStore((s) => s.loading);
+  /**
+   * Sesión efectiva. Mientras el cliente aún no sabe quién es, la del RSC; en cuanto lo sabe, solo
+   * la suya. Antes se caía al id del RSC también después de cerrar sesión, y la caché persistida se
+   * volvía a llenar con los datos del usuario anterior (PDATA-13).
+   */
+  const cacheUserId = authLoading ? (initialData?.userId ?? null) : (authUser?.id ?? null);
+  const rsc =
+    initialData != null && (initialData.userId ?? null) === cacheUserId ? initialData : undefined;
 
   const {
     data: todayData,
     isPending: isTodayPending,
-    refetch: refetchToday,
-  } = useHomeToday(cacheUserId, initialTodayData);
+  } = useHomeToday(cacheUserId, rsc ? homeTodayFromHomeData(rsc) : undefined);
   const {
-    data: previousDaysData,
-    isPending: isPreviousDaysPending,
-    refetch: refetchPreviousDays,
-  } = useHomePreviousDays(currentMonthKey, cacheUserId, initialPreviousDaysData);
+    data: historyData,
+    isPending: isHistoryPending,
+  } = useHomeHistory(
+    cacheUserId,
+    rsc ? () => mergeHistoryBlock(undefined, homeHistoryFromHomeData(rsc)) : undefined
+  );
+  const { data: homeUserStatsData } = useHomeUserStats(
+    cacheUserId,
+    rsc ? homeUserStatsFromHomeData(rsc) : undefined
+  );
+
+  // El RSC de esta visita a la caché, antes de que los observadores se suscriban (efecto de
+  // layout): así no piden nada por estar caducados.
+  useLayoutEffect(() => {
+    if (!rsc) return;
+    adoptHomePayload(queryClient, rsc, false);
+  }, [rsc, queryClient]);
+
+  useLayoutEffect(() => {
+    if (!rsc || !cacheUserId) return;
+    primePlayQueriesFromHomeInitialData(queryClient, {
+      userId: cacheUserId,
+      prefetchGameIds: rsc.prefetchGameIds ?? [],
+      inProgressByGameId: rsc.inProgressByGameId,
+      todaysGame: rsc.todaysGame ?? null,
+      todaysCompletedResult: rsc.todaysCompletedResult ?? null,
+      previousDays: rsc.previousDays ?? [],
+    });
+  }, [rsc, cacheUserId, queryClient]);
 
   useEffect(() => {
     const signal = consumeHomeSyncSignal(cacheUserId);
-    if (!signal) return;
-
-    const tasks: Array<Promise<unknown>> = [
-      refetchToday(),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.home.dayStatus(signal.gameId),
-        queryFn: () => fetchHomeDayStatusById(signal.gameId),
-        staleTime: 0,
-      }),
-    ];
-
-    if (signal.event === "gameCompleted") {
-      tasks.push(refetchPreviousDays());
-      if (cacheUserId) {
-        tasks.push(
-          queryClient.fetchQuery({
-            queryKey: queryKeys.home.userStats(cacheUserId),
-            queryFn: fetchHomeUserStatsData,
-            staleTime: 0,
-          })
-        );
-      }
-    }
-
-    void Promise.allSettled(tasks);
-  }, [cacheUserId, queryClient, refetchPreviousDays, refetchToday]);
-
-  const resolvedUserId =
-    todayData?.userId ??
-    previousDaysData?.userId ??
-    initialData?.userId ??
-    null;
-
-  const { data: homeUserStatsData } = useHomeUserStats(
-    resolvedUserId,
-    initialUserStatsData
-  );
-  const [previousDaysMerged, setPreviousDaysMerged] = useState<PreviousDayGame[]>(
-    () => (initialDataAligned ? initialData?.previousDays ?? [] : [])
-  );
-  const [inProgressByGameId, setInProgressByGameId] = useState<
-    Record<string, InProgressProgress>
-  >(() => {
-    if (!initialDataAligned || !initialData) return {};
-    const uid = initialData.userId ?? null;
-    if (!uid) return initialData.inProgressByGameId ?? {};
-    const rsc = initialData.inProgressByGameId ?? {};
-    const fromAll =
-      queryClient.getQueryData<HomePreviousDaysData>(
-        queryKeys.home.previousDaysAll(uid)
-      )?.inProgressByGameId ?? {};
-    const fromMonth =
-      queryClient.getQueryData<HomePreviousDaysData>(
-        queryKeys.home.previousDays(currentMonthKey, uid)
-      )?.inProgressByGameId ?? {};
-    return mergeInProgressPreferringMoreGuesses(
-      mergeInProgressPreferringMoreGuesses(rsc, fromAll),
-      fromMonth
+    if (!signal || !cacheUserId) return;
+    void refreshAfterGameEvent(
+      queryClient,
+      cacheUserId,
+      signal.gameId,
+      signal.event === "gameCompleted"
     );
-  });
-  const prefetchStartedRef = useRef(false);
-  const prefetchedProgressIdsRef = useRef<Set<string>>(new Set());
+  }, [cacheUserId, queryClient]);
 
-  const todaysCompletedResultEffective = useMemo(() => {
-    if (!initialDataAligned) return todayData?.todaysCompletedResult ?? null;
-    // Con datos de React Query, null es válido (no completado); no usar ?? hacia RSC.
-    if (todayData !== undefined) {
-      return todayData.todaysCompletedResult ?? null;
-    }
-    return initialData?.todaysCompletedResult ?? null;
-  }, [initialDataAligned, todayData, initialData?.todaysCompletedResult]);
-
-  const todaysServerInProgressEffective = useMemo(() => {
-    if (todaysCompletedResultEffective) return null;
-    const fromRsc =
-      initialDataAligned && initialData?.todaysGame
-        ? initialData.inProgressByGameId?.[initialData.todaysGame.id] ?? null
-        : null;
-    // todaysInProgress === null del API no debe sustituirse por inProgress obsoleto del RSC.
-    if (todayData !== undefined) {
-      return todayData.todaysInProgress ?? null;
-    }
-    return fromRsc;
-    // `initialData` entero: el compilador infiere esa dependencia, y desglosarla en
-    // propiedades sueltas le impide preservar la memoización del componente.
-  }, [
-    todayData,
-    initialDataAligned,
-    initialData,
-    todaysCompletedResultEffective,
-  ]);
-
-  useLayoutEffect(() => {
-    if (!initialDataAligned || !cacheUserId || !initialData?.todaysCompletedResult) return;
-    const cached = queryClient.getQueryData<HomeTodayData>(
-      queryKeys.home.today(cacheUserId)
-    );
-    if (cached?.todaysCompletedResult) return;
-    queryClient.setQueryData(queryKeys.home.today(cacheUserId), (prev) => {
-      const base = (prev ?? {}) as Partial<HomeTodayData>;
-      return {
-        ...base,
-        todaysGame: base.todaysGame ?? initialData.todaysGame ?? null,
-        userId: cacheUserId,
-        todaysCompletedResult: initialData.todaysCompletedResult ?? null,
-        todaysInProgress: null,
-      } as HomeTodayData;
-    });
-  }, [
-    initialDataAligned,
-    cacheUserId,
-    initialData?.todaysCompletedResult,
-    initialData?.todaysGame,
-    queryClient,
-  ]);
-
-  useLayoutEffect(() => {
-    if (!initialDataAligned || !cacheUserId || !initialData) return;
-    primePlayQueriesFromHomeInitialData(queryClient, {
-      userId: cacheUserId,
-      prefetchGameIds: initialData.prefetchGameIds ?? [],
-      inProgressByGameId: initialData.inProgressByGameId,
-      todaysGame: initialData.todaysGame ?? null,
-      todaysCompletedResult: initialData.todaysCompletedResult ?? null,
-      previousDays: initialData.previousDays ?? [],
-    });
-  }, [
-    initialDataAligned,
-    cacheUserId,
-    queryClient,
-    initialData,
-  ]);
+  /* --- Cambio de día ------------------------------------------------------------------------ */
 
   /**
-   * Partidas que se prefetchean al cargar: el reto de hoy y los días del mes en curso.
-   *
-   * Antes eran **todas** las del histórico. Como el bucle hace hasta cuatro peticiones por día
-   * (ruta, juego, progreso y estado) y el progreso va con `staleTime: 0`, con un año de juego eso
-   * son ~1.500 peticiones en cada carga de la home, creciendo cada día que pasa.
-   *
-   * El resto de días ya los cubre `PrefetchPlayOnVisible` cuando la tarjeta entra en el viewport,
-   * más su `onMouseEnter`/`onFocus`: el mismo trabajo, pero solo para los días que el usuario
-   * llega a ver. Hacerlo también aquí era duplicarlo por adelantado.
+   * Antes el cambio de día solo se detectaba si la cuenta atrás veía pasar la medianoche con la
+   * app delante. Con la PWA en segundo plano los temporizadores se congelan y la home seguía
+   * enseñando el reto de ayer como «RETO DE HOY» (PDATA-08). Ahora se compara: la fecha de los
+   * datos en caché contra el día de juego actual, al volver a primer plano, cada 30 s y al llegar
+   * la cuenta atrás a cero.
    */
-  const eagerPrefetchGameIds = useMemo(() => {
-    const ids: string[] = [];
-    const tg = todayData?.todaysGame ?? initialData?.todaysGame;
-    if (tg?.id) ids.push(tg.id);
-    for (const d of previousDaysMerged) {
-      if (d.id === tg?.id) continue;
-      if (!d.date.startsWith(currentMonthKey)) continue;
-      if (ids.length >= HOME_EAGER_PREFETCH_MAX) break;
-      ids.push(d.id);
-    }
-    return ids;
-  }, [
-    todayData?.todaysGame,
-    initialData?.todaysGame,
-    previousDaysMerged,
-    currentMonthKey,
-  ]);
-
+  const userIdRef = useRef(cacheUserId);
   useEffect(() => {
-    const cache = queryClient.getQueryCache();
-    return cache.subscribe((event) => {
-      if (event.type !== "updated" || !event.query) return;
-      const key = event.query.queryKey;
-      if (
-        key[0] !== "home" ||
-        key[1] !== "previous-days" ||
-        key[2] !== "all" ||
-        key[3] !== homeSessionSegment(cacheUserId)
-      ) {
-        return;
-      }
-      const block = queryClient.getQueryData<HomePreviousDaysData>(
-        queryKeys.home.previousDaysAll(cacheUserId)
-      );
-      if (!block?.previousDays?.length) return;
-      setPreviousDaysMerged((prev) => mergePreviousDays(prev, block.previousDays));
-      if (block.inProgressByGameId) {
-        setInProgressByGameId((p) =>
-          mergeInProgressByGameId(p, block.inProgressByGameId)
-        );
-      }
-    });
-  }, [queryClient, cacheUserId]);
-
-  // Acumulación de los meses que van llegando. Se hace ajustando el estado durante
-  // el render en lugar de en un efecto: así los updaters quedan puros. Antes las
-  // escrituras en la caché de queries vivían dentro del updater, que React puede
-  // ejecutar más de una vez.
-  const [lastMergedSource, setLastMergedSource] = useState<
-    HomePreviousDaysData | undefined
-  >(undefined);
-  if (previousDaysData?.previousDays && previousDaysData !== lastMergedSource) {
-    setLastMergedSource(previousDaysData);
-    setInProgressByGameId((prev) =>
-      mergeInProgressByGameId(prev, previousDaysData.inProgressByGameId)
-    );
-    setPreviousDaysMerged((prev) =>
-      mergePreviousDays(prev, previousDaysData.previousDays)
-    );
-  }
-
-  // Reflejar el resultado ya acumulado en la caché de queries (sistema externo).
-  useEffect(() => {
-    if (!previousDaysData?.previousDays) return;
-    primeHomeDayStatusCache(
-      queryClient,
-      previousDaysData.previousDays,
-      inProgressByGameId
-    );
-    queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-      previousDays: previousDaysMerged,
-      userId: previousDaysData.userId ?? resolvedUserId ?? null,
-      month: previousDaysData.month,
-      nextMonth: previousDaysData.nextMonth ?? null,
-      hasMoreOlder: previousDaysData.hasMoreOlder,
-      inProgressByGameId,
-    } satisfies HomePreviousDaysData);
-  }, [
-    previousDaysData,
-    previousDaysMerged,
-    inProgressByGameId,
-    queryClient,
-    resolvedUserId,
-    cacheUserId,
-  ]);
-
-  useEffect(() => {
-    if (previousDaysData?.hasMoreOlder === false) return;
-    if (prefetchStartedRef.current) return;
-    const startMonth = previousDaysData?.nextMonth ?? null;
-    if (HOME_PREFETCH_STRATEGY === "sequential" && !startMonth) return;
-    prefetchStartedRef.current = true;
-
-    let cancelled = false;
-
-    /**
-     * Recorre el histórico mes a mes siguiendo `nextMonth`. Lo usan tanto la estrategia
-     * secuencial como el fallback de `full-parallel` cuando `/api/home/months` no responde.
-     */
-    const walkMonthsSequentially = async (from: string | null) => {
-      let monthCursor: string | null = from;
-      let count = 0;
-      while (
-        !cancelled &&
-        monthCursor &&
-        count < MAX_PREFETCH_HISTORY_MONTHS_SAFETY
-      ) {
-        // Fijar el cursor de esta iteración: monthCursor se reasigna al final del
-        // bucle, y capturarlo directamente en el closure de queryFn confunde al
-        // análisis del compilador (además de ser frágil).
-        const month: string = monthCursor;
-        try {
-          const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-            queryKey: queryKeys.home.previousDays(month, cacheUserId),
-            queryFn: () => fetchHomePreviousDaysData(month),
-            staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-            gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-          });
-          setInProgressByGameId((prevInProgress) => {
-            const mergedInProgress = mergeInProgressByGameId(
-              prevInProgress,
-              payload.inProgressByGameId
-            );
-            primeHomeDayStatusCache(
-              queryClient,
-              payload.previousDays ?? [],
-              mergedInProgress
-            );
-            return mergedInProgress;
-          });
-          setPreviousDaysMerged((prev) => {
-            const merged = mergePreviousDays(prev, payload.previousDays ?? []);
-            const previousAll =
-              queryClient.getQueryData<HomePreviousDaysData>(
-                queryKeys.home.previousDaysAll(cacheUserId)
-              );
-            queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-              previousDays: merged,
-              userId: previousAll?.userId ?? resolvedUserId ?? null,
-              nextMonth: payload.nextMonth ?? null,
-              hasMoreOlder: payload.hasMoreOlder ?? previousAll?.hasMoreOlder,
-              month: previousAll?.month,
-              inProgressByGameId: mergeInProgressByGameId(
-                previousAll?.inProgressByGameId ?? {},
-                payload.inProgressByGameId
-              ),
-            } satisfies HomePreviousDaysData);
-            return merged;
-          });
-          monthCursor = payload.nextMonth ?? null;
-        } catch (error) {
-          // Cortar aqui deja el historico incompleto sin que se note en la UI: el usuario ve
-          // menos meses de los que hay y no hay nada que lo delate. Por eso se loguea, al
-          // contrario que los catch de sessionStorage/clipboard, donde el fallo es inocuo.
-          console.error("[home] prefetch del historico interrumpido en", month, error);
-          break;
-        }
-        count += 1;
-      }
-    };
-
-    const run = async () => {
-      if (HOME_PREFETCH_STRATEGY === "sequential") {
-        await walkMonthsSequentially(startMonth);
-        return;
-      }
-
-      const monthsRes = await fetch("/api/home/months", { cache: "no-store" }).catch(
-        () => null
-      );
-      if (!monthsRes?.ok || cancelled) {
-        await walkMonthsSequentially(startMonth);
-        return;
-      }
-      const monthsPayload = (await monthsRes.json()) as { monthKeys?: string[] };
-      const monthKeys = (monthsPayload.monthKeys ?? []).filter(Boolean);
-      if (monthKeys.length === 0 || cancelled) return;
-
-      const monthResults: Array<{ monthKey: string; payload: HomePreviousDaysData }> = [];
-      await runBatched(monthKeys, async (monthKey) => {
-        const payload: HomePreviousDaysData = await queryClient.fetchQuery({
-          queryKey: queryKeys.home.previousDays(monthKey, cacheUserId),
-          queryFn: () => fetchHomePreviousDaysData(monthKey),
-          staleTime: HOME_PREVIOUS_DAYS_STALE_MS,
-          gcTime: HOME_PREVIOUS_DAYS_GC_MS,
-        });
-        monthResults.push({ monthKey, payload });
-      });
-      if (cancelled || monthResults.length === 0) return;
-
-      const allPreviousDays = monthResults.flatMap((entry) => entry.payload.previousDays ?? []);
-      const allInProgress = monthResults.reduce<Record<string, InProgressProgress>>(
-        (acc, entry) => mergeInProgressByGameId(acc, entry.payload.inProgressByGameId),
-        {}
-      );
-
-      setInProgressByGameId((prevInProgress) => {
-        const mergedInProgress = mergeInProgressByGameId(prevInProgress, allInProgress);
-        primeHomeDayStatusCache(queryClient, allPreviousDays, mergedInProgress);
-        setPreviousDaysMerged((prev) => {
-          const merged = mergePreviousDays(prev, allPreviousDays);
-          const previousAll =
-            queryClient.getQueryData<HomePreviousDaysData>(
-              queryKeys.home.previousDaysAll(cacheUserId)
-            );
-          queryClient.setQueryData(queryKeys.home.previousDaysAll(cacheUserId), {
-            previousDays: merged,
-            userId: previousAll?.userId ?? resolvedUserId ?? null,
-            month: previousAll?.month ?? currentMonthKey,
-            nextMonth: null,
-            hasMoreOlder: false,
-            inProgressByGameId: mergedInProgress,
-          } satisfies HomePreviousDaysData);
-          return merged;
-        });
-        return mergedInProgress;
-      });
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    previousDaysData?.nextMonth,
-    previousDaysData?.hasMoreOlder,
-    queryClient,
-    resolvedUserId,
-    cacheUserId,
-    currentMonthKey,
-    router,
-  ]);
-
-  useEffect(() => {
-    router.prefetch("/play");
-  }, [router]);
-
-  /** Prefetch secuencial del mes en curso: día actual primero, luego del más reciente al más antiguo. */
-  useEffect(() => {
-    if (!todayData || !previousDaysData || eagerPrefetchGameIds.length === 0) return;
-
-    let cancelled = false;
-    const run = async () => {
-      /**
-       * Aquí NO se hace `router.prefetch("/play/<id>")`. De eso se encarga
-       * `PrefetchPlayOnVisible` cuando la tarjeta entra en el viewport, más su hover y focus.
-       * Tenerlo en los dos sitios hacía que cada ruta se pidiera dos veces: 62 peticiones RSC
-       * para 31 rutas en una carga de la home, medido con Playwright.
-       *
-       * Y para el reto de hoy era inútil de todas formas: se juega en `/play`, sin id.
-       */
-      for (const gameId of eagerPrefetchGameIds) {
-        if (cancelled) break;
-        if (cacheUserId) {
-          if (!prefetchedProgressIdsRef.current.has(gameId)) {
-            prefetchedProgressIdsRef.current.add(gameId);
-            await prefetchGameProgressById(queryClient, gameId).catch(() => undefined);
-          }
-          await prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
-        } else {
-          await prefetchHomeDayStatusById(queryClient, gameId).catch(() => undefined);
-        }
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    todayData,
-    previousDaysData,
-    eagerPrefetchGameIds,
-    queryClient,
-    router,
-    cacheUserId,
-  ]);
-
+    userIdRef.current = cacheUserId;
+  });
   const prefetchedNextRef = useRef<HomeData | null>(null);
-  const hasPrefetchedRef = useRef(false);
+  const dayChangeRef = useRef<{ date: string; at: number; count: number } | null>(null);
 
-  const handleCountdownUnder10s = useCallback(() => {
-    if (hasPrefetchedRef.current) return;
-    hasPrefetchedRef.current = true;
-    const effectiveDate = getTomorrowMadridDate();
-    fetch(`/api/home?effectiveDate=${encodeURIComponent(effectiveDate)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload: HomeData | null) => {
-        if (payload) prefetchedNextRef.current = payload;
+  const syncGameDay = useCallback(() => {
+    const userId = userIdRef.current;
+    const target = getEffectiveGameDate();
+    const shown = cachedTodayDate(queryClient, userId);
+    if (!shown || shown >= target) return;
+
+    const now = Date.now();
+    const last = dayChangeRef.current;
+    if (
+      last?.date === target &&
+      (now - last.at < DAY_CHANGE_RETRY_MS || last.count >= DAY_CHANGE_MAX_ATTEMPTS)
+    ) {
+      return;
+    }
+    dayChangeRef.current = {
+      date: target,
+      at: now,
+      count: last?.date === target ? last.count + 1 : 1,
+    };
+
+    const apply = (payload: HomeData) => {
+      // Solo si es el día que toca y de esta sesión. Si el servidor aún no ha cambiado de día
+      // (reloj del cliente adelantado), no se aplica: antes se escribía igualmente como el día
+      // nuevo. Se reintenta en la siguiente comprobación.
+      if (payload.todaysGame && payload.todaysGame.date !== target) return;
+      if ((payload.userId ?? null) !== userIdRef.current) return;
+      adoptHomePayload(queryClient, payload, true);
+    };
+
+    const prefetched = prefetchedNextRef.current;
+    prefetchedNextRef.current = null;
+    if (prefetched?.todaysGame?.date === target) {
+      apply(prefetched);
+      return;
+    }
+    void fetchHomeData().then(apply).catch(() => undefined);
+  }, [queryClient]);
+
+  /** A menos de 10 s de la medianoche: el día siguiente, para cambiar sin esperar a la red. */
+  const prefetchNextDay = useCallback(() => {
+    const requested = getTomorrowMadridDate();
+    void fetchHomeData(requested)
+      .then((payload) => {
+        if (payload.todaysGame?.date === requested) prefetchedNextRef.current = payload;
       })
-      .catch(() => {});
+      .catch(() => undefined);
   }, []);
 
-  const handleCountdownZero = useCallback(() => {
-    if (prefetchedNextRef.current) {
-      const payload = prefetchedNextRef.current;
-      const monthKey = getMadridDate().slice(0, 7);
-      const uid = payload.userId;
-      queryClient.setQueryData(queryKeys.home.all(uid), payload);
-      queryClient.setQueryData(queryKeys.home.today(uid), {
-        todaysGame: payload.todaysGame,
-        todaysCompletedResult: payload.todaysCompletedResult ?? null,
-        todaysInProgress: payload.todaysGame
-          ? (payload.inProgressByGameId?.[payload.todaysGame.id] ?? null)
-          : null,
-        userId: payload.userId,
-      });
-      const prevBlock: HomePreviousDaysData = {
-        previousDays: payload.previousDays,
-        userId: payload.userId,
-        month: monthKey,
-        nextMonth: null,
-        hasMoreOlder: false,
-        inProgressByGameId: payload.inProgressByGameId,
-      };
-      queryClient.setQueryData(
-        queryKeys.home.previousDays(monthKey, uid),
-        prevBlock
-      );
-      queryClient.setQueryData(queryKeys.home.previousDaysAll(uid), prevBlock);
-      primeHomeDayStatusCache(
-        queryClient,
-        payload.previousDays,
-        payload.inProgressByGameId
-      );
-      setInProgressByGameId(payload.inProgressByGameId ?? {});
-      if (payload.userId) {
-        queryClient.setQueryData(queryKeys.home.userStats(payload.userId), {
-          userStats: payload.userStats,
-          rankingRanks: payload.rankingRanks,
-          rankingStats: payload.rankingStats,
-          userId: payload.userId,
-        });
-      }
-      prefetchedNextRef.current = null;
-      // No refetch: la respuesta podría ser del día anterior y sobrescribiría la UI correcta.
-    } else {
-      refetchToday();
-      refetchPreviousDays();
-    }
-  }, [queryClient, refetchToday, refetchPreviousDays]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncGameDay();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    // `resume`: la pestaña vuelve de estar congelada (Page Lifecycle), sin cambio de visibilidad.
+    document.addEventListener("resume", syncGameDay);
+    window.addEventListener("focus", syncGameDay);
+    window.addEventListener("pageshow", syncGameDay);
+    window.addEventListener("online", syncGameDay);
+    const interval = window.setInterval(syncGameDay, DAY_CHECK_INTERVAL_MS);
+    syncGameDay();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("resume", syncGameDay);
+      window.removeEventListener("focus", syncGameDay);
+      window.removeEventListener("pageshow", syncGameDay);
+      window.removeEventListener("online", syncGameDay);
+      window.clearInterval(interval);
+    };
+  }, [syncGameDay]);
+
+  /* --- Derivados ---------------------------------------------------------------------------- */
 
   const todaysGame = todayData?.todaysGame ?? null;
-  const userId = resolvedUserId;
-  const previousDays = previousDaysMerged;
-  const todaysCompletedResult = todaysCompletedResultEffective;
+  const userId = cacheUserId;
+  const previousDays = historyData?.previousDays ?? EMPTY_DAYS;
+  const inProgressByGameId = historyData?.inProgressByGameId ?? EMPTY_IN_PROGRESS;
+  const todaysCompletedResult = todayData?.todaysCompletedResult ?? null;
+  const todaysServerInProgress = todaysCompletedResult ? null : (todayData?.todaysInProgress ?? null);
   const rankingStats = homeUserStatsData?.rankingStats;
 
   const t = useTranslations("home");
+  const tMeta = useTranslations("meta");
   const locale = useLocale();
-  const { byGameId, saveProgress } = useGameProgressStore();
+  const byGameId = useGameProgressStore((s) => s.byGameId);
 
-  // Sincronizar progreso en curso del servidor al store (solo invitados; autenticados usan inProgressByGameId directamente)
-  useEffect(() => {
-    if (userId || !todaysServerInProgressEffective) return;
-    for (const prog of [todaysServerInProgressEffective]) {
-      const full: GameProgress = {
-        ...prog,
-        played: false,
-        won: false,
-        score: null,
-      };
-      saveProgress(full);
-    }
-  }, [userId, todaysServerInProgressEffective, saveProgress]);
-
-  // Hoy: servidor (inProgressByGameId) tiene prioridad para usuarios autenticados
+  // Hoy: con sesión manda el progreso del servidor; sin ella, el guardado en este dispositivo.
   const todaysLocalOrServer = todaysGame
-    ? (userId && todaysServerInProgressEffective
-        ? todaysServerInProgressEffective
+    ? (userId && todaysServerInProgress
+        ? todaysServerInProgress
         : byGameId[todaysGame.id])
     : undefined;
   const todaysProgress = todaysLocalOrServer as GameProgress | undefined;
-  const todaysCompleted =
-    (todaysProgress && (todaysProgress.phase === "won" || todaysProgress.phase === "lost")) || !!todaysCompletedResult;
+  const todaysCompleted = isTerminalProgress(todaysProgress) || !!todaysCompletedResult;
   const todaysDisplayCover = todaysCompleted
     ? (todaysCompletedResult?.cover_url ?? todaysProgress?.cover_url ?? todaysGame?.ecos_songs.cover_url ?? "")
     : "";
@@ -675,6 +359,19 @@ export function HomeClient({ initialData }: Props) {
   const todaysGuesses = todaysProgress?.guesses ?? [];
   const todaysWon = todaysCompletedResult?.won ?? todaysProgress?.phase === "won";
 
+  // Solo el reto de hoy, y solo si a la caché le faltan sus intentos (partida terminada que el RSC
+  // siembra como resumen). Antes se precargaban progreso y estado de cada día del mes en curso:
+  // hasta 62 peticiones en cada carga de la home con sesión (PDATA-05).
+  const todaysGameId = todaysGame?.id ?? null;
+  useEffect(() => {
+    if (!cacheUserId || !todaysGameId) return;
+    void prefetchGameProgressById(queryClient, todaysGameId).catch(() => undefined);
+  }, [cacheUserId, todaysGameId, queryClient]);
+
+  useEffect(() => {
+    router.prefetch("/play");
+  }, [router]);
+
   /**
    * Partidas terminadas (fecha + intento del acierto) para la distribución de «Tu progreso».
    * Sin las queries de estado por día: los puntos del histórico bastan para saber el intento.
@@ -693,9 +390,12 @@ export function HomeClient({ initialData }: Props) {
 
   const markPlayNavigationStart = useCallback((variant: PlaySkeletonVariant) => {
     if (typeof window === "undefined") return;
-    sessionStorage.setItem("ecos_play_nav_start_ms", String(performance.now()));
-    sessionStorage.setItem("ecos_play_from_home", "1");
-    sessionStorage.setItem(PLAY_SKELETON_VARIANT_KEY, variant);
+    try {
+      sessionStorage.setItem(PLAY_FROM_HOME_STORAGE_KEY, "1");
+      sessionStorage.setItem(PLAY_SKELETON_VARIANT_KEY, variant);
+    } catch {
+      /* ignore */
+    }
     try {
       window.dispatchEvent(new CustomEvent(PLAY_NAVIGATION_START_EVENT));
     } catch {
@@ -710,20 +410,11 @@ export function HomeClient({ initialData }: Props) {
   }, [markPlayNavigationStart, router, todaysCompleted]);
 
   const prefetchTodayPlay = useCallback(() => {
-    const tg = todayData?.todaysGame ?? initialData?.todaysGame;
-    if (!tg?.id) return;
     router.prefetch("/play");
-    if (cacheUserId) {
-      void prefetchGameProgressById(queryClient, tg.id).catch(() => undefined);
+    if (cacheUserId && todaysGameId) {
+      void prefetchGameProgressById(queryClient, todaysGameId).catch(() => undefined);
     }
-    void prefetchHomeDayStatusById(queryClient, tg.id).catch(() => undefined);
-  }, [
-    todayData?.todaysGame,
-    initialData?.todaysGame,
-    router,
-    queryClient,
-    cacheUserId,
-  ]);
+  }, [router, queryClient, cacheUserId, todaysGameId]);
 
   const handleShareHome = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -734,7 +425,7 @@ export function HomeClient({ initialData }: Props) {
       if (navigator.share) {
         await navigator.share({
           title: "ECOS",
-          text: "Adivina la canción del día - ECOS",
+          text: tMeta("ogDescription"),
           url,
         });
       } else {
@@ -752,15 +443,23 @@ export function HomeClient({ initialData }: Props) {
 
   // isPending = aún no hay datos en caché (no confundir con refetch en background).
   // Con initialData del RSC o datos en QueryClient al volver atrás, no debe mostrarse skeleton.
-  if (
-    (isTodayPending || isPreviousDaysPending) &&
-    !todayData &&
-    !previousDaysData
-  ) {
+  if ((isTodayPending || isHistoryPending) && !todayData && !historyData) {
     return <HomeSkeleton />;
   }
 
   const todayDate = todaysGame?.date ?? getEffectiveGameDate();
+  const todayDerived: DerivedHomeDayState = {
+    played: todaysCompleted,
+    won: todaysWon === true,
+    completed: todaysCompleted,
+    inProgress: todaysInProgress,
+    displayScore: todaysDisplayScore,
+    displayTitle: todaysDisplayTitle,
+    displayArtist: todaysDisplayArtist,
+    displayCover: todaysDisplayCover,
+    guesses: todaysGuesses,
+    maxAttempts: 6,
+  };
 
   return (
     <div className="flex min-h-full min-w-0 flex-col gap-[26px] px-4 pb-6">
@@ -786,8 +485,8 @@ export function HomeClient({ initialData }: Props) {
         <div className="flex justify-center">
           <Countdown
             t={t}
-            onCountdownUnder10s={handleCountdownUnder10s}
-            onCountdownZero={handleCountdownZero}
+            onCountdownUnder10s={prefetchNextDay}
+            onCountdownZero={syncGameDay}
           />
         </div>
       </div>
@@ -816,12 +515,7 @@ export function HomeClient({ initialData }: Props) {
         onNavigateToGame={markPlayNavigationStart}
         today={
           todaysGame
-            ? {
-                date: todaysGame.date,
-                completed: todaysCompleted,
-                won: todaysWon === true,
-                inProgress: todaysInProgress,
-              }
+            ? { date: todaysGame.date, gameNumber: todaysGame.game_number, derived: todayDerived }
             : null
         }
         onPlayToday={navigateToPlayToday}
