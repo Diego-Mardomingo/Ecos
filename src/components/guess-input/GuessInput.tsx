@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSearchSongs } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
+import { coverThumbnailUrl } from "./coverThumbnail";
 
 export type { EcosSong } from "@/lib/hooks/queries";
 
@@ -58,7 +59,13 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   const listboxId = `${baseId}-listbox`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
 
-  const { data: results = [], isLoading } = useSearchSongs(debouncedQuery);
+  const {
+    data: results = [],
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useSearchSongs(debouncedQuery);
 
   const isGuessed = useCallback(
     (song: Song) => {
@@ -246,6 +253,16 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
   }, []);
 
   const isExpanded = open && results.length > 0;
+  /**
+   * Sin resultados o con la búsqueda caída, antes solo lo decía el texto para lectores de
+   * pantalla y en pantalla no se veía nada: no se sabía si cargaba, si había fallado o si la
+   * canción no estaba (UX-03, UX-04). Ahora sale una fila debajo del campo, con el mismo estilo
+   * que la lista.
+   */
+  const searchSettled = open && debouncedQuery !== "" && !isFetching;
+  const showSearchError = searchSettled && isError;
+  const showNoResults = searchSettled && !isError && results.length === 0;
+  const isPanelOpen = isExpanded || showSearchError || showNoResults;
   const showClearButton =
     !disabled && query.trim().length > CLEAR_BUTTON_MIN_CHARS;
 
@@ -280,6 +297,12 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             isExpanded && activeIndex >= 0 ? optionId(activeIndex) : undefined
           }
           autoComplete="off"
+          // Que el teclado del móvil no corrija ni ponga mayúsculas a los nombres de artista
+          // («Bzrp», «Rels B») mientras se escriben (UX-14).
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          enterKeyHint="search"
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -293,7 +316,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
             "focus:border-brand/60 focus:shadow-[0_0_0_4px_color-mix(in_srgb,var(--brand)_14%,transparent),0_10px_30px_-12px_color-mix(in_srgb,var(--brand)_45%,transparent)] focus:ring-0",
             // Con la lista desplegada los dos forman una sola pieza, así que el campo pierde el
             // redondeo de abajo y la lista el de arriba.
-            isExpanded && "rounded-b-none",
+            isPanelOpen && "rounded-b-none",
             disabled && "cursor-not-allowed opacity-50"
           )}
         />
@@ -327,9 +350,11 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
       <p aria-live="polite" role="status" className="sr-only">
         {isExpanded
           ? t("searchResultsCount", { count: results.length })
-          : debouncedQuery && !isLoading
-            ? t("searchNoResults")
-            : ""}
+          : showSearchError
+            ? t("searchError")
+            : debouncedQuery && !isLoading
+              ? t("searchNoResults")
+              : ""}
       </p>
 
       <AnimatePresence>
@@ -392,7 +417,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
                   <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm">
                     {song.cover_url ? (
                       <Image
-                        src={song.cover_url}
+                        src={coverThumbnailUrl(song.cover_url)}
                         alt=""
                         fill
                         className="object-cover"
@@ -424,6 +449,31 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
           </motion.ul>
         )}
       </AnimatePresence>
+
+      {(showSearchError || showNoResults) && (
+        <div className="absolute top-full z-50 w-full rounded-b-2xl border border-t-0 border-brand/60 bg-card px-4 py-3 text-left shadow-2xl shadow-black/25"
+        >
+          {showSearchError ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-destructive">{t("searchError")}</p>
+              <button
+                type="button"
+                // Mismo motivo que en las opciones: que el campo no pierda el foco.
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => void refetch()}
+                className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/10 active:bg-brand/15"
+              >
+                {t("searchRetry")}
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm font-medium">{t("searchNoResults")}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("searchNoResultsHint")}</p>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
