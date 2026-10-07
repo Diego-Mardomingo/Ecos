@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { localizedPath } from "@/lib/i18n/localizedPath";
@@ -15,10 +15,14 @@ import { avatarInitials } from "@/lib/display-name";
 import { resizeAvatar } from "@/lib/resize-avatar";
 import { USERNAME_MAX_LENGTH, USERNAME_REGEX } from "@/lib/username";
 
-const rise: Variants = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
-};
+/**
+ * Entradas en CSS y no en framer-motion: con framer, el HTML del servidor llegaba con todo el
+ * contenido a `opacity:0` y no se veía hasta hidratar (PERF-04). Cada bloque sube después del
+ * anterior, como hacía el `staggerChildren`. `prefers-reduced-motion` las anula desde `globals.css`.
+ */
+const RISE =
+  "animate-in fade-in slide-in-from-bottom-[14px] animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards";
+const riseDelay = (step: number) => ({ animationDelay: `${step * 70}ms` });
 
 interface Profile {
   id: string;
@@ -123,16 +127,11 @@ export function EditProfileClient({ profile }: Props) {
     <div className="flex min-h-full flex-col px-4 pb-28">
       <PageHeader title={t("title")} backHref="/profile" backLabel={tc("back")} />
 
-      <motion.div
-        initial="hidden"
-        animate="show"
-        variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}
-        className="flex flex-col gap-5 pt-2"
-      >
+      <div className="flex flex-col gap-5 pt-2">
         {/* Foto */}
-        <motion.section
-          variants={rise}
-          className="relative isolate flex flex-col items-center overflow-hidden rounded-[28px] border border-border bg-card px-5 py-6"
+        <section
+          className={cn(RISE, "relative isolate flex flex-col items-center overflow-hidden rounded-[28px] border border-border bg-card px-5 py-6")}
+          style={riseDelay(0)}
         >
           <div aria-hidden className="absolute inset-x-0 top-0 -z-10 h-24 overflow-hidden">
             <div className="ecos-drift-a absolute -left-10 -top-16 size-44 rounded-full bg-brand/20 blur-3xl" />
@@ -190,10 +189,10 @@ export function EditProfileClient({ profile }: Props) {
           >
             {t("changeAvatar")}
           </button>
-        </motion.section>
+        </section>
 
         {/* Nombre de usuario */}
-        <motion.section variants={rise} className="rounded-3xl border border-border bg-card p-4">
+        <section className={cn(RISE, "rounded-3xl border border-border bg-card p-4")} style={riseDelay(1)}>
           <label htmlFor={usernameId} className="mb-2 block text-sm font-semibold">
             {t("username")}
           </label>
@@ -213,7 +212,9 @@ export function EditProfileClient({ profile }: Props) {
               aria-invalid={error ? true : undefined}
               className="h-12 w-full rounded-2xl border border-border bg-background pl-11 pr-11 text-base outline-none transition-[border-color,box-shadow] focus:border-brand/60 focus:shadow-[0_0_0_4px_color-mix(in_srgb,var(--brand)_14%,transparent)]"
             />
-            <AnimatePresence>
+            {/* `initial={false}`: con el nombre guardado ya es válido al cargar, y la entrada lo
+                dejaba a escala 0 en el HTML del servidor. Sigue animando al cambiar. */}
+            <AnimatePresence initial={false}>
               {looksValid && (
                 <motion.span
                   initial={{ scale: 0, opacity: 0 }}
@@ -233,10 +234,10 @@ export function EditProfileClient({ profile }: Props) {
             <span>{t("usernameInvalid")}</span>
             <span className="shrink-0 tabular-nums">{username.length}/50</span>
           </div>
-        </motion.section>
+        </section>
 
         {/* Visibilidad de la foto */}
-        <motion.section variants={rise} className="flex items-start gap-4 rounded-3xl border border-border bg-card p-4">
+        <section className={cn(RISE, "flex items-start gap-4 rounded-3xl border border-border bg-card p-4")} style={riseDelay(2)}>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold leading-snug">{t("rankingsAvatarVisibility")}</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("rankingsAvatarVisibilityHelp")}</p>
@@ -247,7 +248,7 @@ export function EditProfileClient({ profile }: Props) {
             onCheckedChange={setShowAvatarInRankings}
             className="mt-0.5"
           />
-        </motion.section>
+        </section>
 
         <AnimatePresence>
           {error && (
@@ -265,12 +266,15 @@ export function EditProfileClient({ profile }: Props) {
         </AnimatePresence>
 
         <motion.button
-          variants={rise}
           type="button"
           onClick={handleSave}
           disabled={updateProfile.isPending || uploading}
           whileTap={{ scale: 0.97 }}
-          className="ecos-shimmer flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand text-[15px] font-bold text-primary-foreground shadow-[0_14px_36px_-14px_var(--brand)] disabled:opacity-60"
+          className={cn(
+            RISE,
+            "ecos-shimmer flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand text-[15px] font-bold text-primary-foreground shadow-[0_14px_36px_-14px_var(--brand)] disabled:opacity-60"
+          )}
+          style={riseDelay(3)}
         >
           {updateProfile.isPending ? (
             <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -279,7 +283,7 @@ export function EditProfileClient({ profile }: Props) {
           )}
           {updateProfile.isPending ? t("saving") : t("save")}
         </motion.button>
-      </motion.div>
+      </div>
     </div>
   );
 }

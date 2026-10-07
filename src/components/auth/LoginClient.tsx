@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import Script from "next/script";
 import { useTranslations } from "next-intl";
-import { motion, type Variants } from "framer-motion";
+import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Link } from "@/i18n/navigation";
@@ -15,10 +15,14 @@ import {
 } from "@/lib/auth/safeRedirectPath";
 import { WaveformBars } from "@/components/home/HomeWaveform";
 
-const rise: Variants = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
-};
+/**
+ * Entradas en CSS y no en framer-motion: con framer, el HTML del servidor llegaba con todo el
+ * contenido a `opacity:0` y no se veía hasta hidratar (PERF-04). Cada bloque sube después del
+ * anterior, como hacía el `staggerChildren`. `prefers-reduced-motion` las anula desde `globals.css`.
+ */
+const RISE =
+  "animate-in fade-in slide-in-from-bottom-[14px] animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards";
+const riseDelay = (step: number) => ({ animationDelay: `${100 + step * 80}ms` });
 
 /** Los tres puntos que resumen el juego bajo el título. */
 const FEATURES = [
@@ -159,52 +163,39 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
         </button>
       </div>
 
-      <motion.div
-        initial="hidden"
-        animate="show"
-        variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } }}
-        className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center"
-      >
-        <motion.div
-          variants={{
-            hidden: { scale: 0.5, opacity: 0, rotate: -15 },
-            show: { scale: 1, opacity: 1, rotate: 0, transition: { type: "spring", stiffness: 280, damping: 16 } },
-          }}
-          className="relative mb-6 size-20"
+      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center">
+        <div
+          className="relative mb-6 size-20 animate-in fade-in zoom-in-50 -spin-in-15 animation-duration-600 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)] fill-mode-backwards"
+          style={riseDelay(0)}
         >
           <span aria-hidden className="ecos-ping absolute inset-0 rounded-[26px] bg-brand/25 [animation-duration:2.8s]" />
           <span className="relative flex size-full items-center justify-center overflow-hidden rounded-[26px] bg-brand/15 shadow-[0_16px_40px_-14px_var(--brand)] ring-1 ring-brand/30">
             <Image src="/ecos_icon_v2_192.png" alt="ECOS" width={80} height={80} className="object-contain" priority />
           </span>
-        </motion.div>
+        </div>
 
-        <motion.h1 variants={rise} className="text-[34px] font-bold leading-[1.1] tracking-tight">
+        <h1 className={cn(RISE, "text-[34px] font-bold leading-[1.1] tracking-tight")} style={riseDelay(1)}>
           {t("welcome")}
-        </motion.h1>
-        <motion.p variants={rise} className="mt-3 text-base leading-relaxed text-muted-foreground">
+        </h1>
+        <p className={cn(RISE, "mt-3 text-base leading-relaxed text-muted-foreground")} style={riseDelay(2)}>
           {t("subtitle")}
-        </motion.p>
+        </p>
 
         <ul className="mt-8 space-y-3">
-          {FEATURES.map((feature) => (
-            <motion.li key={feature.key} variants={rise} className="flex items-center gap-3">
+          {FEATURES.map((feature, i) => (
+            <li key={feature.key} className={cn(RISE, "flex items-center gap-3")} style={riseDelay(3 + i)}>
               <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-2xl", feature.iconClass)}>
                 <span aria-hidden className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
                   {feature.icon}
                 </span>
               </span>
               <span className="text-sm font-medium">{t(feature.key)}</span>
-            </motion.li>
+            </li>
           ))}
         </ul>
-      </motion.div>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.45, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="mx-auto w-full max-w-sm space-y-3 pt-8"
-      >
+      <div className="mx-auto w-full max-w-sm animate-in space-y-3 pt-8 fade-in slide-in-from-bottom-6 animation-duration-500 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] [--tw-animation-delay:450ms] fill-mode-backwards">
         {/* Botón Google (fallback cuando One Tap no se muestra) */}
         <motion.button
           onClick={handleGoogleSignIn}
@@ -227,7 +218,7 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
         >
           {t("continueAsGuest")}
         </Link>
-      </motion.div>
+      </div>
     </div>
   );
 }

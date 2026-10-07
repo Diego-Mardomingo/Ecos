@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import Image from "next/image";
-import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -10,10 +10,14 @@ import { useUpdateProfileMutation } from "@/lib/hooks/queries";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 import { getSafeRedirectTarget } from "@/lib/auth/safeRedirectPath";
 
-const rise: Variants = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
-};
+/**
+ * Entradas en CSS y no en framer-motion: con framer, el HTML del servidor llegaba con todo el
+ * contenido a `opacity:0` y no se veía hasta hidratar (PERF-04). Cada bloque sube después del
+ * anterior, como hacía el `staggerChildren`. `prefers-reduced-motion` las anula desde `globals.css`.
+ */
+const RISE =
+  "animate-in fade-in slide-in-from-bottom-[14px] animation-duration-450 [--tw-ease:cubic-bezier(0.22,1,0.36,1)] fill-mode-backwards";
+const riseDelay = (step: number) => ({ animationDelay: `${step * 80}ms` });
 
 // Permite letras, números, _, espacios y emojis (3-50 caracteres)
 const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
@@ -71,29 +75,18 @@ export function CompleteProfileClient() {
         <div className="ecos-drift-b absolute -right-24 bottom-24 size-64 rounded-full bg-sky-400/15 blur-3xl" />
       </div>
 
-      <motion.div
-        initial="hidden"
-        animate="show"
-        variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08 } } }}
-        className="w-full max-w-sm text-center"
-      >
-        <motion.div
-          variants={{
-            hidden: { scale: 0.6, opacity: 0, rotate: -12 },
-            show: { scale: 1, opacity: 1, rotate: 0, transition: { type: "spring", stiffness: 300, damping: 18 } },
-          }}
-          className="mx-auto mb-6 flex size-20 items-center justify-center overflow-hidden rounded-3xl bg-brand/15 ring-1 ring-brand/30"
-        >
+      <div className="w-full max-w-sm text-center">
+        <div className="mx-auto mb-6 flex size-20 animate-in items-center justify-center overflow-hidden rounded-3xl bg-brand/15 ring-1 ring-brand/30 fade-in zoom-in-60 -spin-in-12 animation-duration-600 [--tw-ease:cubic-bezier(0.34,1.56,0.64,1)]">
           <Image src="/ecos_icon_v2_192.png" alt="" width={80} height={80} className="object-contain" />
-        </motion.div>
-        <motion.h1 variants={rise} className="text-[28px] font-bold leading-tight tracking-tight">
+        </div>
+        <h1 className={`${RISE} text-[28px] font-bold leading-tight tracking-tight`} style={riseDelay(1)}>
           {t("title")}
-        </motion.h1>
-        <motion.p variants={rise} className="mt-2 text-sm text-muted-foreground">
+        </h1>
+        <p className={`${RISE} mt-2 text-sm text-muted-foreground`} style={riseDelay(2)}>
           {t("subtitle")}
-        </motion.p>
+        </p>
 
-        <motion.form variants={rise} onSubmit={handleSubmit} className="mt-8 space-y-3 text-left">
+        <form onSubmit={handleSubmit} className={`${RISE} mt-8 space-y-3 text-left`} style={riseDelay(3)}>
           <label htmlFor={inputId} className="sr-only">
             {t("username")}
           </label>
@@ -160,8 +153,8 @@ export function CompleteProfileClient() {
               <span aria-hidden className="material-symbols-outlined text-xl">arrow_forward</span>
             )}
           </motion.button>
-        </motion.form>
-      </motion.div>
+        </form>
+      </div>
     </div>
   );
 }
