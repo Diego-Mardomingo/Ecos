@@ -83,6 +83,16 @@ export interface GameCacheSnapshot {
   dayStatus: HomeDayStatusData | undefined;
   today: HomeTodayData | undefined;
   progress: GameProgressData | undefined;
+  /**
+   * Del histórico de la home (`home.previousDaysAll`), solo lo que toca el cambio optimista: la
+   * fila del día y su partida a medias. `undefined` si el histórico no estaba en caché.
+   */
+  historyEntry:
+    | {
+        day: PreviousDayGame | undefined;
+        inProgress: InProgressProgress | undefined;
+      }
+    | undefined;
 }
 
 export type GameMutationEvent = "attemptSaved" | "gameCompleted";
