@@ -1,7 +1,16 @@
+import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTodaysGameCached } from "@/lib/queries/games";
 import { GameClient } from "@/components/game/GameClient";
+
+/**
+ * Sin indexar: el HTML lleva la canción de hoy completa (el invitado compara en local). Igual que
+ * `/play/[gameId]`; no va en robots.txt para que el bot llegue a leer el `noindex`.
+ */
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function PlayPage() {
   const supabase = await createClient();
