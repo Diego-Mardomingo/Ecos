@@ -1,36 +1,19 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
-import { getMadridDate } from "@/lib/date-utils";
+import { getPastMonthKeys } from "@/lib/queries/games";
+import { getEffectiveGameDate, getSecondsUntilNextMidnightMadrid } from "@/lib/date-utils";
+import { handleRoute, publicCacheHeaders } from "@/lib/api/route";
 
-export async function GET() {
-  try {
-    const effectiveDate = getMadridDate();
-    const currentMonthKey = effectiveDate.slice(0, 7);
-    const supabase = createServiceClient();
+/**
+ * Meses con juegos (más el actual), del más reciente al más antiguo. Igual para todos y solo
+ * cambia con el día: va a la CDN hasta la medianoche de Madrid. No lee cookies (el calendario sale
+ * de la caché de servidor, con service role), así que la respuesta no puede llevar `Set-Cookie`.
+ */
+export const GET = handleRoute("api/home/months", async () => {
+  const today = getEffectiveGameDate();
+  const monthKeys = new Set<string>([today.slice(0, 7), ...(await getPastMonthKeys(today))]);
 
-    const { data, error } = await supabase
-      .from("ecos_games")
-      .select("date")
-      .lt("date", effectiveDate)
-      .order("date", { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
-    const monthSet = new Set<string>([currentMonthKey]);
-    for (const row of data ?? []) {
-      if (!row.date) continue;
-      monthSet.add(String(row.date).slice(0, 7));
-    }
-
-    const monthKeys = [...monthSet].sort((a, b) => b.localeCompare(a));
-    return NextResponse.json({ monthKeys });
-  } catch (err) {
-    console.error("api/home/months error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
+  return NextResponse.json(
+    { monthKeys: [...monthKeys].sort((a, b) => b.localeCompare(a)) },
+    { headers: publicCacheHeaders(getSecondsUntilNextMidnightMadrid()) }
+  );
+});

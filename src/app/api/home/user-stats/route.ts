@@ -1,35 +1,30 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getUserDashboardStats } from "@/lib/queries/users";
+import { getRequestUser, handleRoute, PRIVATE_NO_STORE } from "@/lib/api/route";
 
-export async function GET() {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+export const GET = handleRoute("api/home/user-stats", async () => {
+  const { supabase, user } = await getRequestUser();
 
-    if (!user) {
-      return NextResponse.json({
+  if (!user) {
+    return NextResponse.json(
+      {
         userStats: null,
         rankingRanks: undefined,
         rankingStats: undefined,
         userId: null,
-      });
-    }
+      },
+      { headers: PRIVATE_NO_STORE }
+    );
+  }
 
-    const dashboard = await getUserDashboardStats(user.id);
-    return NextResponse.json({
+  const dashboard = await getUserDashboardStats(user.id, supabase);
+  return NextResponse.json(
+    {
       userStats: dashboard.userStats,
       rankingRanks: dashboard.rankingRanks,
       rankingStats: dashboard.rankingStats,
       userId: user.id,
-    });
-  } catch (err) {
-    console.error("api/home/user-stats error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
+    },
+    { headers: PRIVATE_NO_STORE }
+  );
+});
