@@ -1,46 +1,48 @@
 #!/usr/bin/env python3
 """
-Notificacion diaria de Web Push: avisa a los usuarios que aun NO han
-completado el reto del dia.
+Notificacion diaria de Web Push: avisa a los usuarios que aun NO han completado el reto del dia.
 
-Corre a las 15:00 UTC (via GitHub Actions cron). "Completado" = existe fila
-en `ecos_scores` para (user_id, game_id de hoy).
-Los usuarios in-progress (sin score aun) SI reciben la notificacion.
+"Completado" = existe fila en `ecos_scores` para (user_id, game_id de hoy). Los usuarios
+in-progress (sin score aun) SI reciben la notificacion.
+
+Cuándo corre: el cron de send-daily-notifications.yml es `23 11 * * *` UTC (12:23 en invierno,
+13:23 en verano, hora de Madrid), pero los crons de GitHub Actions se retrasan entre 2 y 7 h
+(medido: mediana +2 h, p90 +4,8 h, máximo +6,8 h). Con esa hora la notificación llega, en la
+práctica, entre las ~14:00 y las ~20:00 de Madrid. El texto dice «estás a tiempo», así que una
+notificación a las 23:47 (que fue lo que pasaba con el cron de las 15:00 UTC) es peor que ninguna:
+el script no envía fuera de la ventana [WINDOW_START, WINDOW_END) de Madrid, y lo deja
+registrado como `partial` para que se vea. El TTL llega hasta medianoche de Madrid como mucho:
+una notificación retenida por un móvil apagado no se entrega ya con el juego cambiado.
+
+Uso:
+  python scripts/send-daily-notifications.py                   # envío real (con ventana horaria)
+  python scripts/send-daily-notifications.py --sin-ventana     # envía a cualquier hora
+                                                               # (lo usa el lanzamiento manual)
+  python scripts/send-daily-notifications.py --dry-run         # no envía ni escribe nada
+  python scripts/send-daily-notifications.py --dry-run --ahora 2026-10-07T23:47
 
 Requiere: pip install -r scripts/requirements-notifications.txt
 """
 from __future__ import annotations
 
+import argparse
 import json
-import logging
-import os
 import sys
-from datetime import datetime
-from pathlib import Path
-from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta, timezone
+from typing import Any
 
-_env = Path(__file__).resolve().parent.parent / ".env.local"
-if _env.exists():
-    for line in _env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, _, v = line.partition("=")
-            if k.strip():
-                os.environ[k.strip()] = v.strip().strip('"').strip("'")
-
-try:
-    from supabase import create_client, Client
-except ImportError:
-    print("Instala dependencias: pip install -r scripts/requirements-notifications.txt")
-    sys.exit(1)
-
-try:
-    from pywebpush import webpush, WebPushException
-except ImportError:
-    print("Instala dependencias: pip install -r scripts/requirements-notifications.txt")
-    sys.exit(1)
-
-MADRID = ZoneInfo("Europe/Madrid")
+from common import (
+    JOB_DAILY_NOTIFICATIONS,
+    MADRID,
+    get_supabase,
+    gh_annotation,
+    load_env,
+    log_job,
+    now_ms,
+    require_env,
+    setup_logging,
+)
+from db_paging import fetch_all
 
 # El emoji va en título; el campo `icon` del sistema sigue siendo una URL (ver service worker).
 NOTIFICATION_TITLE = "\U0001f3a7 Tu reto ECOS de hoy"  # 🎧
@@ -50,96 +52,148 @@ NOTIFICATION_BODY = (
 NOTIFICATION_URL = "/play"
 NOTIFICATION_TAG = "ecos-daily-game"
 
+# Ventana de envío, hora de Madrid. Fuera de ella no se manda (ver el docstring).
+WINDOW_START = time(12, 0)
+WINDOW_END = time(21, 0)
+# Tiempo máximo que el servicio push retiene el aviso si el dispositivo no está disponible.
+MAX_TTL_S = 12 * 60 * 60
+MIN_TTL_S = 60
 
-def setup_logging() -> logging.Logger:
-    log = logging.getLogger("daily-notifications")
-    log.setLevel(logging.INFO)
-    h = logging.StreamHandler(sys.stdout)
-    h.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+
+def seconds_until_midnight_madrid(now: datetime) -> int:
+    """
+    Segundos hasta la próxima medianoche de Madrid. Se resta en UTC: restar dos datetimes con la
+    misma zona horaria ignora el cambio de horario y se equivoca una hora los dos días del año
+    en que cambia.
+    """
+    midnight = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=MADRID)
+    return int((midnight.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds())
+
+
+def ttl_seconds(now: datetime) -> int:
+    return max(MIN_TTL_S, min(MAX_TTL_S, seconds_until_midnight_madrid(now)))
+
+
+def in_window(now: datetime) -> bool:
+    return WINDOW_START <= now.timetz().replace(tzinfo=None) < WINDOW_END
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Envía el aviso diario a quien aún no ha jugado hoy.")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="simulación: lee la base de datos y cuenta, pero no envía nada ni escribe nada",
     )
-    log.addHandler(h)
-    return log
+    p.add_argument(
+        "--sin-ventana",
+        action="store_true",
+        help=f"enviar aunque no sea entre las {WINDOW_START:%H:%M} y las {WINDOW_END:%H:%M} de Madrid",
+    )
+    p.add_argument(
+        "--ahora",
+        metavar="AAAA-MM-DDTHH:MM",
+        help="(solo con --dry-run) simula que ahora es esta hora de Madrid",
+    )
+    args = p.parse_args()
+    if args.ahora and not args.dry_run:
+        p.error("--ahora solo se admite con --dry-run")
+    return args
 
 
 def main() -> None:
-    log = setup_logging()
-    start_ms = int(datetime.now().timestamp() * 1000)
+    args = parse_args()
+    load_env()
+    log = setup_logging("daily-notifications")
+    start_ms = now_ms()
+    dry_run: bool = args.dry_run
 
-    now_madrid = datetime.now(MADRID)
+    now_madrid = (
+        datetime.fromisoformat(args.ahora).replace(tzinfo=MADRID) if args.ahora else datetime.now(MADRID)
+    )
     log.info("Ejecutando a las %s hora Madrid", now_madrid.strftime("%H:%M"))
+    if dry_run:
+        log.info("SIMULACIÓN: no se envía ni se escribe nada")
 
-    url_env = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    key_env = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    vapid_private = os.environ.get("VAPID_PRIVATE_KEY")
-    vapid_subject = os.environ.get("VAPID_SUBJECT")
-
-    missing = [
-        name
-        for name, value in [
-            ("NEXT_PUBLIC_SUPABASE_URL", url_env),
-            ("SUPABASE_SERVICE_ROLE_KEY", key_env),
-            ("VAPID_PRIVATE_KEY", vapid_private),
-            ("VAPID_SUBJECT", vapid_subject),
-        ]
-        if not value
-    ]
-    if missing:
-        log.error("Variables de entorno requeridas faltantes: %s", ", ".join(missing))
-        sys.exit(1)
-
-    assert url_env and key_env and vapid_private and vapid_subject
-    supabase: Client = create_client(url_env, key_env)
-
+    vapid_private = vapid_subject = ""
+    if not dry_run:
+        env = require_env(log, "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT")
+        vapid_private, vapid_subject = env["VAPID_PRIVATE_KEY"], env["VAPID_SUBJECT"]
+        try:
+            from pywebpush import WebPushException, webpush
+        except ImportError:
+            log.error("Falta pywebpush: pip install -r scripts/requirements-notifications.txt")
+            sys.exit(1)
+    supabase = get_supabase(log, read_only=dry_run)
     today = now_madrid.date().isoformat()
 
-    r_game = (
-        supabase.table("ecos_games")
-        .select("id")
-        .eq("date", today)
-        .maybe_single()
-        .execute()
-    )
-    game = r_game.data
-    if not game:
-        msg = f"No hay juego para {today}, no se envia nada"
-        log.info(msg)
-        _log_run(supabase, start_ms, "success", msg, {"target_date": today, "skipped": True})
+    def record(status: str, summary: str, details: dict[str, Any], errors: list[str] | None = None) -> None:
+        if dry_run:
+            log.info("[simulación] registro %s: %s %s", status, summary, details)
+            return
+        # Si el registro falla, log_job ya lo ha dicho en el log y como anotación. El run se pone
+        # en rojo igualmente: los avisos ya se enviaron, así que no hay que relanzarlo.
+        if not log_job(
+            supabase, JOB_DAILY_NOTIFICATIONS, status, summary,
+            start_ms=start_ms, details=details, errors=errors, log=log,
+        ):
+            log.error("La ejecución terminó, pero no quedó registrada. No relanzar: ya se ha enviado.")
+            sys.exit(1)
+
+    if not args.sin_ventana and not in_window(now_madrid):
+        msg = (
+            f"Omitida: son las {now_madrid:%H:%M} en Madrid, fuera de la ventana "
+            f"{WINDOW_START:%H:%M}-{WINDOW_END:%H:%M} (casi siempre, un cron de Actions con retraso)"
+        )
+        log.warning(msg)
+        gh_annotation("warning", msg)
+        record("partial", msg, {"target_date": today, "skipped": "outside_window", "madrid_time": f"{now_madrid:%H:%M}"})
         return
 
-    game_id = game["id"]
+    r_game = supabase.table("ecos_games").select("id").eq("date", today).limit(1).execute()
+    games = r_game.data or []
+    if not games:
+        msg = f"No hay juego para {today}, no se envia nada"
+        log.warning(msg)
+        gh_annotation("warning", msg)
+        record("partial", msg, {"target_date": today, "skipped": "no_game"})
+        return
+    game_id = games[0]["id"]
 
-    r_completed = (
-        supabase.table("ecos_scores")
-        .select("user_id")
-        .eq("game_id", game_id)
-        .execute()
+    completed_rows = fetch_all(
+        lambda: supabase.table("ecos_scores").select("user_id", count="exact").eq("game_id", game_id)
     )
-    completed_user_ids = {row["user_id"] for row in (r_completed.data or [])}
+    completed_user_ids = {row["user_id"] for row in completed_rows}
     log.info("Usuarios que ya completaron hoy: %d", len(completed_user_ids))
 
-    r_subs = (
-        supabase.table("ecos_push_subscriptions")
-        .select("id, user_id, subscription, endpoint")
+    all_subs = fetch_all(
+        lambda: supabase.table("ecos_push_subscriptions")
+        .select("id, user_id, subscription, endpoint", count="exact")
         .eq("enabled", True)
         .eq("notification_daily_game", True)
-        .execute()
     )
-    all_subs = r_subs.data or []
     pending_subs = [s for s in all_subs if s["user_id"] not in completed_user_ids]
     log.info(
-        "Suscripciones totales activas: %d, pendientes de jugar: %d",
-        len(all_subs),
-        len(pending_subs),
+        "Suscripciones totales activas: %d, pendientes de jugar: %d", len(all_subs), len(pending_subs)
     )
 
     if not pending_subs:
-        _log_run(
-            supabase,
-            start_ms,
+        record(
             "success",
             f"Sin destinatarios para {today}",
             {"target_date": today, "total_subscriptions": len(all_subs)},
+        )
+        return
+
+    ttl = ttl_seconds(now_madrid)
+    log.info("TTL de los avisos: %d min (hasta medianoche de Madrid como mucho)", ttl // 60)
+
+    if dry_run:
+        log.info("[simulación] se enviarían %d notificaciones", len(pending_subs))
+        record(
+            "success",
+            f"Simulación {today}: {len(pending_subs)} destinatarios",
+            {"target_date": today, "pending": len(pending_subs), "ttl_seconds": ttl},
         )
         return
 
@@ -168,7 +222,7 @@ def main() -> None:
                 data=payload,
                 vapid_private_key=vapid_private,
                 vapid_claims={"sub": vapid_subject},
-                ttl=12 * 60 * 60,
+                ttl=ttl,
                 timeout=10,
             )
             sent += 1
@@ -195,12 +249,11 @@ def main() -> None:
         f"errores={len(errors)} totales={len(pending_subs)}"
     )
     log.info(summary)
+    if errors:
+        gh_annotation("warning", f"{len(errors)} errores al enviar notificaciones (detalle en ecos_system_logs)")
 
-    status = "success" if not errors else "partial"
-    _log_run(
-        supabase,
-        start_ms,
-        status,
+    record(
+        "success" if not errors else "partial",
         summary,
         {
             "target_date": today,
@@ -210,8 +263,10 @@ def main() -> None:
             "total_subscriptions": len(all_subs),
             "pending": len(pending_subs),
             "completed": len(completed_user_ids),
+            "ttl_seconds": ttl,
+            "madrid_time": f"{now_madrid:%H:%M}",
         },
-        errors=errors,
+        errors,
     )
 
     # Si había destinatarios y NO se envió ni una sola notificación (p. ej. VAPID
@@ -219,29 +274,6 @@ def main() -> None:
     if sent == 0 and expired == 0 and errors:
         log.error("Ninguna notificación enviada de %d pendientes", len(pending_subs))
         sys.exit(1)
-
-
-def _log_run(
-    supabase: Client,
-    start_ms: int,
-    status: str,
-    summary: str,
-    details: dict,
-    errors: list[str] | None = None,
-) -> None:
-    try:
-        payload = {
-            "job_type": "daily_notifications",
-            "status": status,
-            "summary": summary,
-            "duration_ms": int(datetime.now().timestamp() * 1000) - start_ms,
-            "details": details,
-        }
-        if errors:
-            payload["errors"] = errors
-        supabase.table("ecos_system_logs").insert(payload).execute()
-    except Exception as log_err:
-        print(f"[WARN] No se pudo guardar log: {log_err}", file=sys.stderr)
 
 
 if __name__ == "__main__":
