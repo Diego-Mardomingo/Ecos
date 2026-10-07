@@ -8,5 +8,5 @@ del esquema de Ecos está en `supabase/schema/`.
   de ranking, pero **están desfasadas** (CURRENT_DATE/UTC, sin `show_avatar_in_rankings`) y **no se
   deben reaplicar**. La definición viva está en `supabase/schema/04_leaderboard.sql`.
 - Las de octubre de 2026 sí son las que se aplicaron tal cual y se versionan aquí como registro de
-  cada cambio (la última, `20261008130000_d12_borrar_columnas_muertas.sql`, es la excepción: se
-  aplica a mano, después de desplegar).
+  cada cambio (`20261008130000_d12_borrar_columnas_muertas.sql` es la excepción: se aplica a mano,
+  después de desplegar).

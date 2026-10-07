@@ -80,8 +80,12 @@ create policy ecos_profiles_own_write on public.ecos_profiles
 create policy ecos_guesses_own_read on public.ecos_guesses
   for select to public using ((select auth.uid()) = user_id);
 
-create policy ecos_guesses_own_insert on public.ecos_guesses
-  for insert to public with check ((select auth.uid()) = user_id);
+-- Sin política de INSERT, a propósito. Hasta oct. 2026 existía ecos_guesses_own_insert (to
+-- public, auth.uid() = user_id): cualquiera con sesión podía insertar por REST un intento propio
+-- con correct = true, y el servidor cierra la partida con lo que hay en ecos_guesses
+-- (finalizeFromStoredGuesses, repairOrphanScoreIfNeeded), así que daba la puntuación máxima sin
+-- acertar. Los intentos solo los escribe el servidor con service role. No reintroducir.
+-- Migración: supabase/migrations/20261008140000_recortar_privilegios_tablas.sql
 
 create policy ecos_scores_own_read on public.ecos_scores
   for select to public using ((select auth.uid()) = user_id);
@@ -130,10 +134,47 @@ create policy authenticated_insert_own_report on public.ecos_reports
 -- ---------------------------------------------------------------------------------------------
 -- Privilegios
 --
--- Supabase concede por defecto todo el DML a anon y authenticated en las tablas de `public`, así
--- que aquí solo aparece lo que se ha recortado. La RLS es la primera línea; estos revokes son la
--- segunda, para no depender de que la política esté bien escrita.
+-- Supabase concede por defecto todo el DML (más TRUNCATE, REFERENCES y TRIGGER) a anon y
+-- authenticated en las tablas de `public`, así que aquí solo aparece lo que se ha recortado. La
+-- RLS es la primera línea; estos revokes son la segunda, para no depender de que la política esté
+-- bien escrita. TRUNCATE ni siquiera pasa por la RLS.
+--
+-- Desde oct. 2026 (migración 20261008140000_recortar_privilegios_tablas) los clientes solo
+-- conservan, además de SELECT, lo que la app escribe con el cliente de cookies:
+--   * ecos_profiles           INSERT/UPDATE por columna (abajo).
+--   * ecos_push_subscriptions INSERT, UPDATE y DELETE, solo authenticated.
+--   * ecos_reports            INSERT, solo authenticated.
+-- Lo demás lo escribe la service role. Una tabla ecos_* nueva nace con todo concedido: recórtala
+-- aquí igual.
 -- ---------------------------------------------------------------------------------------------
+
+revoke truncate, references, trigger on
+  public.ecos_songs,
+  public.ecos_games,
+  public.ecos_profiles,
+  public.ecos_guesses,
+  public.ecos_scores,
+  public.ecos_leaderboard,
+  public.ecos_reports,
+  public.ecos_push_subscriptions,
+  public.ecos_spotify_playlists,
+  public.ecos_system_logs
+from anon, authenticated;
+
+revoke insert, update, delete on
+  public.ecos_songs,
+  public.ecos_games,
+  public.ecos_guesses,
+  public.ecos_scores,
+  public.ecos_leaderboard,
+  public.ecos_spotify_playlists,
+  public.ecos_system_logs
+from anon, authenticated;
+
+revoke insert, update, delete on public.ecos_reports from anon;
+revoke update, delete on public.ecos_reports from authenticated;
+
+revoke insert, update, delete on public.ecos_push_subscriptions from anon;
 
 -- ecos_profiles: sin INSERT ni UPDATE de tabla, que arrastrarían la columna `role`. Solo las
 -- columnas que escribe la app con el cliente del propio usuario (api/profile y api/push/status).
@@ -141,6 +182,7 @@ create policy authenticated_insert_own_report on public.ecos_reports
 -- El parche de agosto recortó solo UPDATE; el INSERT siguió incluyendo `role` hasta octubre de
 -- 2026, así que una cuenta sin fila de perfil podía insertarse role = 'admin'. Los dos van juntos.
 revoke select on public.ecos_profiles from anon;
+revoke delete on public.ecos_profiles from anon, authenticated;
 revoke insert on public.ecos_profiles from anon, authenticated;
 grant insert (
   user_id,
