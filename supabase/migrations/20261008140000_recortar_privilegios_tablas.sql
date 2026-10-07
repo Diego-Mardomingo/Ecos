@@ -1,4 +1,15 @@
 -- ============================================================================================
+-- ESTADO (2026-10-08): APLICADA EN DOS PARTES.
+--  - Ya aplicado en producción como `ecos_cerrar_insercion_de_aciertos_y_recortar_privilegios`:
+--    todo lo de abajo SALVO el `revoke insert` de ecos_guesses a authenticated y el
+--    `drop policy ecos_guesses_own_insert`. En su lugar, la política se limitó a filas de salto
+--    (guess_text = 'skipped' y todo a false), porque el código desplegado entonces aún registraba
+--    los saltos con el cliente de cookies.
+--  - PENDIENTE, aplicar SOLO tras desplegar el código nuevo (que salta con service role):
+--      revoke insert on public.ecos_guesses from authenticated;
+--      drop policy if exists ecos_guesses_own_insert on public.ecos_guesses;
+-- ============================================================================================
+-- ============================================================================================
 -- Recorte de privilegios de tabla de anon y authenticated en las tablas ecos_* (LIMP-1).
 --
 -- Supabase concede por defecto todo el DML (y TRUNCATE, REFERENCES y TRIGGER) a anon y
