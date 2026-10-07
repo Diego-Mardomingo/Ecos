@@ -1,8 +1,7 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
-import { defaultCache } from "@serwist/turbopack/worker";
-import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
+import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from "serwist";
 import {
   CacheFirst,
   ExpirationPlugin,
@@ -11,24 +10,45 @@ import {
   StaleWhileRevalidate,
 } from "serwist";
 
-/** Evita que el SW cachee GET a /api (defaultCache usa NetworkFirst + caché 24h), datos de sesión quedarían obsoletos. */
-const apiNetworkOnly = {
-  matcher: ({
-    sameOrigin,
-    url: { pathname },
-  }: {
-    sameOrigin: boolean;
-    url: URL;
-  }) => sameOrigin && pathname.startsWith("/api/"),
-  method: "GET" as const,
-  handler: new NetworkOnly({ networkTimeoutSeconds: 10 }),
+/*
+ * Qué hace el service worker con cada petición. Lista explícita, sin el `defaultCache` de Serwist:
+ * aquel guardaba con `NetworkFirst` el HTML y los RSC de todas las páginas (también `/profile` con
+ * el email y la home autenticada) y se los servía a quien abriera el navegador sin red, incluso
+ * después de cerrar sesión (PDATA-02). Ahora solo se guarda lo que es igual para todo el mundo.
+ *
+ * Lo que no casa con ninguna regla no pasa por el SW: va directo a la red con la caché HTTP normal
+ * (las rutas `/api`, los RSC, Supabase, Google, las carátulas de otros dominios…).
+ */
+
+/**
+ * Navegaciones: siempre a la red, y sin red, la página `/~offline` del precache (`fallbacks`).
+ * Tienen que pasar por una estrategia para que funcionen el fallback y la precarga de navegación.
+ */
+const navigations: RuntimeCaching = {
+  matcher: ({ request }) => request.mode === "navigate",
+  handler: new NetworkOnly(),
 };
 
-/** Imágenes estáticas y de CDN (mismo patrón de extensión en pathname). */
-const imageCacheFirst = {
-  matcher: ({ url }: { url: URL }) =>
-    /\.(?:jpg|jpeg|png|webp|svg|gif|ico)$/i.test(url.pathname),
-  method: "GET" as const,
+/** JS, CSS y fuentes de Next: llevan hash en el nombre y no cambian nunca. */
+const nextStatic: RuntimeCaching = {
+  matcher: ({ sameOrigin, url }) => sameOrigin && url.pathname.startsWith("/_next/static/"),
+  method: "GET",
+  handler: new CacheFirst({
+    cacheName: "ecos-static",
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 120,
+        maxAgeSeconds: 60 * 60 * 24 * 30,
+      }),
+    ],
+  }),
+};
+
+/** Imágenes estáticas propias (iconos, manifest). */
+const imageCacheFirst: RuntimeCaching = {
+  matcher: ({ sameOrigin, url }) =>
+    sameOrigin && /\.(?:jpg|jpeg|png|webp|svg|gif|ico)$/i.test(url.pathname),
+  method: "GET",
   handler: new CacheFirst({
     cacheName: "ecos-images",
     plugins: [
@@ -40,33 +60,28 @@ const imageCacheFirst = {
   }),
 };
 
-const googleFontsStylesheets = {
-  matcher: ({ url }: { url: URL }) => url.hostname === "fonts.googleapis.com",
-  method: "GET" as const,
+/** Carátulas optimizadas por Next (`/_next/image`). */
+const nextImage: RuntimeCaching = {
+  matcher: ({ sameOrigin, url }) => sameOrigin && url.pathname === "/_next/image",
+  method: "GET",
   handler: new StaleWhileRevalidate({
-    cacheName: "ecos-google-fonts-css",
+    cacheName: "next-image",
     plugins: [
       new ExpirationPlugin({
-        maxEntries: 8,
-        maxAgeSeconds: 60 * 60 * 24 * 365,
+        maxEntries: 64,
+        maxAgeSeconds: 60 * 60 * 24 * 7,
       }),
     ],
   }),
 };
 
-const googleFontsWebfonts = {
-  matcher: ({ url }: { url: URL }) => url.hostname === "fonts.gstatic.com",
-  method: "GET" as const,
-  handler: new CacheFirst({
-    cacheName: "ecos-google-fonts-webfonts",
-    plugins: [
-      new ExpirationPlugin({
-        maxEntries: 32,
-        maxAgeSeconds: 60 * 60 * 24 * 365,
-      }),
-    ],
-  }),
-};
+/**
+ * Cachés de ejecución que usa esta versión del SW. Todo lo demás (salvo el precache) se borra al
+ * activarse: las páginas y RSC que guardaba el `defaultCache` (`pages`, `pages-rsc`,
+ * `pages-rsc-prefetch`, `others`, `cross-origin`…) y la fuente de iconos vieja de Google Fonts
+ * (`ecos-google-fonts-webfonts`, 4 MB), que ya no se usa desde que la fuente es propia.
+ */
+const RUNTIME_CACHES = new Set(["ecos-static", "ecos-images", "next-image"]);
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -81,13 +96,7 @@ const serwist = new Serwist({
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: [
-    apiNetworkOnly,
-    googleFontsStylesheets,
-    googleFontsWebfonts,
-    imageCacheFirst,
-    ...defaultCache,
-  ],
+  runtimeCaching: [navigations, nextStatic, imageCacheFirst, nextImage],
   fallbacks: {
     entries: [
       {
@@ -98,6 +107,19 @@ const serwist = new Serwist({
       },
     ],
   },
+});
+
+self.addEventListener("activate", (event: ExtendableEvent) => {
+  event.waitUntil(
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter((name) => !name.startsWith("serwist-precache") && !RUNTIME_CACHES.has(name))
+          .map((name) => caches.delete(name))
+      );
+    })()
+  );
 });
 
 serwist.addEventListeners();
