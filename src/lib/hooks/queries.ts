@@ -208,6 +208,31 @@ export function useHomeUserStats(
   });
 }
 
+/** Partida terminada con su lista de intentos: ya no puede cambiar. */
+function isSettledGameProgress(data: GameProgressData | undefined): boolean {
+  const progress = data?.progress;
+  return isTerminalProgress(progress) && (progress?.guesses?.length ?? 0) > 0;
+}
+
+/**
+ * Frescura del progreso **al abrir la partida**. Por defecto se pide siempre al montar: el GET
+ * trae los intentos y tiene que ganar a una caché incompleta (un resumen sin intentos, una partida
+ * a medias que avanzó en otro dispositivo).
+ *
+ * La excepción es una partida terminada con sus intentos que ya ha pasado por la caché
+ * (`dataUpdateCount > 0`: respuesta del servidor, jugada confirmada o caché persistida): no puede
+ * cambiar, así que no se vuelve a pedir. Si solo es el `initialData` que pone `GameClient` desde el
+ * progreso local, se pide igual: puede venir de una partida de invitado que el servidor no tiene,
+ * y la reconciliación de `GameClient` necesita la respuesta.
+ */
+function openGameProgressStaleTime(query: {
+  state: { data?: GameProgressData; dataUpdateCount: number };
+}): number {
+  return query.state.dataUpdateCount > 0 && isSettledGameProgress(query.state.data)
+    ? Infinity
+    : 0;
+}
+
 export function useGameProgressById(
   gameId: string,
   options?: { enabled?: boolean; initialData?: GameProgressData }
@@ -217,8 +242,7 @@ export function useGameProgressById(
     queryFn: () => fetchGameProgressById(gameId),
     enabled: (options?.enabled ?? true) && !!gameId,
     initialData: options?.initialData,
-    /** Siempre pedir datos al montar la partida: el GET incluye intentos y debe ganar a caché incompleta. */
-    staleTime: 0,
+    staleTime: openGameProgressStaleTime,
     gcTime: 5 * 60 * 1000,
   });
 }
@@ -246,10 +270,7 @@ export function fetchFreshGameProgress(
  * vuelve a pedir al montar de todas formas).
  */
 function gameProgressStaleTime(query: { state: { data?: GameProgressData } }): number {
-  const progress = query.state.data?.progress;
-  return isTerminalProgress(progress) && (progress?.guesses?.length ?? 0) > 0
-    ? Infinity
-    : 30 * 1000;
+  return isSettledGameProgress(query.state.data) ? Infinity : 30 * 1000;
 }
 
 /**

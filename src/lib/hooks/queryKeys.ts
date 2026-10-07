@@ -48,9 +48,6 @@ export const queryKeys = {
      */
     previousDaysAll: (userId: string | null) =>
       ["home", "previous-days", "all", homeSessionSegment(userId)] as const,
-    /** Bloque de un mes. Ya no lo pide la home; solo lo parchea `gameCacheSync` si existe. */
-    previousDays: (monthKey: string, userId: string | null) =>
-      ["home", "previous-days", monthKey, homeSessionSegment(userId)] as const,
     dayStatus: (gameId: string) => ["home", "day-status", gameId] as const,
     userStats: (userId: string | null) =>
       ["home", "user-stats", userId ?? "guest"] as const,

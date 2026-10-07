@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { loadPlayableGame, submitAttempt } from "@/lib/ecos-finalize-helpers";
 import { evaluateGuess, type GuessMatchSong } from "@/lib/guess-match";
@@ -108,7 +107,6 @@ export async function POST(request: NextRequest) {
        * alcanza también un reintento legítimo tras un problema de red.
        */
       case "already-finalized":
-        if (outcome.repaired) revalidateTag("games", "max");
         return NextResponse.json({
           ...evaluation,
           attemptNumber: outcome.attemptNumber,
@@ -120,7 +118,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ...evaluation, attemptNumber: outcome.attemptNumber });
 
       case "finalized":
-        revalidateTag("games", "max");
         return NextResponse.json({
           ...evaluation,
           attemptNumber: outcome.attemptNumber,

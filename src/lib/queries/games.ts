@@ -293,14 +293,6 @@ export function getPastGamesCached(beforeDate: string): Promise<PastGameRow[]> {
   })();
 }
 
-/** Meses (`YYYY-MM`) con algún juego anterior a `beforeDate`, del más reciente al más antiguo. */
-export async function getPastMonthKeys(beforeDate: string): Promise<string[]> {
-  const past = await getPastGamesCached(beforeDate);
-  const months = new Set<string>();
-  for (const g of past) months.add(g.date.slice(0, 7));
-  return [...months].sort((a, b) => b.localeCompare(a));
-}
-
 // ---------------------------------------------------------------------------------------------
 // Datos del usuario (sin caché de servidor)
 // ---------------------------------------------------------------------------------------------
@@ -381,13 +373,10 @@ export async function fetchInProgressGames(
  */
 export function toPreviousDays(
   past: PastGameRow[],
-  scores: Map<string, UserScore> | null,
-  range?: DateRange
+  scores: Map<string, UserScore> | null
 ): PreviousDayGame[] {
   const out: PreviousDayGame[] = [];
   for (const g of past) {
-    if (range?.from && g.date < range.from) continue;
-    if (range?.to && g.date >= range.to) continue;
     const score = scores?.get(g.id);
     const played = !!score;
     out.push({

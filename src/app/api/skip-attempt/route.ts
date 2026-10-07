@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { loadPlayableGame, submitAttempt } from "@/lib/ecos-finalize-helpers";
 import { readJsonBody } from "@/lib/api/body-limit";
+import { SKIPPED_GUESS_TEXT } from "@/lib/server-attempt";
 import { z } from "zod";
 
 const SkipSchema = z.object({
   gameId: z.string().uuid(),
   attemptNumber: z.number().int().min(1).max(6),
 });
-
-const SKIP_TEXT = "skipped";
 
 /** Un salto es un intento fallido sin respuesta: ni título, ni artista, ni álbum. */
 const SKIP_EVALUATION = { correct: false, correctArtist: false, correctAlbum: false };
@@ -51,7 +49,7 @@ export async function POST(request: NextRequest) {
       gameId: parsed.data.gameId,
       gameDate: gameResult.game.date,
       clientAttempt: parsed.data.attemptNumber,
-      guessText: SKIP_TEXT,
+      guessText: SKIPPED_GUESS_TEXT,
       evaluation: SKIP_EVALUATION,
     });
 
@@ -63,7 +61,6 @@ export async function POST(request: NextRequest) {
       // Ya cerrada: idempotente, sin añadir filas ni repuntuar (un error revertiría el estado en
       // el cliente).
       case "already-finalized":
-        if (outcome.repaired) revalidateTag("games", "max");
         return NextResponse.json({
           ok: true,
           attemptNumber: outcome.attemptNumber,
@@ -74,7 +71,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, attemptNumber: outcome.attemptNumber });
 
       case "finalized":
-        revalidateTag("games", "max");
         return NextResponse.json({ ok: true, attemptNumber: outcome.attemptNumber });
     }
   } catch (err) {
