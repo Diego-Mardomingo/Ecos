@@ -4,6 +4,7 @@ import { getEffectiveGameDate, getMadridYesterdayDateString, toDateKey } from "@
 import { unwrapToOne } from "@/lib/supabase/relations";
 import { MAX_ATTEMPTS, resolveServerAttempt } from "@/lib/server-attempt";
 import type { GuessEvaluation, GuessMatchSong } from "@/lib/guess-match";
+import { notifyRankingChanged } from "@/lib/realtime/broadcast-ranking";
 
 /**
  * Camino único de servidor para registrar una jugada y cerrar la partida.
@@ -346,6 +347,9 @@ export async function submitAttempt(
     p_update_streak: updateStreak,
   });
   if (error) return { kind: "error", message: "Failed to save score", cause: error };
+
+  // Avisa a quien tenga el ranking abierto (D7). Fire-and-forget: nunca falla ni retrasa.
+  notifyRankingChanged();
 
   return { kind: "finalized", attemptNumber, scoreResult };
 }

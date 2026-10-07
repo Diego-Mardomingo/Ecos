@@ -3,12 +3,14 @@
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { motion, type Variants } from "framer-motion";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfile } from "@/lib/hooks/queries";
 import { useNotifications } from "@/lib/hooks/useNotifications";
+import { clearSessionScopedClientData } from "@/lib/auth/clearSessionScopedClientData";
+import { avatarInitials } from "@/lib/display-name";
 import type { UserStats } from "@/lib/queries/users";
 import { LanguageSelector } from "@/components/profile/LanguageSelector";
 import { ThemeSelector } from "@/components/profile/ThemeSelector";
@@ -77,7 +79,8 @@ export function ProfileClient({ initialData }: Props) {
     enabled: true,
     initialStatus: initialData?.notifications,
   });
-  const { dateFnsLocale, formatNumber } = useAppFormatters();
+  const { dateFnsLocale, formatNumber, numberLocale } = useAppFormatters();
+  const router = useRouter();
 
   const handleToggleNotifications = async (next: boolean) => {
     if (next) {
@@ -121,10 +124,13 @@ export function ProfileClient({ initialData }: Props) {
 
   const handleSignOut = async () => {
     const supabase = createClient();
-    await supabase.auth.signOut();
-    localStorage.removeItem("ecos-game-progress");
-    localStorage.removeItem("ecos-game-state");
-    window.location.href = "/";
+    // Solo esta sesión: el `signOut()` global revoca los refresh tokens de **todos** los
+    // dispositivos y navegadores del usuario (ORQ-01: cerrar sesión en una preview mató la de otro
+    // dispositivo).
+    await supabase.auth.signOut({ scope: "local" });
+    clearSessionScopedClientData();
+    // `AuthProvider` vacía la caché de queries y refresca el router al ver el cierre de sesión.
+    router.replace("/");
   };
 
   const memberSince = profile.created_at
@@ -137,7 +143,9 @@ export function ProfileClient({ initialData }: Props) {
   const avgAttempts = typeof stats?.avg_guesses === "number" ? stats.avg_guesses : 0;
   const streak = stats?.streak ?? 0;
   const maxStreak = stats?.max_streak ?? 0;
-  const formatOneDecimal = (n: number) => (n / 10).toFixed(1);
+  // Con la coma del idioma (en español «2,9»): `toFixed` siempre da punto.
+  const formatOneDecimal = (n: number) =>
+    (n / 10).toLocaleString(numberLocale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
   return (
     <div className="flex flex-col px-4 pb-6">
@@ -166,7 +174,7 @@ export function ProfileClient({ initialData }: Props) {
               <Avatar className="size-24">
                 <AvatarImage src={profile.avatar_url} />
                 <AvatarFallback className="bg-muted text-2xl font-bold">
-                  {profile.display_name.slice(0, 2).toUpperCase()}
+                  {avatarInitials(profile.display_name)}
                 </AvatarFallback>
               </Avatar>
             </span>
@@ -236,7 +244,7 @@ export function ProfileClient({ initialData }: Props) {
             icon="local_fire_department"
             label={t("stats.currentStreak")}
             value={streak}
-            suffix={tc("days")}
+            suffix={t("stats.streakDays", { count: streak })}
             accent="from-orange-500/20 text-orange-500"
             flicker={streak > 0}
           />
@@ -244,7 +252,7 @@ export function ProfileClient({ initialData }: Props) {
             icon="whatshot"
             label={t("stats.maxStreak")}
             value={maxStreak}
-            suffix={tc("days")}
+            suffix={t("stats.streakDays", { count: maxStreak })}
             accent="from-rose-500/20 text-rose-500"
           />
         </motion.section>

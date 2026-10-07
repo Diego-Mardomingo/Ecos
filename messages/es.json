@@ -326,7 +326,7 @@
     "totalPointsShort": "Pts.",
     "hits": "Aciertos",
     "hitsShort": "Ac.",
-    "hitsPodiumLine": "{count} aciertos",
+    "hitsPodiumLine": "{count, plural, one {# acierto} other {# aciertos}}",
     "hitsLabel": "Aciertos:",
     "youLabel": "Tú",
     "topPercent": "Top {percent}%",
@@ -362,8 +362,9 @@
       "maxStreak": "Racha máx.",
       "hitRate": "% aciertos",
       "completed": "Completadas",
-      "avgAttempts": "Intentos avg",
+      "avgAttempts": "Intentos (media)",
       "currentStreak": "Racha actual",
+      "streakDays": "{count, plural, one {día} other {días}}",
       "points": "Puntos"
     },
     "earlySupporterBadge": "Primeros en apoyar",
@@ -422,6 +423,7 @@
   },
   "notifications": {
     "modalTitle": "Activa las notificaciones",
+    "resultOfferTitle": "¿Te avisamos mañana?",
     "modalDescription": "Te avisaremos cuando salga el reto del día para que no se te escape ninguna canción.",
     "modalToggleLabel": "Recibir notificaciones diarias",
     "modalDismiss": "Ahora no",

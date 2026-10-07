@@ -18,12 +18,19 @@ import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 
+/** Pausa antes de abrir el aviso en el resultado: que dé tiempo a ver la canción y la puntuación. */
+const RESULT_OFFER_DELAY_MS = 3000;
+
 /**
  * Modal para proponer activar notificaciones push. Se puede cerrar sin activar
  * hasta 3 veces; después no vuelve a mostrarse mientras las notificaciones
  * sigan desactivadas.
+ *
+ * **No se abre solo**: solo lo hace si quien lo monta pasa `offer` (UX-07). Se ofrece en la pantalla
+ * de resultado, al terminar una partida, y nunca durante ella ni al entrar en una ruta cualquiera.
+ * Sin `offer` no consulta el estado ni abre nada. Solo se ofrece a usuarios con sesión.
  */
-export function NotificationsModal() {
+export function NotificationsModal({ offer = false }: { offer?: boolean }) {
   const user = useAuthStore((s) => s.user);
   const isAuthLoading = useAuthStore((s) => s.loading);
   const isAuthenticated = !!user;
@@ -37,7 +44,7 @@ export function NotificationsModal() {
     isLoading,
     enable,
     recordModalDismiss,
-  } = useNotifications({ enabled: isAuthenticated });
+  } = useNotifications({ enabled: offer && isAuthenticated });
 
   const [open, setOpen] = useState(false);
   /** Si true, el próximo cierre del diálogo no incrementa el contador (p. ej. activación correcta). */
@@ -47,16 +54,17 @@ export function NotificationsModal() {
   const statusLoaded = !isSupported || modalPromptExhausted || isEnabled;
 
   useEffect(() => {
-    if (isAuthLoading || !isAuthenticated || !isSupported) return;
+    if (!offer || isAuthLoading || !isAuthenticated || !isSupported) return;
     if (modalPromptExhausted || isEnabled) return;
     if (permission === "denied") {
       void recordModalDismiss({ exhaust: true });
       return;
     }
     // setOpen basta: el guard de abajo ya deja pasar el render cuando open es true.
-    const timer = window.setTimeout(() => setOpen(true), 600);
+    const timer = window.setTimeout(() => setOpen(true), RESULT_OFFER_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [
+    offer,
     isAuthLoading,
     isAuthenticated,
     isSupported,
@@ -118,7 +126,7 @@ export function NotificationsModal() {
               notifications_active
             </motion.span>
           </motion.div>
-          <DialogTitle className="text-xl">{t("modalTitle")}</DialogTitle>
+          <DialogTitle className="text-xl">{t("resultOfferTitle")}</DialogTitle>
           <DialogDescription className="text-center">{t("modalDescription")}</DialogDescription>
         </DialogHeader>
 

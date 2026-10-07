@@ -22,6 +22,7 @@ import { GameHeader } from "@/components/game/GameHeader";
 import { PlayButton } from "@/components/game/PlayButton";
 import { ReportSongDialog, ReportSongTrigger } from "@/components/game/ReportSongDialog";
 import { useLoginHref } from "@/components/game/useLoginHref";
+import { NotificationsModal } from "@/components/notifications/NotificationsModal";
 import {
   SegmentedWaveform,
   type SegmentedWaveformHandle,
@@ -512,6 +513,10 @@ function ResultScreen({
           <ReportSongDialog gameId={gameId} songId={song.id} trigger={<ReportSongTrigger />} />
         </motion.div>
       )}
+
+      {/* «¿Te avisamos mañana?»: único sitio donde se ofrece activar las notificaciones (UX-07).
+          Solo con sesión; con el contador de descartes en 3 ya no vuelve a salir. */}
+      {!isGuest && <NotificationsModal offer />}
     </motion.div>
   );
 }

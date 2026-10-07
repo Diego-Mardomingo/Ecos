@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/utils";
+import { avatarInitials, rankingDisplayName } from "@/lib/display-name";
 import {
   useLeaderboardHistorySummaries,
   type LeaderboardHistorySummary,
@@ -173,7 +174,7 @@ function WinnerCard({
   className?: string;
 }) {
   const t = useTranslations("ranking");
-  const name = row.winner_display_name ?? t("playerFallback");
+  const name = rankingDisplayName(row.winner_display_name, t("playerFallback"));
 
   return (
     <motion.div
@@ -202,7 +203,7 @@ function WinnerCard({
               </span>
               <Avatar className="size-11 ring-2 ring-amber-400 ring-offset-2 ring-offset-card">
                 <AvatarImage src={row.winner_avatar_url ?? undefined} />
-                <AvatarFallback className="bg-muted text-xs font-bold">{name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                <AvatarFallback className="bg-muted text-xs font-bold">{avatarInitials(name)}</AvatarFallback>
               </Avatar>
             </div>
             <div className="min-w-0 flex-1">

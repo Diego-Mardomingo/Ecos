@@ -326,7 +326,7 @@
     "totalPointsShort": "Pts.",
     "hits": "Hits",
     "hitsShort": "Hits",
-    "hitsPodiumLine": "{count} hits",
+    "hitsPodiumLine": "{count, plural, one {# hit} other {# hits}}",
     "hitsLabel": "Hits:",
     "youLabel": "You",
     "topPercent": "Top {percent}%",
@@ -364,6 +364,7 @@
       "completed": "Completed",
       "avgAttempts": "Avg attempts",
       "currentStreak": "Current streak",
+      "streakDays": "{count, plural, one {day} other {days}}",
       "points": "Points"
     },
     "earlySupporterBadge": "Early supporter",
@@ -422,6 +423,7 @@
   },
   "notifications": {
     "modalTitle": "Enable notifications",
+    "resultOfferTitle": "Shall we remind you tomorrow?",
     "modalDescription": "We'll let you know when today's challenge is ready so you never miss a song.",
     "modalToggleLabel": "Receive daily notifications",
     "modalDismiss": "Not now",
