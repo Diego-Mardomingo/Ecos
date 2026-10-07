@@ -54,6 +54,7 @@ repetirlo:
 - Funciones → `pg_get_functiondef(oid)`
 - Políticas → `pg_policies`
 - Privilegios → `information_schema.table_privileges` y `column_privileges`
+- Privilegios de funciones → `pg_proc.proacl` (el EXECUTE de `PUBLIC` sale como `=X/...`)
 
 Merece la pena automatizarlo si esto se va a mantener; mientras no lo esté, **el proyecto real
 sigue siendo la fuente de verdad y este directorio puede quedarse atrás**. Al cambiar algo en la
@@ -73,4 +74,16 @@ from information_schema.table_privileges
 where table_schema = 'public' and table_name like 'ecos\_%'
   and grantee in ('anon','authenticated')
 group by table_name, grantee order by table_name, grantee;
+
+-- Funciones SECURITY DEFINER que anon o authenticated pueden ejecutar (incluye lo heredado de
+-- PUBLIC). Solo deberían salir las RPC de lectura documentadas en 03_security.sql.
+select p.oid::regprocedure as funcion,
+       has_function_privilege('anon', p.oid, 'EXECUTE') as anon,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.prosecdef
+  and (p.proname like 'ecos\_%' or p.proname like 'get\_%' or p.proname like 'run\_daily%')
+  and (has_function_privilege('anon', p.oid, 'EXECUTE')
+       or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+order by 1;
 ```
