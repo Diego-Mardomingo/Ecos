@@ -1,3 +1,8 @@
+-- ATENCIÓN: HISTÓRICA, NO REAPLICAR (DOC-01, oct. 2026).
+-- Esta migración está desfasada respecto a lo que corre en producción: usa CURRENT_DATE (UTC) en
+-- vez de la fecha de Madrid y no respeta ecos_profiles.show_avatar_in_rankings. La definición vigente
+-- de estas funciones está en supabase/schema/04_leaderboard.sql. Ejecutarla de nuevo las regresiona.
+
 -- Rankings semanal/mensual: solo cuentan puntos si el usuario completó la partida
 -- (created_at en fecha local Europe/Madrid) dentro del mismo periodo que el día del juego.
 -- Evita que partidas antiguas completadas después alteren podios ya cerrados.
