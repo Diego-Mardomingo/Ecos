@@ -1,39 +1,18 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import {
-  getTodaysGame,
-  getInProgressGames,
-  getTodaysCompletedResult,
-} from "@/lib/queries/games";
+import { loadHomeToday } from "@/lib/queries/home";
+import { getRequestUser, handleRoute, PRIVATE_NO_STORE } from "@/lib/api/route";
 
-export async function GET() {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+export const GET = handleRoute("api/home/today", async () => {
+  const { supabase, user } = await getRequestUser();
+  const today = await loadHomeToday({ supabase, user });
 
-    const todaysGame = await getTodaysGame();
-    const todaysCompletedResult =
-      user && todaysGame ? await getTodaysCompletedResult(user.id, todaysGame.id) : null;
-
-    let todaysInProgress = null;
-    if (user && todaysGame) {
-      const inProgressByGameId = await getInProgressGames(user.id, todaysGame.id, []);
-      todaysInProgress = inProgressByGameId[todaysGame.id] ?? null;
-    }
-
-    return NextResponse.json({
-      todaysGame,
-      todaysCompletedResult,
-      todaysInProgress,
-      userId: user?.id ?? null,
-    });
-  } catch (err) {
-    console.error("api/home/today error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
+  return NextResponse.json(
+    {
+      todaysGame: today.todaysGame,
+      todaysCompletedResult: today.todaysCompletedResult,
+      todaysInProgress: today.todaysInProgress,
+      userId: today.userId,
+    },
+    { headers: PRIVATE_NO_STORE }
+  );
+});

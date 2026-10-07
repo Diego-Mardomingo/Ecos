@@ -19,18 +19,6 @@ export function getMadridDate(now: Date = new Date()): string {
 }
 
 /**
- * Hora actual en Madrid (0-23).
- */
-export function getMadridHour(now: Date = new Date()): number {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: MADRID,
-    hour: "2-digit",
-    hourCycle: "h23",
-  });
-  return parseInt(formatter.format(now), 10);
-}
-
-/**
  * Fecha del juego actualmente jugable.
  * Coincide con el día natural en Madrid (nueva canción a las 00:00).
  */
@@ -54,11 +42,37 @@ export function toDateKey(value: string | null | undefined): string | null {
 /**
  * Añade `days` a una fecha calendario YYYY-MM-DD (aritmética de calendario, sin zonas).
  */
-function addCalendarDays(dateStr: string, days: number): string {
+export function addCalendarDays(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
+}
+
+const MONTH_KEY_RE = /^(\d{4})-(\d{2})$/;
+
+/**
+ * Desplaza una clave de mes `YYYY-MM` `delta` meses (negativo hacia atrás). Aritmética de
+ * calendario, sin zonas. Devuelve `null` si la clave no tiene ese formato.
+ */
+export function shiftMonthKey(monthKey: string, delta: number): string | null {
+  const match = MONTH_KEY_RE.exec(monthKey);
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  if (m < 1 || m > 12) return null;
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${String(d.getUTCFullYear()).padStart(4, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Límites de un mes `YYYY-MM` como fechas calendario: `start` es el día 1 (incluido) y `end` el
+ * día 1 del mes siguiente (excluido). `null` si la clave no es válida.
+ */
+export function monthBounds(monthKey: string): { start: string; end: string } | null {
+  const next = shiftMonthKey(monthKey, 1);
+  if (!next) return null;
+  return { start: `${monthKey}-01`, end: `${next}-01` };
 }
 
 /**
@@ -109,16 +123,12 @@ export function getTomorrowMadridDate(now: Date = new Date()): string {
   return addCalendarDays(getMadridDate(now), 1);
 }
 
-
 /**
  * Día calendario anterior a todayMadrid (YYYY-MM-DD en Europe/Madrid).
  * Usar para rachas en lugar de Date.UTC(y, m-1, d-1) para alinear con el calendario local.
  */
 export function getMadridYesterdayDateString(todayMadrid: string): string {
-  const [y, m, d] = todayMadrid.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() - 1);
-  return dt.toISOString().slice(0, 10);
+  return addCalendarDays(todayMadrid, -1);
 }
 
 /**
@@ -134,8 +144,9 @@ export function getMsUntilNextMidnightMadrid(now: Date = new Date()): number {
 }
 
 /**
- * @deprecated Usar getMsUntilNextMidnightMadrid. Mantenido por compatibilidad.
+ * Segundos enteros (mínimo 1) hasta la próxima medianoche de Madrid. Para `revalidate` y
+ * `s-maxage` de lo que cambia con el día de juego.
  */
-export function getMsUntilNext16hMadrid(now: Date = new Date()): number {
-  return getMsUntilNextMidnightMadrid(now);
+export function getSecondsUntilNextMidnightMadrid(now: Date = new Date()): number {
+  return Math.max(1, Math.ceil(getMsUntilNextMidnightMadrid(now) / 1000));
 }

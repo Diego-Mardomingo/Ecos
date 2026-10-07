@@ -5,11 +5,13 @@ import { GameClient } from "@/components/game/GameClient";
 
 export default async function PlayPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const todaysGame = await getTodaysGameCached();
+  // La canción de hoy (caché de servidor) no depende de la sesión: van a la vez.
+  const [
+    {
+      data: { user },
+    },
+    todaysGame,
+  ] = await Promise.all([supabase.auth.getUser(), getTodaysGameCached()]);
 
   if (!todaysGame) {
     const t = await getTranslations("game");

@@ -1,42 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getLeaderboardByPeriod, LEADERBOARD_PERIODS } from "@/lib/queries/users";
 import {
-  getLeaderboardByPeriod,
-  type LeaderboardPeriod,
-} from "@/lib/queries/users";
+  getRequestUser,
+  handleRoute,
+  parseEnumParam,
+  parseIntParam,
+  PRIVATE_NO_STORE,
+} from "@/lib/api/route";
 
-const VALID_PERIODS: LeaderboardPeriod[] = ["weekly", "monthly", "global"];
+/**
+ * Ranking de un periodo en curso. Lleva `currentUserId`, así que es personal (`private,
+ * no-store`) y no hay caché de servidor del ranking: es en tiempo real (ver
+ * `getLeaderboardByPeriod`).
+ */
+export const GET = handleRoute("api/ranking", async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const limit = parseIntParam(searchParams.get("limit"), { fallback: 50, min: 1, max: 100 });
+  const period = parseEnumParam(searchParams.get("period"), LEADERBOARD_PERIODS) ?? "global";
 
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  // El ranking no depende de la sesión: va a la vez que `getUser()`.
+  const [{ user }, entries] = await Promise.all([
+    getRequestUser(),
+    getLeaderboardByPeriod(period, limit),
+  ]);
 
-    const { searchParams } = new URL(request.url);
-    const limit = Math.min(
-      Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10)),
-      100
-    );
-    const periodParam = searchParams.get("period") ?? "global";
-    const period: LeaderboardPeriod = VALID_PERIODS.includes(
-      periodParam as LeaderboardPeriod
-    )
-      ? (periodParam as LeaderboardPeriod)
-      : "global";
-
-    const entries = await getLeaderboardByPeriod(period, limit);
-
-    return NextResponse.json({
+  return NextResponse.json(
+    {
       entries,
       currentUserId: user?.id ?? null,
-    });
-  } catch (err) {
-    console.error("api/ranking error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
+    },
+    { headers: PRIVATE_NO_STORE }
+  );
+});
