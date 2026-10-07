@@ -326,7 +326,7 @@
     "totalPointsShort": "Pts.",
     "hits": "Hits",
     "hitsShort": "Hits",
-    "hitsPodiumLine": "{count} hits",
+    "hitsPodiumLine": "{count, plural, one {# hit} other {# hits}}",
     "hitsLabel": "Hits:",
     "youLabel": "You",
     "topPercent": "Top {percent}%",

@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { cn } from "@/lib/utils";
+import { avatarInitials } from "@/lib/display-name";
+import type { LeaderboardEntryRow as LeaderboardEntry } from "@/lib/queries/users";
 
 /**
  * Podio (los tres primeros) y lista del resto de una clasificación. Lo usan el ranking en vivo y
@@ -12,18 +14,6 @@ import { cn } from "@/lib/utils";
  * El podio ya enseña a los tres primeros, así que la lista empieza en el cuarto: antes se
  * repetían los tres arriba y abajo.
  */
-
-export interface LeaderboardEntry {
-  user_id: string;
-  total_points: number;
-  streak: number;
-  global_rank: number;
-  aciertos: number;
-  profiles: {
-    display_name: string;
-    avatar_url: string;
-  } | null;
-}
 
 type RankingT = {
   (key: string): string;
@@ -124,7 +114,7 @@ export function LeaderboardPodiumAndList({
                 <Avatar className="size-10 shrink-0 ring-1 ring-border">
                   <AvatarImage src={entry.profiles?.avatar_url} />
                   <AvatarFallback className="bg-muted text-xs font-bold">
-                    {getDisplayName(entry).slice(0, 2).toUpperCase() || "?"}
+                    {avatarInitials(getDisplayName(entry))}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
@@ -191,7 +181,7 @@ function PodiumColumn({
         <Avatar className={cn("ring-[3px] ring-offset-2 ring-offset-background", layout.avatar, medal.ring, medal.glow)}>
           <AvatarImage src={entry.profiles?.avatar_url} />
           <AvatarFallback className="bg-muted font-bold">
-            {getDisplayName(entry).slice(0, 2).toUpperCase() || "?"}
+            {avatarInitials(getDisplayName(entry))}
           </AvatarFallback>
         </Avatar>
         <p className={cn("mt-2 flex max-w-full items-center gap-1 px-1 text-xs font-semibold", isCurrentUser && "text-brand")}>

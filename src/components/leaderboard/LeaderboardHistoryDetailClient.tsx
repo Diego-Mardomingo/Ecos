@@ -4,10 +4,9 @@ import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { format, parse, type Locale } from "date-fns";
 import { Link } from "@/i18n/navigation";
-import {
-  LeaderboardPodiumAndList,
-  type LeaderboardEntry,
-} from "@/components/leaderboard/LeaderboardPodiumAndList";
+import { LeaderboardPodiumAndList } from "@/components/leaderboard/LeaderboardPodiumAndList";
+import { rankingDisplayName } from "@/lib/display-name";
+import type { LeaderboardEntryRow as LeaderboardEntry } from "@/lib/queries/users";
 import { PageHeader } from "@/components/ui/page-header";
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
 import { useLeaderboardHistoryDetail } from "@/lib/hooks/queries";
@@ -79,11 +78,8 @@ export function LeaderboardHistoryDetailClient() {
   // así que se deja que lo memoice el compilador.
   const subtitle = buildSubtitle(data?.periodStart, data?.periodEnd, granularity, dateFnsLocale);
 
-  const getDisplayName = (entry: LeaderboardEntry) => {
-    const name = entry.profiles?.display_name?.trim();
-    if (name && name.toLowerCase() !== "admin") return name;
-    return t("playerFallback");
-  };
+  const getDisplayName = (entry: LeaderboardEntry) =>
+    rankingDisplayName(entry.profiles?.display_name, t("playerFallback"));
 
   const entries = data?.entries ?? [];
   const currentUserId = data?.currentUserId ?? null;

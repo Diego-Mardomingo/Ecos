@@ -373,21 +373,12 @@ export function useLeaderboard(
   period: "weekly" | "monthly" | "global",
   initialByPeriod?: Partial<
     Record<"weekly" | "monthly" | "global", RankingData>
-  >,
-  /**
-   * Obsoleto (DEAD-08): solo sigue porque `LeaderboardClient` aún lo pasa desde su prop
-   * `initialData`, que ninguna página rellena. Quitar los dos a la vez.
-   */
-  legacyInitialData?: RankingData
+  >
 ) {
-  const initialData =
-    initialByPeriod?.[period] ??
-    (period === "global" ? legacyInitialData : undefined);
-
   return useQuery({
     queryKey: queryKeys.ranking.period(period),
     queryFn: () => fetchLeaderboardPeriodData(period),
-    initialData,
+    initialData: initialByPeriod?.[period],
     staleTime: RANKING_STALE_MS,
   });
 }

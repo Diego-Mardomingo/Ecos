@@ -15,8 +15,10 @@ import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import {
   LeaderboardPodiumAndList,
   leaderboardRowId,
-  type LeaderboardEntry,
 } from "@/components/leaderboard/LeaderboardPodiumAndList";
+import { rankingDisplayName } from "@/lib/display-name";
+import { useLoginHref } from "@/components/game/useLoginHref";
+import type { LeaderboardEntryRow as LeaderboardEntry } from "@/lib/queries/users";
 import { HeaderIconLink, PageHeader } from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { RankingPodiumAndListSkeleton } from "@/components/skeletons";
@@ -31,16 +33,15 @@ interface Props {
   initialByPeriod?: Partial<
     Record<"weekly" | "monthly" | "global", RankingData>
   >;
-  /** @deprecated usar initialByPeriod */
-  initialData?: RankingData;
 }
 
 type PeriodTab = "weekly" | "monthly" | "global";
 
 const PERIOD_ORDER: PeriodTab[] = ["weekly", "monthly", "global"];
 
-export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
+export function LeaderboardClient({ initialByPeriod }: Props) {
   const t = useTranslations("ranking");
+  const loginHref = useLoginHref();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<PeriodTab>("global");
 
@@ -84,11 +85,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
     }
   }, [activeTab, queryClient]);
 
-  const { data, isLoading } = useLeaderboard(
-    activeTab,
-    initialByPeriod,
-    initialData
-  );
+  const { data, isLoading } = useLeaderboard(activeTab, initialByPeriod);
   useLeaderboardRealtime();
   const entries = data?.entries ?? [];
 
@@ -136,11 +133,8 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
 
   const { formatNumber: formatPoints } = useAppFormatters();
 
-  const getDisplayName = (entry: LeaderboardEntry) => {
-    const name = entry.profiles?.display_name?.trim();
-    if (name && name.toLowerCase() !== "admin") return name;
-    return t("playerFallback");
-  };
+  const getDisplayName = (entry: LeaderboardEntry) =>
+    rankingDisplayName(entry.profiles?.display_name, t("playerFallback"));
 
   const showListSkeleton = entries.length === 0 && isLoading;
   const myEntry = currentUserId ? entries.find((e) => e.user_id === currentUserId) : undefined;
@@ -169,7 +163,7 @@ export function LeaderboardClient({ initialByPeriod, initialData }: Props) {
             <p className="text-xs text-muted-foreground">{t("guestBannerDescription")}</p>
           </div>
           <Link
-            href="/login?redirect=/ranking"
+            href={loginHref}
             className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-xs font-bold text-primary-foreground transition-transform active:scale-95"
           >
             {t("guestBannerCta")}

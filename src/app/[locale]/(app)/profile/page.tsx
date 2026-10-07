@@ -32,9 +32,7 @@ export default async function ProfilePage() {
     getUserStats(user.id, supabase),
     supabase
       .from("ecos_profiles")
-      .select(
-        "display_name, avatar_url, role, username, show_avatar_in_rankings, notifications_modal_dismiss_count"
-      )
+      .select(`${PROFILE_VIEW_COLUMNS}, notifications_modal_dismiss_count`)
       .eq("user_id", user.id)
       .single(),
     supabase

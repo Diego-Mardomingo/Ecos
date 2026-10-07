@@ -326,7 +326,7 @@
     "totalPointsShort": "Pts.",
     "hits": "Aciertos",
     "hitsShort": "Ac.",
-    "hitsPodiumLine": "{count} aciertos",
+    "hitsPodiumLine": "{count, plural, one {# acierto} other {# aciertos}}",
     "hitsLabel": "Aciertos:",
     "youLabel": "Tú",
     "topPercent": "Top {percent}%",
