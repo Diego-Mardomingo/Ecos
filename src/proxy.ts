@@ -120,6 +120,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icon0.svg|icon1.png|ecos_.*\\.png|web-app-manifest-.*\\.png|manifest.json|serwist|~offline).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icon0.svg|icon1.png|ecos_.*\\.png|web-app-manifest-.*\\.png|manifest.json|robots.txt|sitemap.xml|.*opengraph-image|serwist|~offline).*)",
   ],
 };
