@@ -33,7 +33,6 @@ export function NotificationsModal() {
     isSupported,
     permission,
     isEnabled,
-    modalDismissCount,
     modalPromptExhausted,
     isLoading,
     enable,

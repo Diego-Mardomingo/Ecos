@@ -38,7 +38,8 @@ export const useGameProgressStore = create<GameProgressState>()(
 
       removeProgress: (gameId) =>
         set((state) => {
-          const { [gameId]: _, ...rest } = state.byGameId;
+          const rest = { ...state.byGameId };
+          delete rest[gameId];
           return { byGameId: rest };
         }),
 
