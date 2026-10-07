@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserStats } from "@/lib/queries/users";
+import { buildProfileView, PROFILE_VIEW_COLUMNS, summarizeNotifications, type ProfileDbRow } from "@/lib/queries/profile";
 import { ProfileClient } from "@/components/profile/ProfileClient";
 import { redirectToLoginWithReturn } from "@/lib/auth/redirectToLogin";
 import { localizedPath } from "@/lib/i18n/localizedPath";
@@ -28,7 +29,7 @@ export default async function ProfilePage() {
   }
 
   const [stats, { data: dbProfile }, { data: pushSubs }] = await Promise.all([
-    getUserStats(user.id),
+    getUserStats(user.id, supabase),
     supabase
       .from("ecos_profiles")
       .select(
@@ -42,37 +43,9 @@ export default async function ProfilePage() {
       .eq("user_id", user.id),
   ]);
 
-  const db = dbProfile as {
-    display_name?: string;
-    avatar_url?: string;
-    role?: string;
-    username?: string;
-    show_avatar_in_rankings?: boolean;
-    notifications_modal_dismiss_count?: number;
-  } | null;
-  const profile = {
-    id: user.id,
-    display_name:
-      db?.username ??
-      db?.display_name ??
-      user.user_metadata?.full_name ??
-      user.user_metadata?.name ??
-      "Usuario",
-    avatar_url:
-      db?.avatar_url ??
-      user.user_metadata?.avatar_url ??
-      user.user_metadata?.picture ??
-      "",
-    show_avatar_in_rankings: db?.show_avatar_in_rankings ?? true,
-    created_at: user.created_at,
-    email: user.email ?? "",
-    role: db?.role ?? null,
-  };
-
-  const notifications = {
-    enabled: (pushSubs ?? []).some((s) => s.enabled),
-    modalDismissCount: db?.notifications_modal_dismiss_count ?? 0,
-  };
+  const db = dbProfile as ProfileDbRow | null;
+  const profile = buildProfileView(user, db);
+  const notifications = summarizeNotifications(pushSubs, db?.notifications_modal_dismiss_count);
 
   return (
     <ProfileClient
@@ -84,3 +57,4 @@ export default async function ProfilePage() {
     />
   );
 }
+

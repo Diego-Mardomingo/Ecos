@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
+import { buildProfileView, type ProfileDbRow } from "@/lib/queries/profile";
 import { EditProfileClient } from "@/components/profile/EditProfileClient";
 import { redirectToLoginWithReturn } from "@/lib/auth/redirectToLogin";
 import { localizedPath } from "@/lib/i18n/localizedPath";
@@ -32,27 +33,14 @@ export default async function EditProfilePage() {
     .eq("user_id", user.id)
     .single();
 
-  const db = dbProfile as {
-    display_name?: string;
-    avatar_url?: string;
-    username?: string;
-    show_avatar_in_rankings?: boolean;
-  } | null;
+  const db = dbProfile as ProfileDbRow | null;
+  const { display_name, avatar_url, show_avatar_in_rankings } = buildProfileView(user, db);
   const profile = {
     id: user.id,
-    display_name:
-      db?.username ??
-      db?.display_name ??
-      user.user_metadata?.full_name ??
-      user.user_metadata?.name ??
-      "Usuario",
-    avatar_url:
-      db?.avatar_url ??
-      user.user_metadata?.avatar_url ??
-      user.user_metadata?.picture ??
-      "",
+    display_name,
+    avatar_url,
     username: db?.username ?? null,
-    show_avatar_in_rankings: db?.show_avatar_in_rankings ?? true,
+    show_avatar_in_rankings,
   };
 
   return <EditProfileClient profile={profile} />;
