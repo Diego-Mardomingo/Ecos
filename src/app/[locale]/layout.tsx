@@ -128,7 +128,14 @@ export default async function LocaleLayout({ children, params }: Props) {
           enableSystem
           disableTransitionOnChange={false}
         >
-          <SerwistProvider swUrl="/serwist/sw.js">
+          {/*
+            Sin las dos opciones que Serwist trae activadas por defecto:
+            - cacheOnNavigation: en cada navegación en cliente el SW volvía a pedir el HTML
+              completo de la página destino (otro render en el servidor) para guardarlo.
+            - reloadOnOnline: al recuperar la red recargaba la página entera, partida incluida.
+              La reconexión ya la cubren el onlineManager de QueryProvider y OfflineBanner.
+          */}
+          <SerwistProvider swUrl="/serwist/sw.js" cacheOnNavigation={false} reloadOnOnline={false}>
             <MotionProvider>
               <NextIntlClientProvider messages={messages}>
                 {children}
