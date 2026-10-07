@@ -53,6 +53,12 @@ type PlaylistRow = {
   is_active: boolean;
   created_at: string;
   sort_order?: number | null;
+  /** «hace 3 días (04/10/2026 21:08)», o null si nunca se ha registrado una ingesta. */
+  ingested_label: string | null;
+  /** Ingestas seguidas (contando desde la última) en las que no aportó ninguna canción nueva. */
+  exhausted_runs: number;
+  /** En la última ingesta traía 100 pistas o más: Spotify corta ahí y puede haber más sin leer. */
+  possibly_truncated: boolean;
 };
 
 function modeLabel(m: "default" | "all") {
@@ -115,7 +121,8 @@ export function PlaylistsClient({ playlists }: { playlists: PlaylistRow[] }) {
     const inactive = total - active;
     const modeAll = items.filter((p) => p.ingest_mode === "all").length;
     const modeDefault = total - modeAll;
-    return { total, active, inactive, modeAll, modeDefault };
+    const exhausted = items.filter((p) => p.is_active && p.exhausted_runs > 0).length;
+    return { total, active, inactive, modeAll, modeDefault, exhausted };
   }, [items]);
 
   const sensors = useSensors(
@@ -204,11 +211,34 @@ export function PlaylistsClient({ playlists }: { playlists: PlaylistRow[] }) {
                     {p.source_url}
                   </p>
                 )}
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {p.ingested_label
+                    ? `Última ingesta: ${p.ingested_label}`
+                    : "Sin ingesta registrada"}
+                </p>
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {statusBadge(p.is_active)}
                 {modeBadge(p.ingest_mode)}
+                {p.exhausted_runs > 0 && (
+                  <Badge
+                    className="bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                    title="Todo lo que trae ya está en el catálogo: conviene sustituirla"
+                  >
+                    {p.exhausted_runs > 1
+                      ? `Agotada (${p.exhausted_runs} ingestas seguidas)`
+                      : "Agotada"}
+                  </Badge>
+                )}
+                {p.possibly_truncated && (
+                  <Badge
+                    variant="secondary"
+                    title="Spotify devuelve como mucho 100 pistas por playlist: puede haber más sin leer"
+                  >
+                    ≥ 100 pistas
+                  </Badge>
+                )}
               </div>
             </div>
 
@@ -345,6 +375,11 @@ export function PlaylistsClient({ playlists }: { playlists: PlaylistRow[] }) {
             <Badge variant="destructive" className="dark:bg-destructive/40">
               Inactivas: {stats.inactive}
             </Badge>
+            {stats.exhausted > 0 && (
+              <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                Agotadas: {stats.exhausted}
+              </Badge>
+            )}
             <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-300">
               Todas: {stats.modeAll}
             </Badge>

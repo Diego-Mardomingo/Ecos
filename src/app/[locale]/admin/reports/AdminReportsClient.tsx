@@ -20,7 +20,6 @@ import {
 
 const REASON_LABELS: Record<string, string> = {
   bad_audio: "Audio defectuoso",
-  wrong_video: "Vídeo incorrecto",
   intro_problem: "Problema con intro",
   explicit_content: "Contenido explícito",
   other: "Otro",
@@ -45,7 +44,7 @@ function getFeedbackBadgeClass(type: string): string {
   }
 }
 
-export type ReportItem = {
+type ReportItem = {
   id: string;
   reason: string;
   description: string | null;
@@ -54,7 +53,7 @@ export type ReportItem = {
   ecos_songs: { title: string; artist_name: string } | null;
 };
 
-export type FeedbackItem = {
+type FeedbackItem = {
   id: string;
   type: string;
   message: string;
