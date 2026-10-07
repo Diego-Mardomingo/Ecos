@@ -98,7 +98,7 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
           });
           if (!error) {
             // Recarga completa de esta misma página (conserva `?redirect=`): el servidor ya ve la
-            // sesión y redirige al destino.
+            // sesión y redirige al destino, o antes al onboarding si falta el nombre de usuario.
             window.location.reload();
           } else {
             throw error;

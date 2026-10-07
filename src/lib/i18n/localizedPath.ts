@@ -6,3 +6,15 @@ export function localizedPath(locale: string, pathname: string): string {
   if (locale === routing.defaultLocale) return path;
   return `/${locale}${path}`;
 }
+
+/**
+ * Locale de una ruta interna según su prefijo (`/en/play` → `en`). Sin prefijo, el locale por
+ * defecto. Para los sitios que no tienen el locale de la petición, como el callback de OAuth.
+ */
+export function localeFromPath(path: string): string {
+  const pathname = path.split(/[?#]/, 1)[0];
+  const match = routing.locales.find(
+    (locale) => pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)
+  );
+  return match ?? routing.defaultLocale;
+}

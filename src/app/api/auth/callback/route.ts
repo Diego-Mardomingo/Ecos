@@ -5,6 +5,8 @@ import {
   LOGIN_REDIRECT_COOKIE,
   LOGIN_REDIRECT_COOKIE_PATH,
 } from "@/lib/auth/safeRedirectPath";
+import { resolvePostLoginPath } from "@/lib/auth/postLoginPath";
+import { localeFromPath, localizedPath } from "@/lib/i18n/localizedPath";
 
 /**
  * Vuelta del login con Google (OAuth + PKCE). Canjea el código por la sesión, que escribe las
@@ -20,15 +22,16 @@ export async function GET(request: NextRequest) {
     getSafeRedirectTarget(searchParams.get("next")) ??
     getSafeRedirectTarget(request.cookies.get(LOGIN_REDIRECT_COOKIE)?.value) ??
     "/";
+  const locale = localeFromPath(target);
 
-  let destination = "/login?error=auth_failed";
+  let destination = `${localizedPath(locale, "/login")}?error=auth_failed`;
 
   if (code) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!error) {
-      destination = target;
+    if (!error && data.user) {
+      destination = await resolvePostLoginPath(supabase, data.user.id, target, locale);
     }
   }
 
