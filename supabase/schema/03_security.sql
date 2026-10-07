@@ -226,3 +226,43 @@ create policy ecos_ranking_broadcast_receive
     realtime.messages.extension = 'broadcast'
     and (select realtime.topic()) = 'ecos:ranking'
   );
+
+-- ---------------------------------------------------------------------------------------------
+-- Storage: bucket `avatars` (DOC-17)
+--
+-- Fotos de perfil. Las sube el propio navegador con el cliente de cookies (EditProfileClient.tsx),
+-- siempre a `<user_id>/avatar.<ext>` y con `upsert: true`, de ahí que haga falta INSERT y UPDATE.
+-- Creado con las migraciones de Supabase `create_avatars_bucket` y `avatars_storage_policies`; se
+-- versiona aquí porque `storage` es un esquema de la plataforma y el volcado del resto no lo cubre.
+--
+-- Bucket público: las imágenes se sirven por URL pública, sin pasar por la RLS. La política de
+-- lectura de abajo solo afecta a listar/descargar por la API de Storage.
+-- Límites que impone el servidor: 2 MiB y jpeg/png/webp (el cliente los comprueba antes también).
+-- ---------------------------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 2097152, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do nothing;
+
+-- Escritura: solo dentro de la carpeta del propio usuario (`<auth.uid()>/…`).
+create policy "Users can upload own avatar" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (auth.uid())::text
+  );
+
+create policy "Users can update own avatar" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (auth.uid())::text
+  );
+
+create policy "Public read avatars" on storage.objects
+  for select to public
+  using (bucket_id = 'avatars');
+
+-- No hay política de DELETE: un usuario no puede borrar su foto, solo sustituirla. Si cambia de
+-- formato (png -> webp) la anterior queda huérfana en el bucket. Conocido y aceptado; a revisar
+-- si algún día se añade «quitar foto».
