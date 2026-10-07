@@ -38,5 +38,12 @@ export function getSafeRedirectTarget(candidate: unknown): string | null {
   }
   if (url.origin !== FAKE_ORIGIN) return null;
 
-  return `${url.pathname}${url.search}${url.hash}`;
+  // La normalización de segmentos puede dejar dos barras al principio sin cambiar el origen
+  // ficticio (`/.//evil.com` o `/a/..//evil.com` → `//evil.com`), y eso fuera de aquí es una URL
+  // a otro host. Se revalida lo que se devuelve, no solo lo que entra.
+  const normalized = `${url.pathname}${url.search}${url.hash}`;
+  if (!normalized.startsWith("/") || normalized.startsWith("//") || normalized.startsWith("/\\")) {
+    return null;
+  }
+  return normalized;
 }
