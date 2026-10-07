@@ -21,7 +21,7 @@ import {
   queryKeys,
   type GameProgressData,
 } from "@/lib/hooks/queries";
-import { artistsMatch } from "@/lib/artist-match";
+import { evaluateGuess } from "@/lib/guess-match";
 import {
   ATTEMPT_DURATIONS,
   useGameStore,
@@ -476,17 +476,12 @@ export function GameClient({ game, userId }: Props) {
       if (!isGuest && syncInFlightRef.current) return;
 
       const guessText = `${song.title} - ${song.artist_name}`;
-      const isCorrect =
-        String(song.id) === String(game.ecos_songs.id) ||
-        song.title.toLowerCase().trim() ===
-          game.ecos_songs.title.toLowerCase().trim();
-
-      const normalize = (s: string) => s.toLowerCase().trim();
-      const correctArtist = artistsMatch(song.artist_name, game.ecos_songs.artist_name);
-      const correctAlbum =
-        song.album_title != null &&
-        game.ecos_songs.album_title != null &&
-        normalize(song.album_title) === normalize(game.ecos_songs.album_title);
+      // Misma regla que /api/validate-guess (src/lib/guess-match.ts).
+      const {
+        correct: isCorrect,
+        correctArtist,
+        correctAlbum,
+      } = evaluateGuess(song, game.ecos_songs);
 
       if (isCorrect) {
         /**
