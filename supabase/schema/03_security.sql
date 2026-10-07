@@ -201,3 +201,25 @@ revoke execute on function public.get_user_ranking_stats(uuid) from public, anon
 revoke execute on function public.get_user_avg_guesses(uuid) from public, anon;
 grant execute on function public.get_user_ranking_stats(uuid) to authenticated, service_role;
 grant execute on function public.get_user_avg_guesses(uuid) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------------------------
+-- Realtime: aviso de «el ranking ha cambiado» (D7, oct. 2026)
+--
+-- El servidor emite por Broadcast (canal privado `ecos:ranking`, sin datos) al cerrarse una
+-- partida, y /ranking escucha ese canal. No se publica ninguna tabla en `supabase_realtime`: la RLS
+-- de ecos_scores es propia y publicar ecos_leaderboard emitiría N eventos por partida y mantendría
+-- el sondeo del WAL. Ver src/lib/realtime/ranking-channel.ts.
+--
+-- Solo SELECT para anon/authenticated y solo en ese tema: nadie, salvo la service role del
+-- servidor, puede emitir. `realtime.messages` es de la plataforma; no tocar nada más de ella.
+-- Migración: supabase/migrations/20261007130000_ecos_ranking_broadcast.sql
+-- ---------------------------------------------------------------------------------------------
+
+create policy ecos_ranking_broadcast_receive
+  on realtime.messages
+  for select
+  to anon, authenticated
+  using (
+    realtime.messages.extension = 'broadcast'
+    and (select realtime.topic()) = 'ecos:ranking'
+  );
