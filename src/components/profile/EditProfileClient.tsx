@@ -11,14 +11,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { cn } from "@/lib/utils";
+import { avatarInitials } from "@/lib/display-name";
+import { resizeAvatar } from "@/lib/resize-avatar";
+import { USERNAME_MAX_LENGTH, USERNAME_REGEX } from "@/lib/username";
 
 const rise: Variants = {
   hidden: { opacity: 0, y: 14 },
   show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
 };
-
-// Permite letras, números, _, espacios y emojis (3-50 caracteres)
-const USERNAME_REGEX = /^[\p{L}\p{N}_ \p{Extended_Pictographic}]{3,50}$/u;
 
 interface Profile {
   id: string;
@@ -64,12 +64,12 @@ export function EditProfileClient({ profile }: Props) {
     setError(null);
     setUploading(true);
     const supabase = createClient();
-    const ext = file.name.split(".").pop() || "jpg";
-    const path = `${profile.id}/avatar.${ext}`;
+    const { blob, extension } = await resizeAvatar(file);
+    const path = `${profile.id}/avatar.${extension}`;
 
     const { error: uploadError } = await supabase.storage
       .from("avatars")
-      .upload(path, file, { upsert: true });
+      .upload(path, blob, { upsert: true, contentType: blob.type || file.type });
     setUploading(false);
 
     if (uploadError) {
@@ -78,7 +78,8 @@ export function EditProfileClient({ profile }: Props) {
     }
 
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-    setAvatarUrl(data.publicUrl);
+    // La ruta es siempre la misma: sin el parámetro, la CDN y el navegador enseñarían la foto anterior.
+    setAvatarUrl(`${data.publicUrl}?v=${Date.now()}`);
   };
 
   const handleSave = () => {
@@ -155,7 +156,7 @@ export function EditProfileClient({ profile }: Props) {
               <Avatar className="size-28">
                 <AvatarImage src={avatarUrl} />
                 <AvatarFallback className="bg-muted text-3xl font-bold">
-                  {(username || profile.display_name).slice(0, 2).toUpperCase()}
+                  {avatarInitials(username || profile.display_name)}
                 </AvatarFallback>
               </Avatar>
             </span>
@@ -184,7 +185,8 @@ export function EditProfileClient({ profile }: Props) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="mt-1 text-sm font-semibold text-brand transition-opacity hover:opacity-80"
+            // La zona táctil sube a ≥ 44 px con un pseudo-elemento, sin cambiar el aspecto (UX-12).
+            className="relative mt-1 text-sm font-semibold text-brand transition-opacity before:absolute before:-inset-x-4 before:-inset-y-3.5 before:content-[''] hover:opacity-80"
           >
             {t("changeAvatar")}
           </button>
@@ -207,7 +209,7 @@ export function EditProfileClient({ profile }: Props) {
                 setError(null);
               }}
               placeholder={t("usernamePlaceholder")}
-              maxLength={50}
+              maxLength={USERNAME_MAX_LENGTH}
               aria-invalid={error ? true : undefined}
               className="h-12 w-full rounded-2xl border border-border bg-background pl-11 pr-11 text-base outline-none transition-[border-color,box-shadow] focus:border-brand/60 focus:shadow-[0_0_0_4px_color-mix(in_srgb,var(--brand)_14%,transparent)]"
             />
