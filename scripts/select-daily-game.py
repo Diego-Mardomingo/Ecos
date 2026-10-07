@@ -284,10 +284,16 @@ def main() -> None:
                 log.warning("El juego de %s ya lo creó otra ejecución", target_date)
                 continue
 
+        # El repo es público y con él los logs de Actions: fuera de la simulación, el título y el
+        # artista de un reto futuro solo van a ecos_system_logs (que solo lee el admin).
+        song_label = (
+            f"{(song.get('title') or '')[:40]} / {(song.get('artist_name') or '')[:30]}"
+            if dry_run
+            else f"canción {song['id']}"
+        )
         log.info(
-            "Ecos #%d para %s: %s / %s (regla %s, %d candidatos de %d disponibles)",
-            number, target_date, (song.get("title") or "")[:40], (song.get("artist_name") or "")[:30],
-            pick.rule, pick.candidates, pick.pool_size,
+            "Ecos #%d para %s: %s (regla %s, %d candidatos de %d disponibles)",
+            number, target_date, song_label, pick.rule, pick.candidates, pick.pool_size,
         )
 
         # Estado local para que la siguiente fecha no repita canción y aplique las reglas 2-5
