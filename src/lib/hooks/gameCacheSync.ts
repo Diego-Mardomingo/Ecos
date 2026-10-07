@@ -44,71 +44,6 @@ function normalizeCoverUrl(coverUrl: string | null | undefined): string {
   return coverUrl ?? "";
 }
 
-function guessCountFromInProgress(
-  p: InProgressProgress | null | undefined
-): number {
-  return p?.guesses?.length ?? 0;
-}
-
-/**
- * No sustituir day-status en caché si el nuevo snapshot (p. ej. RSC) trae menos intentos
- * que lo ya sincronizado tras jugar en /play.
- */
-export function primeHomeDayStatusCache(
-  queryClient: QueryClient,
-  previousDays: PreviousDayGame[],
-  inProgressByGameId?: Record<string, InProgressProgress>
-) {
-  for (const day of previousDays) {
-    const incomingInProgress = inProgressByGameId?.[day.id] ?? null;
-    const existing = queryClient.getQueryData<HomeDayStatusData>(
-      queryKeys.home.dayStatus(day.id)
-    );
-
-    let resolvedInProgress: InProgressProgress | null = incomingInProgress;
-    if (day.played) {
-      resolvedInProgress = null;
-    } else if (existing?.inProgress) {
-      const existingN = guessCountFromInProgress(existing.inProgress);
-      const incomingN = guessCountFromInProgress(incomingInProgress);
-      if (incomingInProgress == null && existingN > 0) {
-        resolvedInProgress = existing.inProgress;
-      } else if (existingN > incomingN) {
-        resolvedInProgress = existing.inProgress;
-      }
-    }
-
-    /**
-     * Protege contra downgrade por payload mensual stale:
-     * si ya teníamos este día como completado y entra "no jugado", mantener completado.
-     */
-    const keepExistingCompletion = Boolean(existing?.played && !day.played);
-
-    const status: HomeDayStatusData = keepExistingCompletion
-      ? {
-          gameId: day.id,
-          played: true,
-          won: existing?.won ?? day.won,
-          score: existing?.score ?? day.score,
-          title: existing?.title ?? day.title,
-          artist_name: existing?.artist_name ?? day.artist_name,
-          cover_url: existing?.cover_url ?? day.cover_url,
-          inProgress: null,
-        }
-      : {
-          gameId: day.id,
-          played: day.played,
-          won: day.won,
-          score: day.score,
-          title: day.title,
-          artist_name: day.artist_name,
-          cover_url: day.cover_url,
-          inProgress: resolvedInProgress,
-        };
-    queryClient.setQueryData(queryKeys.home.dayStatus(day.id), status);
-  }
-}
-
 function applyOptimisticInProgressCaches(
   queryClient: QueryClient,
   input: {
@@ -499,22 +434,16 @@ export function primePlayQueriesFromHomeInitialData(
 }
 
 /**
- * Lleva el estado de un día (`dayStatus`) a un bloque de días anteriores en caché: la fila del
- * día y su entrada en `inProgressByGameId`.
- *
- * `patchWhenDayMissing` distingue los dos bloques que lo usan. El agregado de todo el histórico
- * apunta la partida en curso aunque el día no esté en su lista; el bloque de un mes, si el día no
- * es suyo, no se toca. Es lo que hacían las dos copias que había antes de esta función.
+ * Lleva el estado de un día (`dayStatus`) al histórico en caché: la fila del día, si está, y su
+ * entrada en `inProgressByGameId` (que se apunta aunque el día no esté en la lista).
  */
 function patchPreviousDaysBlock(
   prev: HomePreviousDaysData | undefined,
   gameId: string,
-  dayStatus: HomeDayStatusData,
-  patchWhenDayMissing: boolean
+  dayStatus: HomeDayStatusData
 ): HomePreviousDaysData | undefined {
   if (!prev?.previousDays) return prev;
   const idx = prev.previousDays.findIndex((d) => d.id === gameId);
-  if (idx < 0 && !patchWhenDayMissing) return prev;
 
   let nextDays = prev.previousDays;
   if (idx >= 0) {
@@ -560,18 +489,8 @@ function patchHomePreviousDaysAllFromDayStatus(
 
   queryClient.setQueryData(
     queryKeys.home.previousDaysAll(userId),
-    (prev: HomePreviousDaysData | undefined) =>
-      patchPreviousDaysBlock(prev, gameId, dayStatus, true)
+    (prev: HomePreviousDaysData | undefined) => patchPreviousDaysBlock(prev, gameId, dayStatus)
   );
-
-  const monthKey = getMonthKeyForGameFromCaches(queryClient, userId, gameId);
-  if (monthKey) {
-    queryClient.setQueryData(
-      queryKeys.home.previousDays(monthKey, userId),
-      (prev: HomePreviousDaysData | undefined) =>
-        patchPreviousDaysBlock(prev, gameId, dayStatus, false)
-    );
-  }
 }
 
 /**
@@ -581,8 +500,8 @@ function patchHomePreviousDaysAllFromDayStatus(
  * `QueryCache`, y la próxima jugada o la vuelta a la home vuelven a pedir lo mismo.
  *
  * Todo en paralelo y solo lo necesario:
- * - progreso de la partida y estado del día; con este último se parchean los días anteriores,
- *   también el mes en caché (pedir el mes entero otra vez sobraba);
+ * - progreso de la partida y estado del día; con este último se parchea el histórico en caché
+ *   (pedirlo entero otra vez sobraba);
  * - `home.today`, solo si la partida es la de hoy;
  * - al terminar, ranking, perfil y estadísticas: `invalidateQueries` ya vuelve a pedir las que
  *   están activas, así que no hace falta un `refetchQueries` detrás (las pedía dos veces).
@@ -641,37 +560,4 @@ export async function syncQueriesAfterGameEvent(
   }
 
   await Promise.allSettled(tasks);
-}
-
-/**
- * Resuelve YYYY-MM del juego para invalidar solo la query mensual afectada,
- * sin disparar refetch de todos los meses prefetcheados en caché.
- */
-function getMonthKeyForGameFromCaches(
-  queryClient: QueryClient,
-  userId: string | null,
-  gameId: string
-): string | null {
-  if (userId) {
-    const all = queryClient.getQueryData<HomePreviousDaysData>(
-      queryKeys.home.previousDaysAll(userId)
-    );
-    const fromAll = all?.previousDays?.find((d) => d.id === gameId);
-    if (fromAll?.date) return fromAll.date.slice(0, 7);
-  }
-  const today = userId
-    ? queryClient.getQueryData<HomeTodayData>(queryKeys.home.today(userId))
-    : undefined;
-  if (today?.todaysGame?.id === gameId && today.todaysGame.date) {
-    return today.todaysGame.date.slice(0, 7);
-  }
-  const monthlyEntries = queryClient.getQueriesData<HomePreviousDaysData>({
-    queryKey: ["home", "previous-days"],
-    exact: false,
-  });
-  for (const [, data] of monthlyEntries) {
-    const hit = data?.previousDays?.find((d) => d.id === gameId);
-    if (hit?.date) return hit.date.slice(0, 7);
-  }
-  return null;
 }

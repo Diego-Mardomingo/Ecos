@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { getEffectiveGameDate, monthBounds, shiftMonthKey } from "@/lib/date-utils";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 import {
   fetchInProgressGames,
   fetchUserScores,
@@ -131,56 +131,5 @@ export async function loadHomeToday({
     todaysCompletedResult: getTodaysCompletedResult(todaysGame, scores),
     todaysInProgress: todaysGame ? (inProgress[todaysGame.id] ?? null) : null,
     userId: user.id,
-  };
-}
-
-export interface HomeMonthPayload {
-  previousDays: PreviousDayGame[];
-  inProgressByGameId: Record<string, InProgressProgress>;
-  userId: string | null;
-  month: string;
-  nextMonth: string | null;
-  hasMoreOlder: boolean;
-}
-
-/**
- * Días pasados de un mes (`YYYY-MM`) para el archivo de la home. `null` si el mes no es válido.
- * `nextMonth` es el mes anterior (el siguiente que hay que pedir hacia atrás), si queda alguno.
- */
-export async function loadHomeMonth({
-  supabase,
-  user,
-  month,
-}: {
-  supabase: SupabaseClient;
-  user: User | null;
-  month: string;
-}): Promise<HomeMonthPayload | null> {
-  const bounds = monthBounds(month);
-  if (!bounds) return null;
-
-  const today = getEffectiveGameDate();
-  // Solo días pasados: el de hoy no es del archivo (ni sus partidas a medias).
-  const range = { from: bounds.start, to: bounds.end < today ? bounds.end : today };
-
-  const [past, scores, inProgressByGameId] = await Promise.all([
-    getPastGamesCached(today),
-    user ? fetchUserScores(supabase, user.id, range) : Promise.resolve(null),
-    user
-      ? fetchInProgressGames(supabase, user.id, { ...range, upTo: today })
-      : Promise.resolve({}),
-  ]);
-
-  // El calendario va del más reciente al más antiguo: el último es el primer juego de todos.
-  const oldest = past[past.length - 1];
-  const hasMoreOlder = oldest != null && oldest.date < bounds.start;
-
-  return {
-    previousDays: toPreviousDays(past, scores, range),
-    inProgressByGameId,
-    userId: user?.id ?? null,
-    month,
-    nextMonth: hasMoreOlder ? shiftMonthKey(month, -1) : null,
-    hasMoreOlder,
   };
 }

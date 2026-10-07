@@ -1,7 +1,6 @@
 import type {
   GameProgressData,
   HomeDayStatusData,
-  HomePreviousDaysData,
   HomeTodayData,
   HomeUserStatsData,
   ProfileCoreData,
@@ -65,17 +64,6 @@ export async function fetchProfileCoreData(): Promise<ProfileCoreData> {
 export async function fetchProfileStatsData(): Promise<ProfileStatsData> {
   const res = await fetch("/api/profile/stats");
   if (!res.ok) throw new Error("Failed to fetch profile stats");
-  return res.json();
-}
-
-export async function fetchHomePreviousDaysData(
-  month: string
-): Promise<HomePreviousDaysData> {
-  const res = await fetch(
-    `/api/home/previous-days?month=${encodeURIComponent(month)}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) throw new Error("Failed to fetch previous days");
   return res.json();
 }
 

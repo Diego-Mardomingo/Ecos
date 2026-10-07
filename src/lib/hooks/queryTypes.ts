@@ -44,9 +44,6 @@ export interface HomeTodayData {
 export interface HomePreviousDaysData {
   previousDays: PreviousDayGame[];
   userId: string | null;
-  month?: string;
-  nextMonth?: string | null;
-  hasMoreOlder?: boolean;
   inProgressByGameId?: Record<string, InProgressProgress>;
 }
 

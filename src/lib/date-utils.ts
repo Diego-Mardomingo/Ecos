@@ -66,16 +66,6 @@ export function shiftMonthKey(monthKey: string, delta: number): string | null {
 }
 
 /**
- * Límites de un mes `YYYY-MM` como fechas calendario: `start` es el día 1 (incluido) y `end` el
- * día 1 del mes siguiente (excluido). `null` si la clave no es válida.
- */
-export function monthBounds(monthKey: string): { start: string; end: string } | null {
-  const next = shiftMonthKey(monthKey, 1);
-  if (!next) return null;
-  return { start: `${monthKey}-01`, end: `${next}-01` };
-}
-
-/**
  * Offset (ms) de Madrid respecto a UTC en el instante `utcMs`.
  * Positivo = Madrid va por delante de UTC (verano +2h, invierno +1h).
  */
