@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 /** Máximo de veces que se puede cerrar el modal sin activar notificaciones; luego no se vuelve a mostrar. */
-export const NOTIFICATIONS_MODAL_MAX_DISMISSES = 3;
+const NOTIFICATIONS_MODAL_MAX_DISMISSES = 3;
 
 interface PushStatusResponse {
   modal_dismiss_count: number;

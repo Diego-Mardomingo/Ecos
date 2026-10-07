@@ -423,6 +423,7 @@
   },
   "notifications": {
     "modalTitle": "Activa las notificaciones",
+    "resultOfferTitle": "¿Te avisamos mañana?",
     "modalDescription": "Te avisaremos cuando salga el reto del día para que no se te escape ninguna canción.",
     "modalToggleLabel": "Recibir notificaciones diarias",
     "modalDismiss": "Ahora no",
