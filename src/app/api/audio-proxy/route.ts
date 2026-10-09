@@ -4,7 +4,10 @@ import { getEffectiveGameDate } from "@/lib/date-utils";
 import { isUuid } from "@/lib/api/route";
 
 /**
- * Proxy de audio para el preview de Spotify.
+ * Proxy de audio para el preview de Spotify. **Temporal**: el reproductor ya no lo usa (descarga
+ * el MP3 directo del CDN con `/api/audio-url`). Se queda un despliegue solo para las pestañas que
+ * sigan con el JS anterior, y sirve los bytes en vez de redirigir porque la CSP de esas páginas
+ * (`media-src 'self' blob:`) bloquearía el salto a p.scdn.co. Borrarlo en la fase siguiente.
  *
  * Sirve el fragmento sin exponer la URL del CDN al cliente. Solo acepta un `gameId` y solo de un
  * día que ya haya llegado en Madrid: el selector crea los juegos con dos días de antelación y,

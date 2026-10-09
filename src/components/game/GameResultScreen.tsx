@@ -81,6 +81,8 @@ const ResultGameView = memo(function ResultGameView({
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   const [audioFailed, setAudioFailed] = useState(false);
+  /** El resolvedor dice que la partida no tiene audio (además de `!song.preview_url`). */
+  const [audioUnavailable, setAudioUnavailable] = useState(false);
   /** Segundo completo transcurrido: el reloj solo cambia una vez por segundo. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
@@ -127,7 +129,7 @@ const ResultGameView = memo(function ResultGameView({
               playing: audioPlaying,
               loaded: audioLoaded,
               failed: audioFailed,
-              unavailable: !song.preview_url,
+              unavailable: !song.preview_url || audioUnavailable,
               retry: retryAudio,
               elapsedSeconds,
               toggle: togglePlay,
@@ -139,12 +141,13 @@ const ResultGameView = memo(function ResultGameView({
       </div>
       <AudioPlayer
         ref={resultAudioPlayerRef}
-        previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
+        gameId={song.preview_url ? game.id : undefined}
         maxDuration={FULL_PREVIEW_SECONDS}
         onTimeUpdate={handleAudioTimeUpdate}
         onPlayingChange={setAudioPlaying}
         onLoadedChange={setAudioLoaded}
         onErrorChange={setAudioFailed}
+        onUnavailableChange={setAudioUnavailable}
         onEnded={() => {
           handleAudioTimeUpdate(0);
           setTimeout(() => handleAudioTimeUpdate(0), 150);

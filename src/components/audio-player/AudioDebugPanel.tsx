@@ -18,7 +18,7 @@ import {
 function formatPlay(play: AudioDebugPlay): string {
   const deviation =
     play.wallPlayed !== null ? `${Math.round((play.wallPlayed - play.expected) * 1000)} ms` : "-";
-  return `${play.expected} s · toque→sonido ${play.tapToPlayingMs ?? "-"} ms · cabezal ${play.mediaPlayed ?? "-"} s · reloj ${play.wallPlayed ?? "-"} s (${deviation})`;
+  return `${play.expected} s · toque→sonido ${play.tapToSoundMs ?? "-"} ms (playing ${play.tapToPlayingMs ?? "-"}) · cabezal ${play.mediaPlayed ?? "-"} s · reloj ${play.wallPlayed ?? "-"} s (${deviation})`;
 }
 
 async function copyReport(text: string): Promise<boolean> {

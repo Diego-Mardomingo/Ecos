@@ -80,6 +80,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const [audioLoaded, setAudioLoaded] = useState(false);
   /** La carga del audio ha fallado (red, proxy caído…): el botón de play pasa a reintentar. */
   const [audioFailed, setAudioFailed] = useState(false);
+  /** El resolvedor dice que la partida no tiene audio (además de `!song.preview_url`). */
+  const [audioUnavailable, setAudioUnavailable] = useState(false);
   const loginHref = useLoginHref();
   /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -89,6 +91,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const reduceMotion = useReducedMotionConfig();
   const song = game.ecos_songs;
   const currentAttempt = Math.min(guesses.length + 1, maxAttempts);
+  const noAudio = !song.preview_url || audioUnavailable;
 
   /**
    * `onTimeUpdate` llega en cada requestAnimationFrame. Guardarlo en estado re-renderizaría toda
@@ -250,7 +253,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
               unavailable: t("noAudio"),
             }}
             failed={audioFailed}
-            unavailable={!song.preview_url}
+            unavailable={noAudio}
             onRetry={() => playerRef.current?.retry()}
           />
         </div>
@@ -262,17 +265,18 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       <div className={cn("transition-[padding]", KEYBOARD_TRANSITION, keyboardOpen ? "pb-3" : "pb-8")}>
         <AudioPlayer
           ref={playerRef}
-          previewUrl={song.preview_url ? `/api/audio-proxy?gameId=${game.id}` : undefined}
+          gameId={song.preview_url ? game.id : undefined}
           maxDuration={audioDuration}
           onTimeUpdate={handleAudioTimeUpdate}
           onPlayingChange={setAudioPlaying}
           onLoadedChange={setAudioLoaded}
           onErrorChange={setAudioFailed}
+          onUnavailableChange={setAudioUnavailable}
           hideControls
         />
         {/* Sin audio la partida es a ciegas: quien tiene sesión puede avisar ya, sin esperar al
             resultado (UX-06). */}
-        {!isGuest && (audioFailed || !song.preview_url) && (
+        {!isGuest && (audioFailed || noAudio) && (
           <div className="mt-1 flex justify-center">
             <ReportSongDialog gameId={game.id} songId={song.id} trigger={<ReportSongTrigger />} />
           </div>

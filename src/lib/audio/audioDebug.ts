@@ -6,8 +6,8 @@
  * y dura lo que la pestaña (`sessionStorage`); `?audioDebug=0` lo apaga. Desactivado, todas las
  * funciones de registro salen en la primera línea: no cuesta nada al resto de usuarios.
  *
- * El reproductor solo avisa de tres cosas (se crea un `<audio>`, se pide play, se para); los
- * eventos del elemento y las descargas se recogen aquí.
+ * El reproductor solo avisa de cuatro cosas (se crea un `<audio>`, se pide play, el cabezal
+ * empieza a avanzar de verdad, se para); los eventos del elemento y las descargas se recogen aquí.
  */
 
 const STORAGE_KEY = "ecos_audio_debug";
@@ -61,9 +61,14 @@ export interface AudioDebugPlay {
   startAt: number;
   /** Del toque (petición de play) al evento `playing`. */
   tapToPlayingMs: number | null;
+  /**
+   * Del toque al primer avance real del cabezal: es lo que se oye. En iOS el evento `playing`
+   * llega unos 400 ms antes de que el cabezal se mueva.
+   */
+  tapToSoundMs: number | null;
   /** Avance del cabezal entre el play y la parada, en segundos. */
   mediaPlayed: number | null;
-  /** Tiempo de reloj entre `playing` y la pausa, en segundos. */
+  /** Tiempo de reloj entre el arranque real (o `playing`, si no se midió) y la pausa, en segundos. */
   wallPlayed: number | null;
 }
 
@@ -99,6 +104,9 @@ interface PendingPlay {
   startAt: number;
   tapAt: number;
   playingAt: number | null;
+  /** Instante en que se detectó el primer avance del cabezal, y la posición en que estaba. */
+  soundAt: number | null;
+  soundPos: number;
   pausedAt: number | null;
 }
 const pendingPlays = new WeakMap<HTMLAudioElement, PendingPlay>();
@@ -118,6 +126,13 @@ function round(value: number, decimals = 0): number {
 function gameLabel(src: string): string {
   const match = /gameId=([0-9a-f-]{8})/i.exec(src);
   return match ? match[1] : src.slice(-8);
+}
+
+/** Qué se anota de la fuente: una URL `blob:` o directa no lleva el id, y la del CDN sobra entera. */
+function describeSrc(src: string): string {
+  if (src.startsWith("blob:")) return "blob";
+  if (/^https?:\/\//.test(src)) return `directo ${new URL(src).host}`;
+  return src.split("?")[0];
 }
 
 function readEnabled(): boolean {
@@ -242,13 +257,14 @@ function startResourceObserver() {
 
 /**
  * Engancha el diagnóstico a un `<audio>` recién creado. Devuelve la función que lo suelta, para
- * la limpieza del efecto que lo creó.
+ * la limpieza del efecto que lo creó. Con una URL `blob:` no hay `gameId=` que leer, así que el
+ * reproductor pasa la etiqueta de la partida (los 8 primeros caracteres del id).
  */
-export function attachAudioDebug(audio: HTMLAudioElement, src: string): () => void {
+export function attachAudioDebug(audio: HTMLAudioElement, src: string, label?: string): () => void {
   if (!isAudioDebugEnabled()) return () => {};
   startResourceObserver();
 
-  const game = gameLabel(src);
+  const game = label ?? gameLabel(src);
   const load: AudioDebugLoad = {
     game,
     createdAt: performance.now(),
@@ -259,7 +275,7 @@ export function attachAudioDebug(audio: HTMLAudioElement, src: string): () => vo
   };
   loadIndexByAudio.set(audio, load);
   emit({ ...state, loads: [load, ...state.loads].slice(0, MAX_PLAYS) });
-  audioDebugLog(game, "creado", src.split("?")[0]);
+  audioDebugLog(game, "creado", describeSrc(src));
 
   const handlers = MEDIA_EVENTS.map((name) => {
     const handler = () => onMediaEvent(audio, game, name);
@@ -282,8 +298,23 @@ export function audioDebugPlayRequested(audio: HTMLAudioElement, startAt: number
     startAt,
     tapAt: performance.now(),
     playingAt: null,
+    soundAt: null,
+    soundPos: startAt,
     pausedAt: null,
   });
+}
+
+/**
+ * El cabezal ha avanzado por primera vez desde el play: ahí empieza a sonar de verdad. Se llama
+ * al detectarlo (un fotograma después, como mucho), así que se anota también la posición en que
+ * estaba para descontar ese avance al calcular el arranque.
+ */
+export function audioDebugSoundStarted(audio: HTMLAudioElement) {
+  if (!isAudioDebugEnabled()) return;
+  const pending = pendingPlays.get(audio);
+  if (!pending || pending.soundAt !== null) return;
+  pending.soundAt = performance.now();
+  pending.soundPos = audio.currentTime;
 }
 
 /**
@@ -302,13 +333,21 @@ export function audioDebugStopped(audio: HTMLAudioElement) {
     pending.pausedAt !== null && pending.playingAt !== null && pending.pausedAt > pending.playingAt
       ? pending.pausedAt
       : now;
+  // Arranque real: el primer avance del cabezal, retrocediendo lo que ya había avanzado al
+  // detectarlo (a ritmo de reloj). Sin esa medida, el evento `playing`, como antes.
+  const soundStart =
+    pending.soundAt !== null
+      ? pending.soundAt - (pending.soundPos - pending.startAt) * 1000
+      : pending.playingAt;
   const play: AudioDebugPlay = {
     game: pending.game,
     expected: pending.expected,
     startAt: round(pending.startAt, 3),
     tapToPlayingMs: pending.playingAt !== null ? round(pending.playingAt - pending.tapAt) : null,
+    tapToSoundMs:
+      pending.soundAt !== null && soundStart !== null ? Math.max(0, round(soundStart - pending.tapAt)) : null,
     mediaPlayed: round(audio.currentTime - pending.startAt, 3),
-    wallPlayed: pending.playingAt !== null ? round((stoppedAt - pending.playingAt) / 1000, 3) : null,
+    wallPlayed: soundStart !== null ? round((stoppedAt - soundStart) / 1000, 3) : null,
   };
   emit({ ...state, plays: [play, ...state.plays].slice(0, MAX_PLAYS) });
 }
@@ -327,10 +366,10 @@ export function formatAudioDebugReport(current: AudioDebugState): string {
       `${load.game} · metadata ${load.metadataMs ?? "-"} · loadeddata ${load.loadedDataMs ?? "-"} · canplaythrough ${load.canPlayThroughMs ?? "-"} · errores ${load.errors}`
     );
   }
-  lines.push("", "FRAGMENTOS (esperado · toque→sonido · cabezal · reloj)");
+  lines.push("", "FRAGMENTOS (esperado · toque→sonido real · toque→playing · cabezal · reloj)");
   for (const play of current.plays) {
     lines.push(
-      `${play.game} · ${play.expected} s desde ${play.startAt} · ${play.tapToPlayingMs ?? "-"} ms · ${play.mediaPlayed ?? "-"} s · ${play.wallPlayed ?? "-"} s`
+      `${play.game} · ${play.expected} s desde ${play.startAt} · ${play.tapToSoundMs ?? "-"} ms · ${play.tapToPlayingMs ?? "-"} ms · ${play.mediaPlayed ?? "-"} s · ${play.wallPlayed ?? "-"} s`
     );
   }
   lines.push("", "DESCARGAS");

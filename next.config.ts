@@ -18,7 +18,9 @@ const supabaseHost = new URL(supabaseUrl).hostname;
  * incluido) en claro y oscuro mirando la consola de la página y la del service worker, y volver a
  * la bloqueante solo sin violaciones.
  *
- * El audio sale de /api/audio-proxy, que es mismo origen: lo cubre el 'self' de media-src.
+ * El audio ya no pasa por mismo origen: el navegador resuelve la URL en /api/audio-url, baja el MP3
+ * directo del CDN con fetch() (connect-src, `audioHost`) y lo reproduce desde un Blob (media-src
+ * `blob:`). El CDN también va en media-src por el respaldo de URL directa en el <audio>.
  *
  * Orígenes, todos verificados en el código:
  *  - accounts.google.com  -> Google Identity Services (LoginClient.tsx): el script, su hoja
