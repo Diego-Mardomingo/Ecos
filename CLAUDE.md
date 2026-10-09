@@ -32,7 +32,7 @@ Misma canción para todos, 6 intentos, fragmento creciente (`ATTEMPT_DURATIONS` 
 - **El servidor decide intento y puntos**: `submitAttempt` (`ecos-finalize-helpers.ts`) registra la jugada y cierra la partida cuando la jugada decide. `MAX_ATTEMPTS`, `SKIPPED_GUESS_TEXT` y `resolveServerAttempt` están en `server-attempt.ts`.
 - **Reportes**: nunca desactivan canciones; a los 3 usuarios distintos dejan un aviso al admin.
 - **Hora de Madrid**: el día de juego sale de `getEffectiveGameDate()` (`src/lib/date-utils.ts`), única fuente de verdad. Usa sus helpers, no `new Date()`. Hay días de 23 y 25 h. El ranking semanal y mensual solo cuenta una partida completada dentro del periodo de su día (SQL, `supabase/schema/04_leaderboard.sql`).
-- **Juegos futuros**: existen hoy, mañana y pasado. Nada puede servir uno con `date > getEffectiveGameDate()`. Lo cubren la RLS de `ecos_games`, `loadPlayableGame` y `audio-proxy`; una ruta nueva con service role tiene que comprobarlo ella.
+- **Juegos futuros**: existen hoy, mañana y pasado. Nada puede servir uno con `date > getEffectiveGameDate()`. Lo cubren la RLS de `ecos_games`, `loadPlayableGame` y `audio-url`; una ruta nueva con service role tiene que comprobarlo ella.
 
 ## Supabase
 
@@ -54,7 +54,7 @@ Clientes: `client.ts` (navegador), `createClient()` (cookies, respeta RLS), `cre
 
 ## Autorización
 
-- **Proxy** (`src/proxy.ts`): 404 a `/admin` para no-admin y sesión más username en `/profile`. Refresca la sesión con `getUser()` **antes** de `intlMiddleware`, y toda respuesta sale por `withSession()`; si lo rompes, se pierden sesiones. Todo fichero nuevo en `public/` necesita excepción en su `matcher`.
+- **Proxy** (`src/proxy.ts`): 404 a `/admin` para no-admin y sesión más username en `/profile`. Refresca la sesión con `getUser()` **antes** de `intlMiddleware`, y toda respuesta sale por `withSession()`; si lo rompes, se pierden sesiones. Todo fichero nuevo en `public/` necesita excepción en su `matcher`, que deja fuera `/api/` (cada route handler resuelve su sesión).
 - **El proxy no es la frontera**: las Server Actions llegan por POST a cualquier ruta. Toda action llama a `requireAdmin()` y toda página de admin a `requireAdminPage()`, cada una por su cuenta.
 - **Sesión**: `getUser()`, nunca `getSession()`. `getClaims()` no ahorra nada, porque los JWT van firmados con HS256.
 - **Redirecciones**: solo con `getSafeRedirectTarget()`. El destino del login con Google va en la cookie `ecos_login_redirect`.
@@ -66,13 +66,13 @@ Clientes: `client.ts` (navegador), `createClient()` (cookies, respeta RLS), `cre
 - **Histórico de la home**: es una sola query (`home.previousDaysAll`), sembrada por el RSC. Las fusiones de `homeHelpers.ts` devuelven la misma referencia si nada cambia; si no, bucle infinito de renders.
 - **Persistencia en localStorage**: solo unas pocas queries (`shouldPersistQuery`). Sube **a mano** `QUERY_CACHE_VERSION` (`queryPersist.ts`) al cambiar la forma de una query persistida. `clearSessionScopedClientData` lo borra todo al cerrar sesión, también las cachés del service worker.
 - **Servidor**: lo que es igual para todos va en `unstable_cache` con service role o `createPublicClient()`. Lo del usuario no se cachea. Una ruta con `Cache-Control: public` **nunca** usa el cliente de cookies, o su `Set-Cookie` se queda en la CDN.
-- **Rutas API**: andamiaje de `src/lib/api/route.ts` y cuerpos con `readJsonBody`. El rate limit es una regla del firewall de Vercel, configurada a mano en el panel (no está en el repo).
+- **Rutas API**: andamiaje de `src/lib/api/route.ts` y cuerpos con `readJsonBody`. No hay rate limit configurado (el firewall de Vercel no tiene reglas; Hobby admite una si hiciera falta).
 
 ## Invitado, audio y fugas
 
 - **Dos ramas en `GameClient.tsx`**, la parte más delicada. El invitado guarda en localStorage (`gameProgressStore`) y el autenticado en la BD. El autenticado encola la jugada y `confirmMove` la reconcilia con la respuesta del servidor, que manda siempre. Toda regla nueva se prueba en las dos ramas.
 - **Fugas**: la canción **de hoy** viaja completa en `/play` (el invitado compara en local); es una decisión tomada. Al añadir campos a respuestas públicas, no filtres `preview_url`, `title`, `artist_name` ni `cover_url` de un reto no resuelto.
-- **Audio**: `preview_url` de Spotify vía `/api/audio-proxy?gameId=`, que oculta la URL del CDN pero no es una barrera de seguridad. Si se cae el scraping de previews, hay que recuperar una fuente de audio **y** relajar el filtro del pool (`is_eligible` y `MIN_PREVIEW_SECONDS` en `scripts/selection.py`).
+- **Audio**: `/api/audio-url?gameId=` devuelve las URL del `preview_url` de Spotify; el navegador baja el MP3 directo del CDN a un Blob en `audioStore` y `fragmentPlayer` lo reproduce con un `<audio>` nuevo por jugada, sin seeks ni rebobinados (en iOS cada seek cuesta ~300 ms de silencio). La URL del CDN no está oculta. `?audioDebug=1` mide. Si se cae el scraping de previews, hay que recuperar una fuente de audio **y** relajar el filtro del pool (`is_eligible` y `MIN_PREVIEW_SECONDS` en `scripts/selection.py`).
 
 ## Ranking en tiempo real
 
@@ -83,7 +83,7 @@ Broadcast privado de Supabase en el canal `ecos:ranking` (`src/lib/realtime/*`):
 - **i18n**: `next-intl`, español sin prefijo e inglés en `/en`. Navega con `src/i18n/navigation.ts`.
 - **Iconos**: subset autoalojado de Material Symbols. **Un icono nuevo exige regenerar la fuente** (pasos en `globals.css`) o sale como texto.
 - **Animaciones**: `m.*` dentro de `LazyMotion strict`; `motion` falla. Lo visible al cargar no puede depender de una entrada de framer: usa CSS (`animate-in`, `@starting-style`). `whileTap` en `div`/`span` lleva `tabIndex={-1}`. Nada de `animate()`/`useAnimate`.
-- **CSP bloqueante** en `next.config.ts`, con otra propia para el service worker. Mal ajustada, rompe el login sin avisar: cómo tocarla, en su comentario.
+- **CSP bloqueante** en `next.config.ts`, con otra propia para el service worker. El host del CDN de audio va en `connect-src` y `media-src`. Mal ajustada, rompe el login sin avisar: cómo tocarla, en su comentario.
 - **Service worker** (`src/app/sw.ts`, en `/serwist/sw.js`): solo guarda estáticos.
 - **SEO**: las partidas llevan `noindex`. Una página con `openGraph` usa `getPageSeo()`. No renombres `manifest.json`.
 
