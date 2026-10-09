@@ -18,10 +18,6 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.next();
-  }
-
   // Lo que el refresco de la sesión pide escribir. Va a dos sitios:
   // - A la petición, para que los Server Components de esta misma petición lean ya el token
   //   nuevo. Si leyeran el viejo, `getUser()` volvería a refrescar con un refresh token que
@@ -118,8 +114,14 @@ export async function proxy(request: NextRequest) {
   return withSession(intlMiddleware(request));
 }
 
+/**
+ * `/api/` queda fuera a propósito: ningún route handler depende de este proxy (cada uno resuelve su
+ * propia sesión con `getUser()` y no lee cabeceras ni el locale que ponen el refresco de sesión o
+ * next-intl), y así las peticiones de la API, sobre todo las de audio, no pagan una invocación del
+ * proxy. Antes entraban y salían en la primera línea con `NextResponse.next()`.
+ */
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icon0.svg|icon1.png|ecos_.*\\.png|web-app-manifest-.*\\.png|manifest.json|robots.txt|sitemap.xml|.*opengraph-image|serwist|~offline).*)",
+    "/((?!api/|_next/static|_next/image|favicon.ico|icon0.svg|icon1.png|ecos_.*\\.png|web-app-manifest-.*\\.png|manifest.json|robots.txt|sitemap.xml|.*opengraph-image|serwist|~offline).*)",
   ],
 };

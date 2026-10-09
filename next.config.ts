@@ -51,6 +51,14 @@ const imageHosts = [
   `https://${supabaseHost}`,
 ];
 
+/**
+ * CDN del audio. El navegador baja el MP3 con fetch() (connect-src) y, si eso falla, lo reproduce
+ * directo en <audio> (media-src). Va solo en la CSP de las páginas: el service worker no intercepta
+ * esas peticiones (solo atiende las reglas de `sw.ts`, y un MP3 de otro origen no casa con ninguna;
+ * va directo a la red), así que `swCsp` no lo necesita.
+ */
+const audioHost = "https://p.scdn.co";
+
 const isDev = process.env.NODE_ENV === "development";
 
 const csp = [
@@ -59,8 +67,8 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
   "font-src 'self' data:",
   ["img-src 'self' data: blob:", ...imageHosts].join(" "),
-  "media-src 'self' blob:",
-  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com`,
+  `media-src 'self' blob: ${audioHost}`,
+  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com ${audioHost}`,
   "frame-src https://accounts.google.com",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
