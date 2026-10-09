@@ -1,5 +1,6 @@
 import {
   attachAudioDebug,
+  audioDebugLog,
   audioDebugPlayRequested,
   audioDebugSoundStarted,
   audioDebugStopped,
@@ -15,8 +16,13 @@ import {
  *
  * - **Sin `seek` redundante.** Antes cada play hacía `currentTime = startAt` aunque ya estuviera ahí,
  *   y en iOS eso coincidía con ~400 ms entre el evento `playing` y el primer sonido. Ahora el
- *   cabezal se deja en su sitio al parar (pausando antes de rebobinar) y solo se toca si de verdad
- *   cambia (más de `SEEK_EPSILON`).
+ *   cabezal solo se toca si de verdad cambia (más de `SEEK_EPSILON`).
+ * - **Nunca se rebobina (con un Blob).** Medido en iPhone: tras parar y rebobinar con
+ *   `currentTime = 0`, el siguiente play pagaba ~290 ms de preroll aunque no hubiera `seek` justo
+ *   antes, y un elemento recién creado y sin tocar sonaba exacto. Así que cada play sale de un
+ *   `<audio>` nuevo: hay uno cargado y sin tocar, el play se hace en él y, al parar, el usado se
+ *   tira y su repuesto ocupa el sitio. Como mucho dos elementos vivos (más uno que se está
+ *   tirando). Con una URL directa, un elemento nuevo sería otra descarga: ahí se rebobina.
  * - **«Sonando» es que el cabezal avance**, no el evento `playing`. Entre `play()` y el primer
  *   avance el estado es `starting`; el progreso, `onPlayingChange(true)` y el temporizador de
  *   seguridad empiezan ahí.
@@ -76,9 +82,29 @@ function canWriteVolume(): boolean {
   return volumeWritable;
 }
 
+/** Un `<audio>` del reproductor con su estado de carga y sus oyentes. */
+interface Slot {
+  audio: HTMLAudioElement;
+  /** Nadie ha llamado a `play()` en él. Solo un `seekTo` con el audio parado lo ha podido tocar. */
+  fresh: boolean;
+  ready: boolean;
+  canPlayTimer: number | null;
+  disposed: boolean;
+  detachDebug: () => void;
+  removeListeners: () => void;
+}
+
 export class FragmentPlayer {
-  private readonly audio: HTMLAudioElement;
-  private readonly detachDebug: () => void;
+  /**
+   * El elemento sobre el que se hace play, seek y se mide. Parado, y con un Blob, es el repuesto
+   * (`fresh`): nuevo, cargado y sin tocar. Sonando es el que suena; si al parar el repuesto aún no
+   * estaba listo, se queda de respaldo (rebobinado) hasta que lo esté.
+   */
+  private cur: Slot;
+  /** Se carga mientras `cur` suena (o está de respaldo). Solo con una URL `blob:`. */
+  private next: Slot | null = null;
+  /** Con un Blob cada play sale de un elemento nuevo; con una URL directa se rebobina. */
+  private readonly useSpare: boolean;
   private readonly fadeEnabled: boolean;
   private disposed = false;
 
@@ -102,31 +128,97 @@ export class FragmentPlayer {
   private safetyTimer: number | null = null;
   private endCheckTimer: number | null = null;
   private startTimer: number | null = null;
-  private canPlayTimer: number | null = null;
   private fadeTimer: number | null = null;
   private endTimer: number | null = null;
 
   constructor(
-    src: string,
-    label: string,
+    private readonly src: string,
+    private readonly label: string,
     private readonly getContext: () => FragmentPlayerContext,
     private readonly events: FragmentPlayerEvents
   ) {
-    const audio = new Audio();
-    this.audio = audio;
     this.fadeEnabled = canWriteVolume();
+    this.useSpare = src.startsWith("blob:");
+    this.cur = this.createSlot();
+  }
+
+  /** El elemento activo: el que suena o sonará. */
+  private get audio(): HTMLAudioElement {
+    return this.cur.audio;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Elementos
+  // -------------------------------------------------------------------------------------------
+
+  private createSlot(): Slot {
+    const audio = new Audio();
     audio.preload = "auto";
+    const slot: Slot = {
+      audio,
+      fresh: true,
+      ready: false,
+      canPlayTimer: null,
+      disposed: false,
+      detachDebug: () => {},
+      removeListeners: () => {},
+    };
     // Antes de poner `src`, para que el diagnóstico vea `loadstart`.
-    this.detachDebug = attachAudioDebug(audio, src, label);
-    audio.addEventListener("canplay", this.onCanPlay);
-    audio.addEventListener("canplaythrough", this.onCanPlayThrough);
-    audio.addEventListener("error", this.onError);
-    audio.addEventListener("timeupdate", this.onTimeupdate);
-    audio.addEventListener("waiting", this.onWaiting);
-    audio.addEventListener("stalled", this.onWaiting);
-    audio.addEventListener("ended", this.onEndedNative);
-    audio.src = src;
+    slot.detachDebug = attachAudioDebug(audio, this.src, this.label);
+    // Lo que no es de carga solo cuenta si viene del activo: un elemento a medias de tirar o el
+    // repuesto no deben mover el cabezal, el progreso ni el fin del fragmento.
+    const handlers: Array<[string, () => void]> = [
+      ["canplay", () => this.onCanPlay(slot)],
+      ["canplaythrough", () => this.onCanPlayThrough(slot)],
+      ["error", () => this.onError(slot)],
+      ["timeupdate", () => this.onTimeupdate(slot)],
+      ["waiting", () => this.onWaiting(slot)],
+      ["stalled", () => this.onWaiting(slot)],
+      ["ended", () => this.onEndedNative(slot)],
+    ];
+    for (const [name, handler] of handlers) audio.addEventListener(name, handler);
+    slot.removeListeners = () => {
+      for (const [name, handler] of handlers) audio.removeEventListener(name, handler);
+    };
+    audio.src = this.src;
     audio.load();
+    return slot;
+  }
+
+  /** Suelta un elemento por completo: oyentes, diagnóstico y recursos del navegador. */
+  private disposeSlot(slot: Slot) {
+    if (slot.disposed) return;
+    slot.disposed = true;
+    if (slot.canPlayTimer !== null) {
+      clearTimeout(slot.canPlayTimer);
+      slot.canPlayTimer = null;
+    }
+    slot.removeListeners();
+    slot.detachDebug();
+    const audio = slot.audio;
+    // `removeAttribute` + `load()` y no `src = ""`: eso dispara un `error` y, en WebKit antiguo,
+    // hasta una petición a la propia página.
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+
+  /** Crea el repuesto si falta. Se llama cuando el arranque ya no depende de ello. */
+  private ensureSpare() {
+    if (this.disposed || !this.useSpare || this.next) return;
+    this.next = this.createSlot();
+  }
+
+  /** El repuesto, ya listo, pasa a ser el activo y el usado se tira sin rebobinarlo. */
+  private swapToSpare() {
+    const spare = this.next;
+    if (!spare || !spare.ready) return;
+    const old = this.cur;
+    this.cur = spare;
+    this.next = null;
+    this.disposeSlot(old);
+    // Un `seekTo` hecho en el respaldo hay que llevarlo al elemento nuevo (parado, sin más).
+    if (this.pendingStart > 0) this.seekElement(this.pendingStart);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -139,31 +231,53 @@ export class FragmentPlayer {
     this.events.loadedChange(loaded);
   }
 
+  /** Un elemento está listo: el activo habilita el botón; el repuesto, si toca, releva al respaldo. */
+  private markReady(slot: Slot) {
+    if (slot.disposed || slot.ready) return;
+    slot.ready = true;
+    if (slot === this.cur) {
+      this.setLoaded(true);
+      return;
+    }
+    // Parado y con un respaldo ya usado: se cambia ahora. Durante un fundido lo hará `settleFade`.
+    if (slot === this.next && !this.starting && !this.playing && !this.fading && !this.cur.fresh) {
+      this.swapToSpare();
+    }
+  }
+
   /**
    * «Listo» es `canplaythrough` (el navegador cree que puede llegar al final sin parar: con el MP3
    * ya en memoria llega enseguida). Si Safari no lo dispara para alguna fuente, `canplay` más
    * `CAN_PLAY_FALLBACK_MS` basta, para que el botón no gire para siempre.
    */
-  private onCanPlay = () => {
-    if (this.loaded || this.canPlayTimer !== null) return;
-    this.canPlayTimer = window.setTimeout(() => {
-      this.canPlayTimer = null;
-      this.setLoaded(true);
+  private onCanPlay(slot: Slot) {
+    if (slot.disposed || slot.ready || slot.canPlayTimer !== null) return;
+    slot.canPlayTimer = window.setTimeout(() => {
+      slot.canPlayTimer = null;
+      this.markReady(slot);
     }, CAN_PLAY_FALLBACK_MS);
-  };
+  }
 
-  private onCanPlayThrough = () => {
-    if (this.canPlayTimer !== null) {
-      clearTimeout(this.canPlayTimer);
-      this.canPlayTimer = null;
+  private onCanPlayThrough(slot: Slot) {
+    if (slot.canPlayTimer !== null) {
+      clearTimeout(slot.canPlayTimer);
+      slot.canPlayTimer = null;
     }
-    this.setLoaded(true);
-  };
+    this.markReady(slot);
+  }
 
-  private onError = () => {
-    if (this.canPlayTimer !== null) {
-      clearTimeout(this.canPlayTimer);
-      this.canPlayTimer = null;
+  private onError(slot: Slot) {
+    if (slot.disposed) return;
+    if (slot !== this.cur) {
+      // Falla el repuesto: el activo sigue sirviendo (rebobinando) y se pedirá otro en el próximo play.
+      if (slot === this.next) this.next = null;
+      this.disposeSlot(slot);
+      audioDebugLog(this.label, "repuesto", "error de carga, descartado");
+      return;
+    }
+    if (slot.canPlayTimer !== null) {
+      clearTimeout(slot.canPlayTimer);
+      slot.canPlayTimer = null;
     }
     this.release();
     this.clearMediaSession();
@@ -171,7 +285,7 @@ export class FragmentPlayer {
     this.events.startingChange(false);
     this.events.playingChange(false);
     this.events.error();
-  };
+  }
 
   // -------------------------------------------------------------------------------------------
   // Controles
@@ -230,6 +344,15 @@ export class FragmentPlayer {
     this.pendingStart = 0;
     audioDebugPlayRequested(audio, startAt, ctx.maxDuration);
 
+    // Elemento nuevo (Blob) o el mismo rebobinado (URL directa, o el repuesto aún no estaba listo).
+    const path = !this.useSpare
+      ? "URL directa, mismo elemento"
+      : this.cur.fresh
+        ? "elemento nuevo"
+        : "rebobinado (sin repuesto)";
+    this.cur.fresh = false;
+    audioDebugLog(this.label, "play", path);
+
     const needsSeek = Math.abs(audio.currentTime - startAt) > SEEK_EPSILON;
     if (needsSeek) audio.currentTime = startAt;
     this.playBase = needsSeek ? startAt : audio.currentTime;
@@ -267,6 +390,8 @@ export class FragmentPlayer {
     this.armSafety(position);
     this.events.startingChange(false);
     this.events.playingChange(true);
+    // Ya suena: crear el repuesto ahora no retrasa el arranque.
+    this.ensureSpare();
   }
 
   /** Parada pedida (toque, `stopIfPlaying`, fallo de arranque). No avisa de `onEnded`. */
@@ -282,7 +407,7 @@ export class FragmentPlayer {
     if (wasPlaying && this.fadeEnabled && !document.hidden) {
       this.fadeOutThenPause();
     } else {
-      this.pauseAndRewind();
+      this.parkActive();
     }
     this.getContext().onTimeUpdate?.(0);
   }
@@ -293,7 +418,7 @@ export class FragmentPlayer {
     this.release();
     audioDebugStopped(this.audio);
     // Corte seco: un fundido aquí alargaría el sonido más allá de `maxDuration`.
-    this.pauseAndRewind();
+    this.parkActive();
     this.events.startingChange(false);
     this.events.playingChange(false);
     this.clearMediaSession();
@@ -319,16 +444,26 @@ export class FragmentPlayer {
     this.clearTimer("endTimer");
   }
 
-  /** Pausa y, solo después, rebobina a 0: así el siguiente play arranca sin `seek`. */
-  private pauseAndRewind() {
+  /**
+   * Pausa el activo y lo deja listo para el siguiente play. Con un Blob y el repuesto listo, no se
+   * rebobina: se tira y el repuesto (nuevo, sin tocar) ocupa su sitio. Si el repuesto aún no está
+   * (o es una URL directa), se rebobina a 0, pausado antes, y se pide el repuesto si falta.
+   */
+  private parkActive() {
     const audio = this.audio;
     audio.pause();
+    if (this.useSpare && this.next?.ready) {
+      this.swapToSpare();
+      return;
+    }
     if (this.fadeEnabled) audio.volume = 1;
     if (audio.currentTime > SEEK_EPSILON) audio.currentTime = 0;
+    this.ensureSpare();
   }
 
   private fadeOutThenPause() {
     this.fading = true;
+    const audio = this.audio;
     const startedAt = performance.now();
     const step = () => {
       this.fadeTimer = null;
@@ -337,18 +472,18 @@ export class FragmentPlayer {
         this.settleFade();
         return;
       }
-      this.audio.volume = 1 - progress;
+      audio.volume = 1 - progress;
       this.fadeTimer = window.setTimeout(step, 4);
     };
     step();
   }
 
-  /** Termina un fundido a medias (pausa, rebobina y restaura el volumen) antes de seguir. */
+  /** Termina un fundido a medias (pausa y deja el elemento listo) antes de seguir. */
   private settleFade() {
     if (!this.fading) return;
     this.fading = false;
     this.clearTimer("fadeTimer");
-    this.pauseAndRewind();
+    this.parkActive();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -363,7 +498,9 @@ export class FragmentPlayer {
   };
 
   /** `timeupdate` respalda al rAF cuando el navegador lo ralentiza (pestaña en segundo plano). */
-  private onTimeupdate = () => this.tick(false);
+  private onTimeupdate(slot: Slot) {
+    if (slot === this.cur) this.tick(false);
+  }
 
   private tick(publish: boolean) {
     if (!this.starting && !this.playing) return;
@@ -422,14 +559,16 @@ export class FragmentPlayer {
   }
 
   /** `waiting`/`stalled`: el cabezal se ha parado, así que el temporizador no debe contar. */
-  private onWaiting = () => {
-    if (!this.playing || this.stalled) return;
+  private onWaiting(slot: Slot) {
+    if (slot !== this.cur || !this.playing || this.stalled) return;
     this.stalled = true;
     this.stallPos = this.audio.currentTime;
     this.clearSafety();
-  };
+  }
 
-  private onEndedNative = () => this.finish();
+  private onEndedNative(slot: Slot) {
+    if (slot === this.cur) this.finish();
+  }
 
   private cancelLoop() {
     if (this.raf !== null) {
@@ -439,7 +578,7 @@ export class FragmentPlayer {
   }
 
   private clearTimer(
-    name: "safetyTimer" | "endCheckTimer" | "startTimer" | "canPlayTimer" | "fadeTimer" | "endTimer"
+    name: "safetyTimer" | "endCheckTimer" | "startTimer" | "fadeTimer" | "endTimer"
   ) {
     const id = this[name];
     if (id !== null) {
@@ -508,23 +647,11 @@ export class FragmentPlayer {
     this.cancelLoop();
     this.clearSafety();
     this.clearTimer("startTimer");
-    this.clearTimer("canPlayTimer");
     this.clearTimer("fadeTimer");
     this.clearTimer("endTimer");
-    const audio = this.audio;
-    audio.removeEventListener("canplay", this.onCanPlay);
-    audio.removeEventListener("canplaythrough", this.onCanPlayThrough);
-    audio.removeEventListener("error", this.onError);
-    audio.removeEventListener("timeupdate", this.onTimeupdate);
-    audio.removeEventListener("waiting", this.onWaiting);
-    audio.removeEventListener("stalled", this.onWaiting);
-    audio.removeEventListener("ended", this.onEndedNative);
-    this.detachDebug();
-    // `removeAttribute` + `load()` y no `src = ""`: eso dispara un `error` y, en WebKit antiguo,
-    // hasta una petición a la propia página.
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
+    this.disposeSlot(this.cur);
+    if (this.next) this.disposeSlot(this.next);
+    this.next = null;
     this.clearMediaSession();
   }
 }
