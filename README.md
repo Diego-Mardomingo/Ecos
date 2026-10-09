@@ -1,86 +1,54 @@
 <div align="center">
-
-<span style="display:inline-flex; align-items:center; gap: 16px;">
-  <img src="public/ecos_icon_v2.png" alt="Logo ECOS" width="48" height="48" style="vertical-align:middle;" />
-  <span style="font-size:2.35rem; font-weight:800; letter-spacing:1px; line-height:1;">ECOS</span>
-</span>
-
-**Adivina la canción del día escuchando solo unos segundos.**  
-Música en español · Un reto nuevo cada día para todos
-
-<br>
-
-[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org)
-[![React](https://img.shields.io/badge/React-19-149ECA?style=for-the-badge&logo=react&logoColor=white)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=1a1a1a)](https://supabase.com)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
-
+  <img src="docs/readme/hero.png" alt="Ecos: adivina la canción del día escuchando solo unos segundos" width="100%">
+  <p>
+    <a href="https://ecosgame.vercel.app"><strong>Jugar a Ecos →</strong></a>
+  </p>
+  <p>
+    <img alt="PWA" src="https://img.shields.io/badge/PWA-instalable-047857?style=flat-square">
+    <img alt="Idiomas" src="https://img.shields.io/badge/idiomas-ES%20%C2%B7%20EN-informational?style=flat-square">
+    <img alt="Tema" src="https://img.shields.io/badge/tema-claro%20%C2%B7%20oscuro-111827?style=flat-square">
+  </p>
 </div>
 
 ---
 
-## Sobre el proyecto
+## Qué es Ecos
 
-ECOS es un **proyecto personal** que desarrollo **por afición**: un pequeño juego web para disfrutar de la música, retar el oído y, si te apetece, competir en un ranking con buen rollo. No es un producto comercial; es código y diseño hechos con ganas de aprender y compartir.
+Cada día hay una canción misteriosa, la misma para todo el mundo. Escuchas **un segundo**, y si no la reconoces, otro poco más, hasta seis intentos y unos 30 segundos como máximo. Cuanto antes aciertes, más puntos te llevas.
 
----
+Es un **proyecto personal** hecho por afición: un pequeño juego para disfrutar de la música en español, retar el oído y, si te apetece, competir en un ranking con buen rollo.
 
-## Qué puedes hacer en la app
+## Qué puedes hacer
 
-| | |
-|:---:|:---|
-| **Reto diario** | Cada día, la misma canción para todo el mundo. |
-| **Pistas de audio** | Varios intentos; en cada uno escuchas un poco más de la canción. Puedes saltar intentos. |
-| **Puntos** | Cuanto antes aciertes, mayor puntuación. |
-| **Rankings** | Listado **global**, **semanal** y **mensual**, además **historial** de retos pasados. |
-| **Perfil** | Cuenta opcional, estadísticas y cómo te muestras en las tablas. |
-| **PWA** | Úsalo en el móvil e **instálalo** como app desde el navegador. |
-| **Idiomas** | Interfaz en **español** e **inglés**. |
-| **Feedback** | Envía sugerencias o **reporta** si algo no suena bien en un reto. |
+<img src="docs/readme/screens.png" alt="Reto de hoy, partida con buscador, acierto y archivo de retos en el móvil" width="100%">
 
----
+### 🎧 Adivinar con pistas de audio
+Seis intentos, y en cada uno escuchas un fragmento más largo (1, 2, 4, 8, 16 y 30 segundos). Escribe título o artista, elige entre las coincidencias —la búsqueda ignora acentos— o salta el intento si no te suena.
 
-## Cómo se juega (resumen)
+### 🏆 Competir en el ranking
+Cuanto antes aciertes, mayor puntuación. Hay clasificación **global**, **semanal** y **mensual**, con un historial de quién ganó cada semana y cada mes. El ranking se actualiza en tiempo real cuando alguien termina su partida.
 
-Escribes título o artista y eliges entre las coincidencias. Tienes hasta **seis intentos**; en cada uno el audio crece hasta unos **30 segundos**.
+### 🗓️ Volver a cualquier día
+Un archivo con todos los retos pasados: los que acertaste, los que fallaste y los que te quedan pendientes. Si no tienes cuenta, puedes jugar igualmente como invitado; solo que no puntúas.
 
----
+### 👤 Tu perfil
+Cuenta opcional con Google, estadísticas personales y cómo te muestras en las tablas.
 
-## Stack tecnológico
+### ✨ Y los detalles
+- **Instalable** como app desde el navegador, con pantalla propia si te quedas sin conexión.
+- **Tema claro y oscuro**, en **español e inglés**.
+- **Avisos diarios** opcionales con una notificación push.
+- **Feedback** y reportes si algo no suena bien en un reto.
 
-Visión general.
+## Instalación como app
 
-### Núcleo
+Ecos es una PWA: ábrela en el navegador y elige **«Instalar»** (escritorio y Android) o **«Añadir a pantalla de inicio»** (iOS).
 
-| Capa | Tecnología |
-|------|------------|
-| **Framework** | [Next.js](https://nextjs.org) 16 (App Router) · [React](https://react.dev) 19 |
-| **Lenguaje** | [TypeScript](https://www.typescriptlang.org) |
-| **Backend / datos** | [Supabase](https://supabase.com) — PostgreSQL, autenticación y almacenamiento |
-| **Estilos** | [Tailwind CSS](https://tailwindcss.com) v4 · [shadcn/ui](https://ui.shadcn.com) (Radix) |
+## Hecho con
 
-### Frontend y experiencia
+Next.js 16 · React 19 · TypeScript · Tailwind CSS v4 · Supabase · Vercel
 
-| Área | Herramientas |
-|------|----------------|
-| **Estado y datos en cliente** | [Zustand](https://github.com/pmndrs/zustand) · [TanStack Query](https://tanstack.com/query) v5 (caché persistida en el navegador) |
-| **Validación** | [Zod](https://zod.dev) |
-| **Audio** | Elemento `<audio>` nativo; el fragmento llega por un proxy propio |
-| **Animación** | [Framer Motion](https://www.framer.com/motion/) (carga diferida) |
-| **Iconos** | [Material Symbols](https://fonts.google.com/icons) (subset autoalojado) |
-| **Tema** | [next-themes](https://github.com/pacocoursey/next-themes) (claro / oscuro) |
-| **i18n** | [next-intl](https://next-intl-docs.vercel.app) |
-| **PWA** | [Serwist](https://serwist.pages.dev) (service worker, página offline) |
-
-### Datos y despliegue
-
-| Área | Herramientas |
-|------|----------------|
-| **Hosting** | [Vercel](https://vercel.com) (`master` es producción) |
-| **Tareas programadas** | [GitHub Actions](https://docs.github.com/actions) con scripts de Python en `scripts/`: elegir la canción del día, ingerir playlists de Spotify, comprobar que hay juego y enviar notificaciones push |
-
----
+Las canciones las elige cada día un script de Python que se ejecuta con GitHub Actions; el audio llega al cliente a través de un proxy propio.
 
 ## Desarrollo
 
