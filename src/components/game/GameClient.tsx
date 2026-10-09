@@ -25,6 +25,7 @@ import {
   type GameProgressData,
 } from "@/lib/hooks/queries";
 import { evaluateGuess } from "@/lib/guess-match";
+import { prefetchGameAudio } from "@/lib/audio/audioStore";
 import {
   ATTEMPT_DURATIONS,
   SKIPPED_GUESS_TEXT,
@@ -182,6 +183,15 @@ export function GameClient({ game, userId }: Props) {
     router.prefetch("/");
     router.prefetch("/ranking");
   }, [router]);
+
+  // El MP3 empieza a bajar en cuanto monta la partida, sin esperar a `/api/game-progress` (el
+  // autenticado sin progreso local enseña un spinner hasta que llega, y el reproductor no monta
+  // antes). Solo efecto externo, sin estado: `audioStore` es idempotente, comparte la descarga con
+  // el reproductor cuando monta y respeta el ahorro de datos.
+  const hasAudio = !!game.ecos_songs.preview_url;
+  useEffect(() => {
+    if (hasAudio) prefetchGameAudio(game.id, "página de partida");
+  }, [game.id, hasAudio]);
 
   useLayoutEffect(() => {
     try {

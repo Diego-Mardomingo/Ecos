@@ -290,15 +290,37 @@ export function loadGameAudio(gameId: string): Promise<void> {
 
 /**
  * Precarga sin reproductor: igual que `loadGameAudio`, pero respeta el ahorro de datos y no
- * reintenta un fallo anterior (nadie está esperando este audio).
+ * reintenta un fallo anterior (nadie está esperando este audio). `reason` solo es para el
+ * diagnóstico (`?audioDebug=1`) y se anota únicamente cuando la precarga arranca de verdad.
  */
-export function prefetchGameAudio(gameId: string): void {
+export function prefetchGameAudio(gameId: string, reason?: string): void {
   if (typeof window === "undefined") return;
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
   if (connection?.saveData) return;
   const existing = entries.get(gameId);
   if (existing && existing.snapshot.status !== "idle") return;
+  if (reason) audioDebugLog(gameAudioLabel(gameId), "precarga", reason);
   void loadGameAudio(gameId);
+}
+
+/** Margen máximo para que la precarga en reposo arranque aunque el hilo principal esté ocupado. */
+const IDLE_PREFETCH_TIMEOUT_MS = 4_000;
+/** Espera de respaldo donde no hay `requestIdleCallback` (Safari). */
+const IDLE_PREFETCH_FALLBACK_MS = 1_500;
+
+/**
+ * `prefetchGameAudio` cuando el navegador está en reposo, para que no compita con la hidratación
+ * ni con el primer pintado. Devuelve la función que la cancela (limpieza de un efecto).
+ */
+export function prefetchGameAudioWhenIdle(gameId: string, reason: string): () => void {
+  if (typeof window === "undefined") return () => {};
+  const run = () => prefetchGameAudio(gameId, reason);
+  if (typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(run, { timeout: IDLE_PREFETCH_TIMEOUT_MS });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const handle = window.setTimeout(run, IDLE_PREFETCH_FALLBACK_MS);
+  return () => window.clearTimeout(handle);
 }
 
 /** Reintento explícito (botón de reintentar): descarta lo que hubiera y empieza de cero. */

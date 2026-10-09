@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useImperativeHandle, useMemo, useRef, type Ref } from "react";
+import { memo, useEffect, useImperativeHandle, useMemo, useRef, type Ref } from "react";
 import { m } from "framer-motion";
 import { ATTEMPT_DURATIONS } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
@@ -23,8 +23,15 @@ import {
  * último tramo.
  *
  * El progreso **no** pasa por React: el padre llama a `setTime` desde `onTimeUpdate`, que llega en
- * cada fotograma, y aquí se escribe el `clip-path` de la capa de relleno directamente en el DOM.
- * Por eso esa capa no lleva `filter` (un resplandor con `drop-shadow`, por ejemplo): obligaría a
+ * cada fotograma, y aquí se escribe directamente en el DOM. Cada fotograma cuesta lo mínimo:
+ * - La geometría de los tramos se mide una vez (y al cambiar el ancho, con `ResizeObserver`), no
+ *   en cada fotograma: leer `offsetLeft` tras escribir estilos fuerza a recalcular el layout.
+ * - Un solo relleno para todos los tramos, que avanza con `transform` (compositor, sin repintar):
+ *   una capa `overflow-hidden` que se desplaza hacia la derecha y, dentro, el relleno que se
+ *   desplaza lo mismo hacia la izquierda, así que solo se ve lo que queda a la izquierda del
+ *   cabezal. Es el mismo recorte que antes hacía el `clip-path` de seis capas, que se repintaba
+ *   entero en cada fotograma.
+ * Por eso el relleno no lleva `filter` (un resplandor con `drop-shadow`, por ejemplo): obligaría a
  * recalcular el filtro en cada fotograma de la reproducción.
  */
 
@@ -60,6 +67,55 @@ function hashString(input: string): number {
 }
 
 type Bar = { height: number; duration: number; delay: number };
+
+/** Posición de cada tramo dentro de la onda, en px. Se mide una vez y al cambiar el ancho. */
+type SegmentGeometry = { left: number; width: number }[];
+
+/** X (en px, dentro de la onda) del cabezal para ese segundo: va en el tramo que lo contiene. */
+function playheadXAt(seconds: number, geometry: SegmentGeometry): number {
+  let start = 0;
+  for (let i = 0; i < ATTEMPT_DURATIONS.length; i++) {
+    const end = ATTEMPT_DURATIONS[i];
+    if (seconds <= end) {
+      const ratio = Math.min(1, Math.max(0, (seconds - start) / (end - start)));
+      return geometry[i].left + ratio * geometry[i].width;
+    }
+    start = end;
+  }
+  const last = geometry[geometry.length - 1];
+  return last.left + last.width;
+}
+
+/** Lo que `paintProgress` recuerda entre fotogramas para no escribir dos veces lo mismo. */
+interface PaintState {
+  /** `null` hasta la primera medida. */
+  geometry: SegmentGeometry | null;
+  seconds: number;
+  x: number;
+  visible: boolean | null;
+}
+
+/** Escribe el progreso en el DOM: solo escrituras, ninguna lectura de layout. */
+function paintProgress(
+  state: PaintState,
+  els: { clip: HTMLElement | null; fill: HTMLElement | null; head: HTMLElement | null },
+  seconds: number
+) {
+  state.seconds = seconds;
+  if (!state.geometry) return; // Aún sin medir: la medida lo vuelve a aplicar.
+  const x = playheadXAt(seconds, state.geometry);
+  if (x !== state.x) {
+    state.x = x;
+    if (els.clip) els.clip.style.transform = `translateX(calc(-100% + ${x}px))`;
+    if (els.fill) els.fill.style.transform = `translateX(calc(100% - ${x}px))`;
+    if (els.head) els.head.style.transform = `translateX(${x}px)`;
+  }
+  const visible = seconds > 0.05;
+  if (visible !== state.visible) {
+    state.visible = visible;
+    if (els.head) els.head.style.opacity = visible ? "1" : "0";
+  }
+}
 
 /** Alturas con algo de continuidad entre vecinas, para que parezca audio y no ruido. */
 function buildSegments(seed: string): Bar[][] {
@@ -129,9 +185,13 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
   className?: string;
 }) {
   const segments = useMemo(() => buildSegments(seed), [seed]);
-  const fillRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  /** Capa que recorta (se desplaza a la derecha) y relleno de dentro (se desplaza a la izquierda). */
+  const fillClipRef = useRef<HTMLDivElement | null>(null);
+  const fillRef = useRef<HTMLDivElement | null>(null);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const playheadRef = useRef<HTMLDivElement | null>(null);
+  const paintRef = useRef<PaintState>({ geometry: null, seconds: 0, x: Number.NaN, visible: null });
   /** Arrastre en curso y último x pendiente de aplicar (se aplica una vez por fotograma). */
   const dragRef = useRef<{ active: boolean; pendingX: number | null; raf: number | null }>({
     active: false,
@@ -144,30 +204,39 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
   useImperativeHandle(
     ref,
     () => ({
-      setTime: (seconds: number) => {
-        let start = 0;
-        let playheadX: number | null = null;
-        for (let i = 0; i < ATTEMPT_DURATIONS.length; i++) {
-          const end = ATTEMPT_DURATIONS[i];
-          const ratio = Math.min(1, Math.max(0, (seconds - start) / (end - start)));
-          const el = fillRefs.current[i];
-          if (el) el.style.clipPath = `inset(0 ${(1 - ratio) * 100}% 0 0)`;
-          // El cabezal va en el tramo que contiene el segundo actual.
-          const seg = segmentRefs.current[i];
-          if (playheadX === null && seg && seconds <= end) {
-            playheadX = seg.offsetLeft + ratio * seg.offsetWidth;
-          }
-          start = end;
-        }
-        const head = playheadRef.current;
-        if (head) {
-          head.style.transform = `translateX(${playheadX ?? 0}px)`;
-          head.style.opacity = seconds > 0.05 ? "1" : "0";
-        }
-      },
+      setTime: (seconds: number) =>
+        paintProgress(
+          paintRef.current,
+          { clip: fillClipRef.current, fill: fillRef.current, head: playheadRef.current },
+          seconds
+        ),
     }),
     []
   );
+
+  // Mide dónde cae cada tramo, una vez y cada vez que cambia el ancho de la onda (los pesos son
+  // proporciones, así que el alto o el desbloqueo no los mueven). `ResizeObserver` avisa también al
+  // empezar a observar, antes del primer pintado.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const measure = () => {
+      const state = paintRef.current;
+      state.geometry = segmentRefs.current.map((el) => ({
+        left: el?.offsetLeft ?? 0,
+        width: el?.offsetWidth ?? 0,
+      }));
+      state.x = Number.NaN;
+      paintProgress(
+        state,
+        { clip: fillClipRef.current, fill: fillRef.current, head: playheadRef.current },
+        state.seconds
+      );
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(track);
+    return () => observer.disconnect();
+  }, []);
 
   /** Segundo que corresponde a una x de pantalla, recorriendo los tramos (con sus huecos). */
   const secondsAtClientX = (clientX: number): number => {
@@ -255,6 +324,7 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
   return (
     <div className={cn("w-full", className)}>
       <div
+        ref={trackRef}
         className={cn(
           "relative flex w-full select-none gap-1.5 rounded-lg transition-[height] duration-[250ms] ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-card",
           compact ? "h-10" : "h-[72px]",
@@ -273,7 +343,7 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
         <div
           ref={playheadRef}
           aria-hidden
-          className="group/head pointer-events-none absolute -inset-y-1.5 left-0 z-10 w-0 opacity-0 transition-opacity duration-200"
+          className="group/head pointer-events-none absolute -inset-y-1.5 left-0 z-10 w-0 opacity-0 transition-opacity duration-200 will-change-transform"
         >
           <span className="absolute inset-y-0 -left-px w-0.5 rounded-full bg-brand shadow-[0_0_8px_var(--brand)]" />
           <span className="absolute -left-[5px] -top-1 size-2.5 rounded-full border-2 border-card bg-brand transition-transform duration-150 group-data-[dragging]/head:scale-150" />
@@ -305,21 +375,38 @@ const SegmentedWaveform = memo(function SegmentedWaveform({
                   />
                 ))}
               </div>
-              {/* Capa de relleno: lo ya reproducido. Recortada con clip-path desde `setTime`. */}
-              <div
-                ref={(el) => {
-                  fillRefs.current[i] = el;
-                }}
-                className="absolute inset-0 flex items-center gap-[2px]"
-                style={{ clipPath: "inset(0 100% 0 0)" }}
-              >
-                {bars.map((bar, j) => (
-                  <BarShape key={j} bar={bar} unlocked={unlocked} wobble={wobble} delayMs={0} className="bg-brand" />
-                ))}
-              </div>
             </div>
           );
         })}
+        {/* Relleno: lo ya reproducido, en una sola capa para todos los tramos. Reproduce la misma
+            rejilla (mismos pesos y hueco) y la mueve `setTime` con dos `transform`: la capa
+            exterior se desplaza hasta el cabezal y el relleno de dentro, lo mismo al revés. */}
+        <div
+          ref={fillClipRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden will-change-transform"
+          style={{ transform: "translateX(-100%)" }}
+        >
+          <div
+            ref={fillRef}
+            className="absolute inset-0 flex gap-1.5 will-change-transform"
+            style={{ transform: "translateX(100%)" }}
+          >
+            {segments.map((bars, i) => {
+              const unlocked = i < unlockedCount;
+              const wobble = playing && unlocked;
+              return (
+                <div key={i} className="relative" style={{ flex: `${SEGMENT_WEIGHTS[i]} 1 0` }}>
+                  <div className="absolute inset-0 flex items-center gap-[2px]">
+                    {bars.map((bar, j) => (
+                      <BarShape key={j} bar={bar} unlocked={unlocked} wobble={wobble} delayMs={0} className="bg-brand" />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {showLabels && (

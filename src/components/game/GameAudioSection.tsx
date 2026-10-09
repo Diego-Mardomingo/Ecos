@@ -77,6 +77,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   /** Con el teclado abierto la pantalla se compacta. Ver `KEYBOARD_TRANSITION`. */
   const keyboardOpen = useIsVirtualKeyboardOpen();
   const [audioPlaying, setAudioPlaying] = useState(false);
+  /** Entre el toque y el primer avance del cabezal: solo adelanta el icono del botón. */
+  const [audioStarting, setAudioStarting] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   /** La carga del audio ha fallado (red, proxy caído…): el botón de play pasa a reintentar. */
   const [audioFailed, setAudioFailed] = useState(false);
@@ -242,6 +244,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
         >
           <PlayButton
             playing={audioPlaying}
+            starting={audioStarting}
             loaded={audioLoaded}
             onClick={() => playerRef.current?.togglePlay()}
             size={PLAY_BUTTON_PX}
@@ -269,6 +272,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
           maxDuration={audioDuration}
           onTimeUpdate={handleAudioTimeUpdate}
           onPlayingChange={setAudioPlaying}
+          onStartingChange={setAudioStarting}
           onLoadedChange={setAudioLoaded}
           onErrorChange={setAudioFailed}
           onUnavailableChange={setAudioUnavailable}

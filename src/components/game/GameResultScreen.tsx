@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { format, parseISO } from "date-fns";
 import { AnimatePresence, m } from "framer-motion";
@@ -61,6 +61,70 @@ function formatClock(totalSeconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Lo que el reproductor usa para llevar el progreso a la onda y al reloj de la pantalla. */
+type ResultWaveformHandle = {
+  /** Segundos reproducidos del fragmento. */
+  setTime: (seconds: number) => void;
+};
+
+/**
+ * Onda del resultado con su reloj. El segundo transcurrido vive **aquí** y no en `ResultGameView`:
+ * cambia una vez por segundo mientras suena, y arriba re-renderizaba la pantalla entera (carátula,
+ * puntuación, acciones, lista de intentos) en cada tic. Ahora solo se repinta esta pieza.
+ */
+const ResultWaveform = memo(function ResultWaveform({
+  seed,
+  guesses,
+  correctAttempt,
+  playing,
+  onSeek,
+  ref,
+}: {
+  seed: string;
+  guesses: GuessEntry[];
+  correctAttempt: number | null;
+  playing: boolean;
+  onSeek?: (seconds: number) => void;
+  ref?: Ref<ResultWaveformHandle>;
+}) {
+  const t = useTranslations("game");
+  /** Segundo completo transcurrido: el reloj solo cambia una vez por segundo. */
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const waveformRef = useRef<SegmentedWaveformHandle | null>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      setTime: (seconds: number) => {
+        waveformRef.current?.setTime(seconds);
+        const whole = Math.floor(seconds);
+        setElapsedSeconds((prev) => (prev === whole ? prev : whole));
+      },
+    }),
+    []
+  );
+
+  return (
+    <>
+      <SegmentedWaveform
+        ref={waveformRef}
+        seed={seed}
+        unlockedCount={ALL_SEGMENTS}
+        guesses={guesses}
+        correctAttempt={correctAttempt}
+        playing={playing}
+        onSeek={onSeek}
+        seekLabel={t("seekLabel")}
+        valueSeconds={elapsedSeconds}
+      />
+      <div className="mt-2 flex justify-between text-[11px] font-medium tabular-nums text-muted-foreground">
+        <span>{formatClock(elapsedSeconds)}</span>
+        <span>{formatClock(FULL_PREVIEW_SECONDS)}</span>
+      </div>
+    </>
+  );
+});
+
 const ResultGameView = memo(function ResultGameView({
   game,
   resultPhase,
@@ -79,22 +143,28 @@ const ResultGameView = memo(function ResultGameView({
   maxAttempts: number;
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
+  /** Entre el toque y el primer avance del cabezal: solo adelanta el icono del botón. */
+  const [audioStarting, setAudioStarting] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   const [audioFailed, setAudioFailed] = useState(false);
   /** El resolvedor dice que la partida no tiene audio (además de `!song.preview_url`). */
   const [audioUnavailable, setAudioUnavailable] = useState(false);
-  /** Segundo completo transcurrido: el reloj solo cambia una vez por segundo. */
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
-  const waveformRef = useRef<SegmentedWaveformHandle | null>(null);
+  const waveformRef = useRef<ResultWaveformHandle | null>(null);
   const song = game.ecos_songs;
 
-  /** Mismo motivo que en PlayingGameAudioSection: no re-renderizar esta pantalla a 60 fps. */
+  /**
+   * Mismo motivo que en PlayingGameAudioSection: no re-renderizar esta pantalla a 60 fps. Tampoco
+   * una vez por segundo: el reloj lo lleva `ResultWaveform`.
+   */
   const handleAudioTimeUpdate = useCallback((currentTime: number) => {
     waveformRef.current?.setTime(currentTime);
-    const whole = Math.floor(currentTime);
-    setElapsedSeconds((prev) => (prev === whole ? prev : whole));
   }, []);
+
+  const handleAudioEnded = useCallback(() => {
+    handleAudioTimeUpdate(0);
+    setTimeout(() => handleAudioTimeUpdate(0), 150);
+  }, [handleAudioTimeUpdate]);
 
   const togglePlay = useCallback(() => {
     resultAudioPlayerRef.current?.togglePlay();
@@ -127,11 +197,11 @@ const ResultGameView = memo(function ResultGameView({
             guesses={resultGuesses}
             audio={{
               playing: audioPlaying,
+              starting: audioStarting,
               loaded: audioLoaded,
               failed: audioFailed,
               unavailable: !song.preview_url || audioUnavailable,
               retry: retryAudio,
-              elapsedSeconds,
               toggle: togglePlay,
               seek,
             }}
@@ -145,13 +215,11 @@ const ResultGameView = memo(function ResultGameView({
         maxDuration={FULL_PREVIEW_SECONDS}
         onTimeUpdate={handleAudioTimeUpdate}
         onPlayingChange={setAudioPlaying}
+        onStartingChange={setAudioStarting}
         onLoadedChange={setAudioLoaded}
         onErrorChange={setAudioFailed}
         onUnavailableChange={setAudioUnavailable}
-        onEnded={() => {
-          handleAudioTimeUpdate(0);
-          setTimeout(() => handleAudioTimeUpdate(0), 150);
-        }}
+        onEnded={handleAudioEnded}
         hideControls
       />
     </div>
@@ -211,11 +279,11 @@ function ResultScreen({
   guesses?: GuessEntry[];
   audio: {
     playing: boolean;
+    starting: boolean;
     loaded: boolean;
     failed: boolean;
     unavailable: boolean;
     retry: () => void;
-    elapsedSeconds: number;
     toggle: () => void;
     seek: (seconds: number) => void;
   };
@@ -223,7 +291,7 @@ function ResultScreen({
    * Aparte de `audio` a propósito: dentro de ese objeto, el compilador de React trataría el
    * objeto entero como una ref y daría por prohibido leer cualquiera de sus campos al renderizar.
    */
-  waveformRef: React.RefObject<SegmentedWaveformHandle | null>;
+  waveformRef: React.RefObject<ResultWaveformHandle | null>;
 }) {
   const t = useTranslations("game");
   const tc = useTranslations("common");
@@ -352,6 +420,7 @@ function ResultScreen({
         <div className="absolute -bottom-4 -right-4 z-10">
           <PlayButton
             playing={audio.playing}
+            starting={audio.starting}
             loaded={audio.loaded}
             onClick={audio.toggle}
             size={60}
@@ -408,21 +477,14 @@ function ResultScreen({
 
       {/* Onda: la canción entera, con los tramos coloreados por cómo fue cada intento. */}
       <div className={cn(RISE, "w-full rounded-3xl border border-border bg-card/80 p-4 backdrop-blur")} style={riseDelay(1)}>
-        <SegmentedWaveform
+        <ResultWaveform
           ref={waveformRef}
           seed={gameId}
-          unlockedCount={ALL_SEGMENTS}
           guesses={guesses}
           correctAttempt={won ? correctAttempt : null}
           playing={audio.playing}
           onSeek={audio.loaded ? audio.seek : undefined}
-          seekLabel={t("seekLabel")}
-          valueSeconds={audio.elapsedSeconds}
         />
-        <div className="mt-2 flex justify-between text-[11px] font-medium tabular-nums text-muted-foreground">
-          <span>{formatClock(audio.elapsedSeconds)}</span>
-          <span>{formatClock(FULL_PREVIEW_SECONDS)}</span>
-        </div>
       </div>
 
       {/* Puntuación */}
