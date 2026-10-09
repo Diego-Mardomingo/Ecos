@@ -1,8 +1,8 @@
 -- Deezer como fuente principal de audio, Spotify como respaldo (plan docs/plan-audio, F5).
 --
--- ESTADO: PENDIENTE. Es aditiva (columnas nuevas con valor por defecto o nulas, un índice y un
--- CHECK ampliado), así que no rompe el código actual: aplicarla ANTES de fusionar y desplegar
--- el código que la usa (los scripts piden las columnas nuevas y el panel lee `audio_source`).
+-- ESTADO: APLICADA en producción el 2026-10-10, ANTES de desplegar el código que la usa
+-- (migración deezer_columnas_y_fuente_audio). Es aditiva (columnas nuevas con valor por defecto o
+-- nulas, índices y un CHECK ampliado), así que el código anterior sigue funcionando con ella.
 --
 -- - ecos_songs: id de Deezer, ISRC, duración medida del preview de Deezer y cuándo se comprobó.
 --   La URL de preview de Deezer va firmada y caduca a los 900 s: NO se guarda; se resuelve con
