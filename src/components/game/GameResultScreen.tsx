@@ -11,6 +11,7 @@ import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 import { useNavigateBackToHome } from "@/lib/navigation/useNavigateBackToHome";
 import type { GameWithSong } from "@/lib/queries/games";
+import { songHasAudio } from "@/lib/audio/songHasAudio";
 import { MAX_ATTEMPTS } from "@/lib/server-attempt";
 import { releaseYearFromReleaseDate } from "@/lib/song-display";
 import type { GamePhase, GuessEntry } from "@/lib/store/gameStore";
@@ -147,7 +148,7 @@ const ResultGameView = memo(function ResultGameView({
   const [audioStarting, setAudioStarting] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
   const [audioFailed, setAudioFailed] = useState(false);
-  /** El resolvedor dice que la partida no tiene audio (además de `!song.preview_url`). */
+  /** El resolvedor dice que la partida no tiene audio (además de `!songHasAudio(song)`). */
   const [audioUnavailable, setAudioUnavailable] = useState(false);
   const resultAudioPlayerRef = useRef<AudioPlayerHandle | null>(null);
   const waveformRef = useRef<ResultWaveformHandle | null>(null);
@@ -200,7 +201,7 @@ const ResultGameView = memo(function ResultGameView({
               starting: audioStarting,
               loaded: audioLoaded,
               failed: audioFailed,
-              unavailable: !song.preview_url || audioUnavailable,
+              unavailable: !songHasAudio(song) || audioUnavailable,
               retry: retryAudio,
               toggle: togglePlay,
               seek,
@@ -211,7 +212,7 @@ const ResultGameView = memo(function ResultGameView({
       </div>
       <AudioPlayer
         ref={resultAudioPlayerRef}
-        gameId={song.preview_url ? game.id : undefined}
+        gameId={songHasAudio(song) ? game.id : undefined}
         maxDuration={FULL_PREVIEW_SECONDS}
         onTimeUpdate={handleAudioTimeUpdate}
         onPlayingChange={setAudioPlaying}

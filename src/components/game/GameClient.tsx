@@ -39,6 +39,7 @@ import {
   type GameProgress,
 } from "@/lib/store/gameProgressStore";
 import type { GameWithSong } from "@/lib/queries/games";
+import { songHasAudio } from "@/lib/audio/songHasAudio";
 import type { EcosSong } from "@/components/guess-input/GuessInput";
 import { toast } from "sonner";
 import { m } from "framer-motion";
@@ -188,7 +189,7 @@ export function GameClient({ game, userId }: Props) {
   // autenticado sin progreso local enseña un spinner hasta que llega, y el reproductor no monta
   // antes). Solo efecto externo, sin estado: `audioStore` es idempotente, comparte la descarga con
   // el reproductor cuando monta y respeta el ahorro de datos.
-  const hasAudio = !!game.ecos_songs.preview_url;
+  const hasAudio = songHasAudio(game.ecos_songs);
   useEffect(() => {
     if (hasAudio) prefetchGameAudio(game.id, "página de partida");
   }, [game.id, hasAudio]);

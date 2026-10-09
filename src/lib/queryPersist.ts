@@ -10,7 +10,7 @@ export const QUERY_CACHE_STORAGE_KEY = "ecos-query-cache";
  * Antes era el SHA del commit (`NEXT_PUBLIC_BUILD_ID` no existía), así que cada despliegue vaciaba
  * la caché de todo el mundo aunque no hubiera cambiado nada (PDATA-15).
  */
-export const QUERY_CACHE_VERSION = "2026-10-08";
+export const QUERY_CACHE_VERSION = "2026-10-10";
 
 /** Una partida con su lista de intentos: lo único de `game-progress` que vale la pena guardar. */
 function hasGuesses(data: unknown): boolean {

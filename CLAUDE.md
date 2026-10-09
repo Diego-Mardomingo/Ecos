@@ -72,7 +72,7 @@ Clientes: `client.ts` (navegador), `createClient()` (cookies, respeta RLS), `cre
 
 - **Dos ramas en `GameClient.tsx`**, la parte más delicada. El invitado guarda en localStorage (`gameProgressStore`) y el autenticado en la BD. El autenticado encola la jugada y `confirmMove` la reconcilia con la respuesta del servidor, que manda siempre. Toda regla nueva se prueba en las dos ramas.
 - **Fugas**: la canción **de hoy** viaja completa en `/play` (el invitado compara en local); es una decisión tomada. Al añadir campos a respuestas públicas, no filtres `preview_url`, `title`, `artist_name` ni `cover_url` de un reto no resuelto.
-- **Audio**: `/api/audio-url?gameId=` devuelve las URL del `preview_url` de Spotify; el navegador baja el MP3 directo del CDN a un Blob en `audioStore` y `fragmentPlayer` lo reproduce con un `<audio>` nuevo por jugada, sin seeks ni rebobinados (en iOS cada seek cuesta ~300 ms de silencio). La URL del CDN no está oculta. `?audioDebug=1` mide. Si se cae el scraping de previews, hay que recuperar una fuente de audio **y** relajar el filtro del pool (`is_eligible` y `MIN_PREVIEW_SECONDS` en `scripts/selection.py`).
+- **Audio**: Deezer es la fuente primaria, fijada por partida en `ecos_games.audio_source` (las anteriores siguen en `spotify`), con Spotify (`preview_url`) de respaldo. `/api/audio-url?gameId=` devuelve las fuentes por orden; el navegador baja el MP3 directo del CDN a un Blob en `audioStore` y `fragmentPlayer` lo reproduce con un `<audio>` nuevo por jugada, sin seeks ni rebobinados (en iOS cada seek cuesta ~300 ms de silencio). La URL del CDN no está oculta. `?audioDebug=1` mide. Las URL de Deezer van firmadas (caducan a los 900 s): se resuelven al vuelo en esa ruta y **nunca** se guardan ni pasan por `unstable_cache`. Si se cae una fuente, hay que recuperar otra **y** relajar el filtro del pool, que cubre las dos (`is_eligible` y `MIN_PREVIEW_SECONDS` en `scripts/selection.py`).
 
 ## Ranking en tiempo real
 
@@ -99,7 +99,7 @@ Además de `ci.yml`, cuatro workflows de datos en `.github/workflows/`:
 | `send-daily-notifications.yml` | `send-daily-notifications.py` | Push, solo entre las 12:00 y las 21:00 de Madrid |
 
 - **Los crons de Actions llegan con horas de retraso**: no dependas de la hora exacta.
-- **Piezas comunes**: `common.py` (entorno, cliente, `log_job`, `JOB_*`), `selection.py` (reglas del selector y filtro del pool) y `spotify_source.py` (lo único que depende de `spotifyscraper`). Todos admiten `--dry-run`. `scripts/archivo/` no se mantiene.
+- **Piezas comunes**: `common.py` (entorno, cliente, `log_job`, `JOB_*`), `selection.py` (reglas del selector y filtro del pool), `spotify_source.py` (lo único que depende de `spotifyscraper`) y `deezer_source.py` (API de Deezer). Todos admiten `--dry-run`. `backfill-deezer.py` es manual (rellena `deezer_id` y compañía en las canciones; registra `deezer_backfill`). `scripts/archivo/` no se mantiene.
 - **Registro**: todo job registra con `log_job` en `ecos_system_logs`, que es lo que muestra `/admin`. Los `job_type` deben coincidir en `JOB_TYPES` (`system-logger.ts`), el `CHECK` de `01_tables.sql` y `common.py`; si no, el registro se pierde sin avisar.
 - **Distingue fallo de la API de «no hay resultados»**: confundirlos ya desactivó el catálogo entero una vez.
 - **El repo es público**: ningún log puede mostrar título ni artista de un reto futuro.
