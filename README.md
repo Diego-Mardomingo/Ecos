@@ -50,20 +50,6 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS v4 · Supabase · Vercel
 
 Las canciones las elige cada día un script de Python que se ejecuta con GitHub Actions; el audio llega al cliente a través de un proxy propio.
 
-## Desarrollo
-
-```bash
-pnpm install
-pnpm dev          # http://localhost:3000
-```
-
-Hace falta un `.env.local` con las claves de Supabase y de Google (los nombres están en
-[`CLAUDE.md`](CLAUDE.md)). No hay tests: antes de dar algo por bueno se pasan `pnpm lint`,
-`pnpm typecheck` y `pnpm build`, que es también lo que ejecuta la integración continua.
-
-La base de datos se comparte con otra aplicación; el esquema de Ecos está versionado en
-[`supabase/schema/`](supabase/schema/README.md). Las reglas de trabajo, la arquitectura y las trampas
-conocidas están en [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
