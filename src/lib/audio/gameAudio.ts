@@ -3,9 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { unwrapToOne } from "@/lib/supabase/relations";
 
 /**
- * `gameId → (fecha, preview_url)` en la caché de servidor, compartida por `/api/audio-url` y
- * `/api/audio-proxy`. Ese par no cambia nunca para un juego, así que la BD solo se consulta la
- * primera vez (PERFDB-16).
+ * `gameId → (fecha, preview_url)` en la caché de servidor, usada por `/api/audio-url`. Ese par no
+ * cambia nunca para un juego, así que la BD solo se consulta la primera vez (PERFDB-16).
  *
  * Va con service role, por lo que la RLS de `ecos_games` no protege: **quien llame debe comparar
  * `date` con `getEffectiveGameDate()` en cada petición** (fuera de la caché, que guarda también

@@ -6,8 +6,7 @@ import { handleRoute, isUuid, jsonError } from "@/lib/api/route";
 
 /**
  * Resolvedor de audio: devuelve la(s) URL(s) del MP3 de una partida para que el navegador lo
- * descargue directo del CDN. Sustituye al proxy de `/api/audio-proxy`, que se mantiene mientras el
- * reproductor antiguo siga en uso.
+ * descargue directo del CDN. Sustituye al antiguo proxy de streaming.
  *
  * Solo acepta un `gameId` y solo de un día que ya haya llegado en Madrid: el selector crea los
  * juegos con dos días de antelación y, como esto va con service role, la RLS de `ecos_games` no lo
