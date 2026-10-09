@@ -60,6 +60,7 @@ import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEven
 import { PLAY_FROM_HOME_STORAGE_KEY } from "@/lib/navigation/useNavigateBackToHome";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
 import { prefetchGameAudio, prefetchGameAudioWhenIdle } from "@/lib/audio/audioStore";
+import { songHasAudio } from "@/lib/audio/songHasAudio";
 
 interface Props {
   initialData?: {
@@ -376,7 +377,7 @@ export function HomeClient({ initialData }: Props) {
   // El MP3 de hoy, en reposo y solo si hay algo que jugar: con el reto sin audio o ya terminado no
   // se gasta red. Si se completa antes de que llegue el reposo, la limpieza lo cancela. El almacén
   // es idempotente y respeta el ahorro de datos.
-  const todaysHasAudio = !!todaysGame?.ecos_songs.preview_url;
+  const todaysHasAudio = !!todaysGame && songHasAudio(todaysGame.ecos_songs);
   useEffect(() => {
     if (!todaysGameId || !todaysHasAudio || todaysCompleted) return;
     return prefetchGameAudioWhenIdle(todaysGameId, "home (reposo)");

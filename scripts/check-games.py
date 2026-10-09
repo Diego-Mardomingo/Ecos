@@ -7,10 +7,16 @@ La lanza check-games.yml cada pocas horas. Como mira hasta pasado mañana, que e
 horas de retraso no importa: el hueco se ve con más de un día de margen.
 
 Niveles:
-- error (sale con 1): falta el juego de hoy o de mañana, o su preview no responde.
+- error (sale con 1): falta el juego de hoy o de mañana, o su audio no responde.
 - aviso (anotación en el run, sale con 0): falta el de pasado mañana, el preview de pasado
   mañana no responde, hay filas failure/partial en ecos_system_logs en las últimas 24 h, o las
   notificaciones diarias llevan más de 36 h sin registrar ejecución.
+
+Audio por fuente (`ecos_games.audio_source`, fijada al crear el juego): con `spotify` se hace HEAD
+al preview_url; con `deezer` se resuelve la pista con la API (la URL firmada caduca a los 900 s,
+por eso no se guarda), se hace HEAD a la URL recién resuelta y, si falla, se comprueba también
+el respaldo de Spotify. Si el respaldo vive, es un aviso aunque el juego sea de hoy o de mañana
+(el cliente cae a Spotify); si también cae, es error. Nunca se cambia la fuente de un juego solo.
 
 Registra su resultado en ecos_system_logs (job_type games_check) cuando cambia respecto a la
 última fila, y si no cambia, una vez al día de Madrid, para no llenar el panel.
@@ -48,6 +54,8 @@ from common import (
     now_ms,
     setup_logging,
 )
+from deezer_source import DeezerApiError
+from deezer_source import track as deezer_track
 from selection import DAYS_AHEAD
 
 # Las notificaciones salen una vez al día y su cron llega con hasta ~6 h de retraso.
@@ -69,6 +77,19 @@ def preview_alive(url: str) -> tuple[bool, str]:
         return False, f"HTTP {exc.code}"
     except Exception as exc:  # timeout, DNS, TLS...
         return False, f"{type(exc).__name__}: {exc}"
+
+
+def deezer_alive(deezer_id: int) -> tuple[bool, str]:
+    """Resuelve la pista en la API de Deezer y hace HEAD a su preview firmado."""
+    try:
+        t = deezer_track(deezer_id)
+    except DeezerApiError as exc:
+        return False, f"la API de Deezer falló ({exc})"
+    if t is None:
+        return False, "Deezer ya no tiene la pista"
+    if not t.preview_url:
+        return False, "Deezer no da preview"
+    return preview_alive(t.preview_url)
 
 
 def write_github_output(name: str, value: str) -> None:
@@ -105,7 +126,7 @@ def main() -> None:
 
     r = (
         supabase.table("ecos_games")
-        .select("date, game_number, song_id, ecos_songs(preview_url, is_active)")
+        .select("date, game_number, song_id, audio_source, ecos_songs(preview_url, is_active, deezer_id)")
         .in_("date", dates)
         .execute()
     )
@@ -132,11 +153,30 @@ def main() -> None:
         song = g.get("ecos_songs") or {}
         bucket = errors if d in critical else warnings
         url = song.get("preview_url")
-        if not url:
-            bucket.append(f"El juego del {d} (#{g.get('game_number')}) no tiene preview_url")
-            continue
+        label = f"El juego del {d} (#{g.get('game_number')})"
         if song.get("is_active") is False:
             warnings.append(f"La canción del juego del {d} (#{g.get('game_number')}) está desactivada")
+        source = g.get("audio_source") or "spotify"
+        if source == "deezer":
+            deezer_id = song.get("deezer_id")
+            if not deezer_id:
+                ok, detail = False, "la canción no tiene deezer_id"
+            else:
+                ok, detail = deezer_alive(int(deezer_id))
+            previews[d] = f"deezer: {detail}"
+            if not ok:
+                if url:
+                    fb_ok, fb_detail = preview_alive(url)
+                    fallback = f"el respaldo de Spotify {'responde' if fb_ok else 'TAMBIÉN falla: ' + fb_detail}"
+                else:
+                    fb_ok, fallback = False, "no hay respaldo de Spotify (sin preview_url)"
+                msg = f"{label} usa Deezer y no responde: {detail}; {fallback}"
+                # Con el respaldo vivo el cliente sigue sonando: aviso. Sin él, el nivel normal.
+                (warnings if fb_ok else bucket).append(msg)
+            continue
+        if not url:
+            bucket.append(f"{label} no tiene preview_url")
+            continue
         ok, detail = preview_alive(url)
         previews[d] = detail
         if not ok:

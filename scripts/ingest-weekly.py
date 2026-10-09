@@ -13,11 +13,17 @@ Antes de pedir nada a Spotify por una pista, se descarta si ya está en el catá
 spotify_id o por clave título+artista, ver song_key.py): en un run normal el 85 % de lo que
 traen las playlists ya se conoce, y enriquecerlo costaba 1-3 peticiones por pista.
 
-El preview de Spotify es la única fuente de audio del juego: se guarda preview_duration_seconds
-midiendo el MP3 de preview_url, y no se inserta si falta preview_url, si no se pudo medir o si
-dura menos de MIN_PREVIEW_SECONDS (selection.py; D10: el umbral no cambia). El log distingue las
-tres causas porque no significan lo mismo: «sin URL» y «preview corto» son datos de Spotify;
-«fallo al medir» y «fallo al leer la pista» son fallos de la ingesta (SONGS-08 / OPS-09).
+Hay dos fuentes de audio: Deezer (principal, deezer_source.py) y el preview de Spotify
+(respaldo). De cada pista nueva se mide el MP3 de las dos (deezer_preview_seconds y
+preview_duration_seconds) y se inserta si CUALQUIERA dura al menos MIN_PREVIEW_SECONDS
+(selection.py; D10: el umbral no cambia). Una pista con preview corto en Spotify entra si Deezer
+da el audio (`eligible_by_deezer_only`); no entra si ninguna de las dos sirve (`no_audio`). La URL
+de Deezer va firmada y caduca: solo se guarda deezer_id (y isrc). El log distingue las causas
+porque no significan lo mismo: «sin URL» y «preview corto» son datos de Spotify; «no encontrada» y
+«corto» de Deezer, datos de Deezer; «fallo al medir», «fallo de la API de Deezer» y «fallo al
+leer la pista» son fallos de la ingesta (SONGS-08 / OPS-09). Un fallo de la API de Deezer no
+aborta la ingesta ni cuenta como «no encontrada»: si Spotify sirve, la pista entra sin los datos
+de Deezer (deezer_checked_at queda a NULL y backfill-deezer.py la completará).
 
 Un fallo de Spotify no es «no hay canciones nuevas»: si fallan la mayoría de las lecturas o de
 las mediciones, o ninguna playlist se pudo leer, el run termina en `failure` (exit 1, GitHub
@@ -45,6 +51,7 @@ import argparse
 import logging
 import sys
 import traceback
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -60,6 +67,7 @@ from common import (
 
 try:
     from db_paging import fetch_all
+    from deezer_source import DeezerApiError, find_track
     from preview_audio import PreviewFetchError, PreviewInvalidError, measure_mp3
     from selection import MIN_PREVIEW_SECONDS
     from song_key import dedupe_key
@@ -93,7 +101,13 @@ COUNT_FIELDS = (
     "no_preview_url",  # Spotify no da preview_url
     "measure_attempts",
     "measure_failed",  # no se pudo descargar o medir el preview
-    "preview_short",  # preview medido, pero < MIN_PREVIEW_SECONDS
+    "preview_short",  # preview de Spotify medido, pero < MIN_PREVIEW_SECONDS
+    "deezer_found",  # Deezer da la pista y su preview se pudo medir
+    "deezer_not_found",  # la búsqueda funcionó y no hay emparejamiento: un dato
+    "deezer_api_error",  # la API de Deezer falló o no se pudo medir su preview: un fallo
+    "deezer_short",  # preview de Deezer medido, pero < MIN_PREVIEW_SECONDS
+    "no_audio",  # pistas nuevas que no entran: ninguna de las dos fuentes sirve
+    "eligible_by_deezer_only",  # insertadas gracias a Deezer (Spotify no servía)
     "inserted",
     "insert_errors",
 )
@@ -116,8 +130,8 @@ class Counts:
 
     @property
     def no_preview(self) -> int:
-        """Total de pistas nuevas que no entran por el preview (nombre histórico del panel)."""
-        return self.n["no_preview_url"] + self.n["preview_short"] + self.n["measure_failed"]
+        """Pistas nuevas que no entran por falta de audio (nombre histórico del panel)."""
+        return self.n["no_audio"]
 
 
 class Catalog:
@@ -171,14 +185,14 @@ class Run:
         self.playlist_stats: list[dict] = []
         self.errors: list[str] = []  # van a `errors` del registro
         self.insert_error_samples = 0
-        self.failure_samples = {"enrich": 0, "measure": 0}
+        self.failure_samples = {"enrich": 0, "measure": 0, "deezer": 0}
         self.playlists_total = 0
         self.playlists_failed = 0
         self.exhausted: list[str] = []
         self.short_buckets: dict[str, int] = {}
 
     def note_failure(self, kind: str, message: str) -> None:
-        """Guarda como muestra un fallo de lectura o de medición (los primeros nada más)."""
+        """Guarda como muestra un fallo de lectura, de medición o de Deezer (los primeros nada más)."""
         if self.failure_samples[kind] < MAX_FAILURE_SAMPLES:
             self.failure_samples[kind] += 1
             self.errors.append(message)
@@ -207,6 +221,47 @@ def load_active_playlists(supabase: Any) -> list[tuple[str, str, str]]:
             mode = "default"
         out.append((pl_id, name, mode))
     return out
+
+
+@dataclass(frozen=True)
+class DeezerResult:
+    deezer_id: int | None = None
+    isrc: str | None = None
+    seconds: float | None = None  # preview medido; None si no hay o no se pudo
+    api_error: bool = False
+
+
+def lookup_deezer(run: Run, info: Any, sid: str, pc: Counts) -> DeezerResult:
+    """
+    Busca la pista en Deezer y mide su preview. Nunca lanza: un fallo de la API se cuenta aparte
+    de «no encontrada» y la ingesta sigue.
+    """
+    log = run.log
+    try:
+        match = find_track(info.artist, info.title, info.duration_ms)
+    except DeezerApiError as exc:
+        pc.bump("deezer_api_error")
+        log.warning("  Fallo de la API de Deezer con %s: %s", sid, exc)
+        run.note_failure("deezer", f"Deezer {sid}: {exc}")
+        return DeezerResult(api_error=True)
+    if match is None:
+        pc.bump("deezer_not_found")
+        return DeezerResult()
+    if not match.preview_url:
+        # Deezer conoce la pista pero no da preview: no es un fallo ni sirve como audio.
+        pc.bump("deezer_not_found")
+        return DeezerResult(deezer_id=match.deezer_id, isrc=match.isrc)
+    try:
+        seconds = measure_mp3(match.preview_url)
+    except (PreviewFetchError, PreviewInvalidError) as exc:
+        pc.bump("deezer_api_error")
+        log.warning("  Fallo al medir el preview de Deezer de %s: %s", sid, exc)
+        run.note_failure("deezer", f"Medir preview de Deezer {sid}: {exc}")
+        return DeezerResult(api_error=True)
+    pc.bump("deezer_found")
+    if seconds < MIN_PREVIEW_SECONDS:
+        pc.bump("deezer_short")
+    return DeezerResult(deezer_id=match.deezer_id, isrc=match.isrc, seconds=seconds)
 
 
 def process_track(run: Run, stub: TrackStub, pl_id: str, pl_name: str, pc: Counts) -> bool:
@@ -240,24 +295,36 @@ def process_track(run: Run, stub: TrackStub, pl_id: str, pl_name: str, pc: Count
     run.catalog.add(sid, None)
     pc.bump("candidates")
 
+    # --- Spotify: preview_url medido ---
+    spotify_seconds: float | None = None
     if not info.preview_url:
         pc.bump("no_preview_url")
-        return False
+    else:
+        pc.bump("measure_attempts")
+        try:
+            spotify_seconds = measure_mp3(info.preview_url)
+        except (PreviewFetchError, PreviewInvalidError) as exc:
+            pc.bump("measure_failed")
+            kind = "descargar" if isinstance(exc, PreviewFetchError) else "medir"
+            log.warning("  Fallo al %s el preview de %s: %s", kind, sid, exc)
+            run.note_failure("measure", f"Fallo al {kind} el preview de {sid}: {exc}")
+        else:
+            if spotify_seconds < MIN_PREVIEW_SECONDS:
+                pc.bump("preview_short")
+                bucket = short_bucket(spotify_seconds)
+                run.short_buckets[bucket] = run.short_buckets.get(bucket, 0) + 1
+    spotify_ok = spotify_seconds is not None and spotify_seconds >= MIN_PREVIEW_SECONDS
 
-    pc.bump("measure_attempts")
-    try:
-        seconds = measure_mp3(info.preview_url)
-    except (PreviewFetchError, PreviewInvalidError) as exc:
-        pc.bump("measure_failed")
-        kind = "descargar" if isinstance(exc, PreviewFetchError) else "medir"
-        log.warning("  Fallo al %s el preview de %s: %s", kind, sid, exc)
-        run.note_failure("measure", f"Fallo al {kind} el preview de {sid}: {exc}")
+    # --- Deezer: búsqueda y preview medido ---
+    deezer = lookup_deezer(run, info, sid, pc)
+    deezer_ok = deezer.seconds is not None and deezer.seconds >= MIN_PREVIEW_SECONDS
+
+    if not spotify_ok and not deezer_ok:
+        pc.bump("no_audio")
         return False
-    if seconds < MIN_PREVIEW_SECONDS:
-        pc.bump("preview_short")
-        bucket = short_bucket(seconds)
-        run.short_buckets[bucket] = run.short_buckets.get(bucket, 0) + 1
-        return False
+    if deezer_ok and not spotify_ok:
+        pc.bump("eligible_by_deezer_only")
+    seconds = spotify_seconds
 
     row = {
         "spotify_id": sid,
@@ -271,13 +338,21 @@ def process_track(run: Run, stub: TrackStub, pl_id: str, pl_name: str, pc: Count
         "release_date": info.release_date,
         "preview_url": info.preview_url,
         "preview_duration_seconds": seconds,
+        "deezer_id": deezer.deezer_id,
+        "isrc": deezer.isrc,
+        "deezer_preview_seconds": deezer.seconds,
+        # Solo si la búsqueda terminó (encontrada o no): con un fallo de la API queda a NULL y
+        # backfill-deezer.py la volverá a intentar.
+        "deezer_checked_at": None if deezer.api_error else datetime.now(timezone.utc).isoformat(),
         "spotify_playlist_id": pl_id,
         "spotify_playlist_name": pl_name,
         "is_active": True,
         # raw_spotify_data ya no se escribe: nadie la lee y D12 la borra (BD-2). Es nullable.
     }
     if run.dry_run:
-        log.debug("  [simulación] insertaría %s (preview %.1f s)", sid, seconds)
+        log.debug(
+            "  [simulación] insertaría %s (spotify %s s, deezer %s s)", sid, seconds, deezer.seconds
+        )
         run.catalog.add(sid, key)
         pc.bump("inserted")
         return True
@@ -372,6 +447,11 @@ def ingest_playlist(run: Run, pl_idx: int, pl_id: str, pl_name: str, mode: str) 
         "no_preview_url": pc["no_preview_url"],
         "preview_short": pc["preview_short"],
         "measure_failed": pc["measure_failed"],
+        "deezer_found": pc["deezer_found"],
+        "deezer_not_found": pc["deezer_not_found"],
+        "deezer_api_error": pc["deezer_api_error"],
+        "deezer_short": pc["deezer_short"],
+        "eligible_by_deezer_only": pc["eligible_by_deezer_only"],
         "enrich_failed": pc["enrich_failed"],
         "unavailable": pc["unavailable"],
         "inserted": pc["inserted"],
@@ -381,10 +461,12 @@ def ingest_playlist(run: Run, pl_idx: int, pl_id: str, pl_name: str, mode: str) 
     run.playlist_stats.append(stat)
     log.info(
         "[%d/%d] %s: procesadas %d de %d (modo %s) -> insertadas %d, duplicadas %d, "
-        "sin URL %d, preview corto %d, fallo al medir %d, fallo al leer %d, retiradas %d%s",
+        "sin URL %d, preview corto %d, fallo al medir %d, fallo al leer %d, retiradas %d, "
+        "Deezer: encontradas %d / no %d / fallo API %d / cortas %d, solo por Deezer %d%s",
         pl_idx + 1, n, pl_name, pc["found"], in_playlist, mode, pc["inserted"], pc["duplicates"],
         pc["no_preview_url"], pc["preview_short"], pc["measure_failed"], pc["enrich_failed"],
-        pc["unavailable"],
+        pc["unavailable"], pc["deezer_found"], pc["deezer_not_found"], pc["deezer_api_error"],
+        pc["deezer_short"], pc["eligible_by_deezer_only"],
         " [AGOTADA]" if exhausted else "",
     )
 
@@ -431,6 +513,11 @@ def evaluate(run: Run) -> tuple[str, list[str]]:
     if t["candidates"] >= MIN_SAMPLE_NO_URL and t["no_preview_url"] == t["candidates"]:
         failure.append(f"ninguna de las {t['candidates']} pistas nuevas trae preview_url")
 
+    # Deezer es la fuente principal, pero Spotify cubre: un fallo de su API deja el run en
+    # `partial` (las pistas sin datos de Deezer las completa backfill-deezer.py).
+    if t["deezer_api_error"]:
+        partial.append(f"falló la API de Deezer con {t['deezer_api_error']} pistas")
+
     if t["insert_errors"]:
         (failure if t["inserted"] == 0 else partial).append(f"{t['insert_errors']} errores al insertar")
 
@@ -448,14 +535,21 @@ def build_details(run: Run, status_reasons: list[str]) -> dict:
         "playlists_failed": run.playlists_failed,
         "tracks_found": t["found"],
         "duplicates": t["duplicates"],
-        # `no_preview` es la suma de las tres causas (así lo etiqueta el panel); aparte van las
-        # tres, porque «sin URL» y «preview corto» son datos de Spotify y «fallo al medir» no.
+        # `no_preview` son las pistas que no entran por no tener audio en ninguna fuente (así lo
+        # etiqueta el panel). Antes de oct. 2026 era la suma de las tres causas de Spotify; ahora
+        # esas tres son datos de Spotify aunque Deezer rescate la pista.
         "no_preview": t.no_preview,
+        "no_audio": t["no_audio"],
         "no_preview_url": t["no_preview_url"],
         "preview_short": t["preview_short"],
         "measure_failed": t["measure_failed"],
         "enrich_failed": t["enrich_failed"],
         "unavailable": t["unavailable"],
+        "deezer_found": t["deezer_found"],
+        "deezer_not_found": t["deezer_not_found"],
+        "deezer_api_error": t["deezer_api_error"],
+        "deezer_short": t["deezer_short"],
+        "eligible_by_deezer_only": t["eligible_by_deezer_only"],
         "songs_added": t["inserted"],
         "min_preview_seconds": MIN_PREVIEW_SECONDS,
         "preview_short_buckets": run.short_buckets,
@@ -558,6 +652,12 @@ def main() -> None:
         "Fallo al leer: %d | Retiradas: %d | Insertadas: %d",
         t["found"], t["duplicates"], t["no_preview_url"], t["preview_short"], t["measure_failed"],
         t["enrich_failed"], t["unavailable"], t["inserted"],
+    )
+    log.info(
+        "Deezer: encontradas %d | No encontradas: %d | Fallo de la API: %d | Preview corto: %d | "
+        "Entran solo por Deezer: %d | Sin audio en ninguna fuente: %d",
+        t["deezer_found"], t["deezer_not_found"], t["deezer_api_error"], t["deezer_short"],
+        t["eligible_by_deezer_only"], t["no_audio"],
     )
     if run.short_buckets:
         log.info("Previews cortos por duración: %s", run.short_buckets)

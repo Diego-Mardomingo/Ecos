@@ -99,8 +99,9 @@ begin
 end;
 $function$;
 
--- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con preview,
--- que es lo único que el juego puede reproducir.
+-- Búsqueda sin acentos (de ahí la extensión unaccent). Solo canciones activas y con alguna fuente de
+-- audio (preview de Spotify o id de Deezer), que es lo único que el juego puede reproducir.
+-- Filtro ampliado con la migración 20261010120000_deezer_columnas_y_fuente_audio (PENDIENTE).
 --
 -- Devuelve solo las columnas que usa /api/search-songs: con SETOF ecos_songs viajaba la fila
 -- entera (raw_spotify_data, preview_url…), 4,3 veces más bytes, y quien llamara a la RPC por REST
@@ -130,7 +131,7 @@ AS $function$
   SELECT s.id, s.title, s.artist_name, s.album_title, s.cover_url, s.spotify_id
   FROM ecos_songs s, q
   WHERE s.is_active = true
-    AND s.preview_url IS NOT NULL
+    AND (s.preview_url IS NOT NULL OR s.deezer_id IS NOT NULL)
     AND (
       unaccent(s.title) ILIKE '%' || unaccent(p_query) || '%'
       OR unaccent(s.artist_name) ILIKE '%' || unaccent(p_query) || '%'

@@ -8,12 +8,12 @@ import { unwrapToOne } from "@/lib/supabase/relations";
  *
  * Es la regla 1 de `scripts/selection.py` (`is_eligible` + `UsedSongs.contains`) escrita otra
  * vez en TypeScript, porque el panel no puede ejecutar Python. Qué cuenta como elegible:
- * - canción activa, de una playlist activa, con `preview_url` y preview medido de al menos
- *   `MIN_PREVIEW_SECONDS` (aquí se aplica también en la consulta, para no traer el catálogo
- *   entero);
+ * - canción activa, de una playlist activa, con audio de al menos `MIN_PREVIEW_SECONDS` en Deezer
+ *   (`deezer_id` y `deezer_preview_seconds`) o en Spotify (`preview_url` y
+ *   `preview_duration_seconds`): `has_deezer_audio` / `has_spotify_audio` de `selection.py`;
  * - con título y artista;
  * - que no haya salido ya en un juego: ni la misma canción (id), ni otra edición (`dedupe_key`),
- *   ni otra versión (`version_key`), ni el mismo audio (`preview_url`).
+ *   ni otra versión (`version_key`), ni el mismo audio (`preview_url`, `isrc` o `deezer_id`).
  *
  * Es una cota por arriba: no descuenta que elegir una canción deja fuera a las versiones que
  * comparten `version_key` con ella, ni las reglas de rotación 3-5 (que solo reducen candidatos
@@ -39,14 +39,22 @@ type SongRow = {
   preview_url: string | null;
   preview_duration_seconds: number | null;
   spotify_playlist_id: string | null;
+  deezer_id: number | null;
+  isrc: string | null;
+  deezer_preview_seconds: number | null;
+};
+
+type UsedSongRow = {
+  title: string | null;
+  artist_name: string | null;
+  preview_url: string | null;
+  isrc: string | null;
+  deezer_id: number | null;
 };
 
 type GameRow = {
   song_id: string;
-  ecos_songs:
-    | { title: string | null; artist_name: string | null; preview_url: string | null }
-    | { title: string | null; artist_name: string | null; preview_url: string | null }[]
-    | null;
+  ecos_songs: UsedSongRow | UsedSongRow[] | null;
 };
 
 // Separador entre título y artista, el mismo que en song_key.py.
@@ -88,18 +96,37 @@ type Used = {
   keys: Set<string>;
   versionKeys: Set<string>;
   previewUrls: Set<string>;
+  isrcs: Set<string>;
+  deezerIds: Set<string>;
 };
 
 function usedContains(
   used: Used,
-  song: { id: string; title: string | null; artist_name: string | null; preview_url: string | null }
+  song: {
+    id: string;
+    title: string | null;
+    artist_name: string | null;
+    preview_url: string | null;
+    isrc: string | null;
+    deezer_id: number | null;
+  }
 ): boolean {
   if (used.ids.has(song.id)) return true;
   const key = dedupeKey(song.title, song.artist_name);
   if (key && used.keys.has(key)) return true;
   const vk = versionKey(song.title, song.artist_name);
   if (vk && used.versionKeys.has(vk)) return true;
-  return !!song.preview_url && used.previewUrls.has(song.preview_url);
+  if (song.preview_url && used.previewUrls.has(song.preview_url)) return true;
+  if (song.isrc && used.isrcs.has(song.isrc)) return true;
+  return song.deezer_id != null && used.deezerIds.has(String(song.deezer_id));
+}
+
+function hasDeezerAudio(s: SongRow): boolean {
+  return !!s.deezer_id && (s.deezer_preview_seconds ?? -1) >= MIN_PREVIEW_SECONDS;
+}
+
+function hasSpotifyAudio(s: SongRow): boolean {
+  return !!s.preview_url && (s.preview_duration_seconds ?? -1) >= MIN_PREVIEW_SECONDS;
 }
 
 export type ReserveInfo = {
@@ -116,19 +143,17 @@ export async function countSelectorReserve(supabase: ServiceClient): Promise<Res
       supabase
         .from("ecos_songs")
         .select(
-          "id, title, artist_name, preview_url, preview_duration_seconds, spotify_playlist_id",
+          "id, title, artist_name, preview_url, preview_duration_seconds, spotify_playlist_id, deezer_id, isrc, deezer_preview_seconds",
           { count: "exact" }
         )
         .eq("is_active", true)
-        .not("preview_url", "is", null)
-        .gte("preview_duration_seconds", MIN_PREVIEW_SECONDS)
         .order("id")
         .range(from, to)
     ),
     fetchAllRows<GameRow>((from, to) =>
       supabase
         .from("ecos_games")
-        .select("song_id, ecos_songs(title, artist_name, preview_url)", { count: "exact" })
+        .select("song_id, ecos_songs(title, artist_name, preview_url, isrc, deezer_id)", { count: "exact" })
         .order("id")
         .range(from, to)
     ),
@@ -146,6 +171,8 @@ export async function countSelectorReserve(supabase: ServiceClient): Promise<Res
     keys: new Set(),
     versionKeys: new Set(),
     previewUrls: new Set(),
+    isrcs: new Set(),
+    deezerIds: new Set(),
   };
   for (const g of games) {
     const song = unwrapToOne(g.ecos_songs);
@@ -156,11 +183,17 @@ export async function countSelectorReserve(supabase: ServiceClient): Promise<Res
     const vk = versionKey(song.title, song.artist_name);
     if (vk) used.versionKeys.add(vk);
     if (song.preview_url) used.previewUrls.add(song.preview_url);
+    if (song.isrc) used.isrcs.add(song.isrc);
+    if (song.deezer_id != null) used.deezerIds.add(String(song.deezer_id));
   }
 
   const eligible = songs.filter((s) => {
     const playlistId = (s.spotify_playlist_id ?? "").trim();
-    return !!playlistId && activePlaylistIds.has(playlistId) && !!s.preview_url;
+    return (
+      !!playlistId &&
+      activePlaylistIds.has(playlistId) &&
+      (hasDeezerAudio(s) || hasSpotifyAudio(s))
+    );
   });
   const reserve = eligible.filter((s) => s.title && s.artist_name && !usedContains(used, s));
 

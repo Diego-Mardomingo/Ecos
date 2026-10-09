@@ -22,6 +22,7 @@ import { useLoginHref } from "@/components/game/useLoginHref";
 import { Link } from "@/i18n/navigation";
 import { useIsVirtualKeyboardOpen } from "@/lib/hooks/useVirtualKeyboard";
 import type { GameWithSong } from "@/lib/queries/games";
+import { songHasAudio } from "@/lib/audio/songHasAudio";
 import type { GuessEntry } from "@/lib/store/gameStore";
 import { cn } from "@/lib/utils";
 
@@ -82,7 +83,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const [audioLoaded, setAudioLoaded] = useState(false);
   /** La carga del audio ha fallado (red, proxy caído…): el botón de play pasa a reintentar. */
   const [audioFailed, setAudioFailed] = useState(false);
-  /** El resolvedor dice que la partida no tiene audio (además de `!song.preview_url`). */
+  /** El resolvedor dice que la partida no tiene audio (además de `!songHasAudio(song)`). */
   const [audioUnavailable, setAudioUnavailable] = useState(false);
   const loginHref = useLoginHref();
   /** Segundo completo transcurrido. Cuantizado a propósito: ver `handleAudioTimeUpdate`. */
@@ -93,7 +94,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const reduceMotion = useReducedMotionConfig();
   const song = game.ecos_songs;
   const currentAttempt = Math.min(guesses.length + 1, maxAttempts);
-  const noAudio = !song.preview_url || audioUnavailable;
+  const noAudio = !songHasAudio(song) || audioUnavailable;
 
   /**
    * `onTimeUpdate` llega en cada requestAnimationFrame. Guardarlo en estado re-renderizaría toda
@@ -268,7 +269,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       <div className={cn("transition-[padding]", KEYBOARD_TRANSITION, keyboardOpen ? "pb-3" : "pb-8")}>
         <AudioPlayer
           ref={playerRef}
-          gameId={song.preview_url ? game.id : undefined}
+          gameId={songHasAudio(song) ? game.id : undefined}
           maxDuration={audioDuration}
           onTimeUpdate={handleAudioTimeUpdate}
           onPlayingChange={setAudioPlaying}

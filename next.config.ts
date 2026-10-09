@@ -19,7 +19,7 @@ const supabaseHost = new URL(supabaseUrl).hostname;
  * la bloqueante solo sin violaciones.
  *
  * El audio ya no pasa por mismo origen: el navegador resuelve la URL en /api/audio-url, baja el MP3
- * directo del CDN con fetch() (connect-src, `audioHost`) y lo reproduce desde un Blob (media-src
+ * directo del CDN con fetch() (connect-src, `audioHosts`) y lo reproduce desde un Blob (media-src
  * `blob:`). El CDN también va en media-src por el respaldo de URL directa en el <audio>.
  *
  * Orígenes, todos verificados en el código:
@@ -54,12 +54,13 @@ const imageHosts = [
 ];
 
 /**
- * CDN del audio. El navegador baja el MP3 con fetch() (connect-src) y, si eso falla, lo reproduce
- * directo en <audio> (media-src). Va solo en la CSP de las páginas: el service worker no intercepta
+ * CDN del audio (Spotify y previews firmadas de Deezer). El navegador baja el MP3 con fetch()
+ * (connect-src) y, si eso falla, lo reproduce directo en <audio> (media-src). Va solo en la CSP de
+ * las páginas: el service worker no intercepta
  * esas peticiones (solo atiende las reglas de `sw.ts`, y un MP3 de otro origen no casa con ninguna;
  * va directo a la red), así que `swCsp` no lo necesita.
  */
-const audioHost = "https://p.scdn.co";
+const audioHosts = ["https://p.scdn.co", "https://cdnt-preview.dzcdn.net"].join(" ");
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -69,8 +70,8 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
   "font-src 'self' data:",
   ["img-src 'self' data: blob:", ...imageHosts].join(" "),
-  `media-src 'self' blob: ${audioHost}`,
-  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com ${audioHost}`,
+  `media-src 'self' blob: ${audioHosts}`,
+  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com ${audioHosts}`,
   "frame-src https://accounts.google.com",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
