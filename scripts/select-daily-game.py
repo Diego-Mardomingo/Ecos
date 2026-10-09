@@ -41,6 +41,7 @@ from selection import (
     MIN_PREVIEW_SECONDS,
     ROTATION_DAYS,
     UsedSongs,
+    audio_source_for,
     is_eligible,
     pick_song,
 )
@@ -48,7 +49,7 @@ from selection import (
 # Columnas de la canción que necesitan las reglas (pool y juegos recientes).
 SONG_COLUMNS = (
     "id, title, artist_name, preview_url, preview_duration_seconds, release_date, "
-    "spotify_playlist_id, spotify_playlist_name"
+    "spotify_playlist_id, spotify_playlist_name, deezer_id, isrc, deezer_preview_seconds"
 )
 NEARBY_SONG_COLUMNS = "release_date, spotify_playlist_id, spotify_playlist_name, artist_name"
 # Reintentos del insert si otro proceso se queda antes con el mismo game_number.
@@ -75,7 +76,7 @@ def get_pending_game_dates(supabase: Any, today: date) -> list[str]:
 
 
 def load_eligible_pool(supabase: Any, log: logging.Logger) -> list[dict]:
-    """Canciones activas que cumplen playlist activa + preview_url + duración mínima."""
+    """Canciones activas con playlist activa y audio (Deezer o Spotify) de duración mínima."""
     r_pl = (
         supabase.table("ecos_spotify_playlists")
         .select("spotify_playlist_id")
@@ -104,7 +105,7 @@ def load_used_songs(supabase: Any) -> UsedSongs:
     # un select sin paginar empezaría a "olvidar" canciones ya jugadas y a repetirlas.
     rows = fetch_all(
         lambda: supabase.table("ecos_games").select(
-            "song_id, ecos_songs(title, artist_name, preview_url)", count="exact"
+            "song_id, ecos_songs(title, artist_name, preview_url, isrc, deezer_id)", count="exact"
         )
     )
     used = UsedSongs()
@@ -158,13 +159,20 @@ def _unique_violation(exc: Exception) -> str | None:
     return None
 
 
-def insert_game(supabase: Any, song_id: str, target_date: str, log: logging.Logger) -> int | None:
+def insert_game(
+    supabase: Any, song_id: str, target_date: str, audio_source: str, log: logging.Logger
+) -> int | None:
     """Inserta el juego y devuelve su número, o None si otra ejecución ya creó esa fecha."""
     for attempt in range(1, INSERT_ATTEMPTS + 1):
         number = next_game_number(supabase)
         try:
             supabase.table("ecos_games").insert(
-                {"song_id": song_id, "date": target_date, "game_number": number}
+                {
+                    "song_id": song_id,
+                    "date": target_date,
+                    "game_number": number,
+                    "audio_source": audio_source,
+                }
             ).execute()
             return number
         except Exception as exc:
@@ -234,8 +242,8 @@ def main() -> None:
     pool = load_eligible_pool(supabase, log)
     if not pool:
         msg = (
-            f"Pool elegible vacío: ninguna canción cumple preview ≥ {MIN_PREVIEW_SECONDS:g}s, "
-            "playlist activa y preview_url"
+            f"Pool elegible vacío: ninguna canción activa cumple playlist activa y audio de "
+            f"Deezer o de Spotify ≥ {MIN_PREVIEW_SECONDS:g}s"
         )
         log.error(msg)
         record("failure", msg, {"pending_dates": pending_dates}, [msg])
@@ -263,6 +271,7 @@ def main() -> None:
             "artist": song.get("artist_name"),
             "playlist": song.get("spotify_playlist_name") or None,
             "playlist_id": song.get("spotify_playlist_id") or None,
+            "audio_source": audio_source_for(song),
             "rule": pick.rule,
             "pool_size": pick.pool_size,
             "candidates": pick.candidates,
@@ -272,7 +281,7 @@ def main() -> None:
             number: int | None = next_game_number(supabase) + len(created)
         else:
             try:
-                number = insert_game(supabase, song["id"], target_date, log)
+                number = insert_game(supabase, song["id"], target_date, audio_source_for(song), log)
             except Exception as exc:
                 msg = f"insert {target_date}: {exc}"
                 log.error("No se pudo insertar el juego: %s", msg)
@@ -292,8 +301,9 @@ def main() -> None:
             else f"canción {song['id']}"
         )
         log.info(
-            "Ecos #%d para %s: %s (regla %s, %d candidatos de %d disponibles)",
-            number, target_date, song_label, pick.rule, pick.candidates, pick.pool_size,
+            "Ecos #%d para %s: %s [%s] (regla %s, %d candidatos de %d disponibles)",
+            number, target_date, song_label, audio_source_for(song), pick.rule, pick.candidates,
+            pick.pool_size,
         )
 
         # Estado local para que la siguiente fecha no repita canción y aplique las reglas 2-5

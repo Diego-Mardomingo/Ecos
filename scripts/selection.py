@@ -7,7 +7,8 @@ se puede ejecutar en seco con una semilla fija y comparar elecciones.
 
 Reglas, en orden:
 1. Nunca repetir: ni la misma canción (id), ni otra edición (`dedupe_key`), ni otra versión de
-   la misma canción (`version_key`: "Hey" / "Hey - Spanish"), ni el mismo audio (`preview_url`).
+   la misma canción (`version_key`: "Hey" / "Hey - Spanish"), ni el mismo audio (`preview_url`,
+   `isrc` o `deezer_id`: single y álbum de Spotify pueden ser la misma pista de Deezer).
 2. Preferir playlists que no han salido en los ROTATION_DAYS días alrededor de la fecha.
 3. No repetir la década del día anterior ni la del siguiente (si ya existe).
 4. No repetir el género especial (flamenco, rap, reggaeton, según el nombre de la playlist) del día
@@ -31,9 +32,9 @@ ROTATION_DAYS = 14
 # Días por delante de hoy que deben tener juego creado (ver select-daily-game.py).
 DAYS_AHEAD = 2
 SPECIAL_GENRES = {"flamenco", "rap", "reggaeton"}
-# Pool elegible: preview medido >= este umbral (s) y playlist activa en ecos_spotify_playlists.
-# 30 s nominales de Spotify suelen medir ~29.7 s en MP3; el umbral es ligeramente inferior para
-# no vaciar el pool.
+# Pool elegible: preview medido >= este umbral (s) en Deezer o en Spotify, y playlist activa en
+# ecos_spotify_playlists. 30 s nominales de Spotify suelen medir ~29.7 s en MP3 (los de Deezer,
+# ~29.99 s); el umbral es ligeramente inferior para no vaciar el pool.
 MIN_PREVIEW_SECONDS = 29.0
 
 
@@ -85,20 +86,34 @@ def get_special_genre(playlist_name: str | None) -> str | None:
     return None
 
 
+def _seconds_ok(value: object) -> bool:
+    try:
+        return value is not None and float(value) >= MIN_PREVIEW_SECONDS  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
+def has_deezer_audio(song: dict) -> bool:
+    """Deezer tiene el audio: id y preview medido >= MIN_PREVIEW_SECONDS."""
+    return bool(song.get("deezer_id")) and _seconds_ok(song.get("deezer_preview_seconds"))
+
+
+def has_spotify_audio(song: dict) -> bool:
+    """Spotify tiene el audio: preview_url y preview medido >= MIN_PREVIEW_SECONDS."""
+    return bool(song.get("preview_url")) and _seconds_ok(song.get("preview_duration_seconds"))
+
+
 def is_eligible(song: dict, active_playlist_ids: set[str]) -> bool:
-    """Playlist activa + preview_url + duración medida >= MIN_PREVIEW_SECONDS."""
+    """Playlist activa + audio de Deezer o de Spotify de al menos MIN_PREVIEW_SECONDS."""
     pl_id = (song.get("spotify_playlist_id") or "").strip()
     if not pl_id or pl_id not in active_playlist_ids:
         return False
-    if not song.get("preview_url"):
-        return False
-    dur = song.get("preview_duration_seconds")
-    if dur is None:
-        return False
-    try:
-        return float(dur) >= MIN_PREVIEW_SECONDS
-    except (TypeError, ValueError):
-        return False
+    return has_deezer_audio(song) or has_spotify_audio(song)
+
+
+def audio_source_for(song: dict) -> str:
+    """Fuente que se fija al crear la partida: Deezer si es fiable, y si no, Spotify."""
+    return "deezer" if has_deezer_audio(song) else "spotify"
 
 
 @dataclass
@@ -109,6 +124,8 @@ class UsedSongs:
     keys: set[str] = field(default_factory=set)
     version_keys: set[str] = field(default_factory=set)
     preview_urls: set[str] = field(default_factory=set)
+    isrcs: set[str] = field(default_factory=set)
+    deezer_ids: set[str] = field(default_factory=set)
 
     def add(self, song: dict) -> None:
         if song.get("id"):
@@ -121,6 +138,10 @@ class UsedSongs:
             self.version_keys.add(vk)
         if song.get("preview_url"):
             self.preview_urls.add(song["preview_url"])
+        if song.get("isrc"):
+            self.isrcs.add(str(song["isrc"]))
+        if song.get("deezer_id"):
+            self.deezer_ids.add(str(song["deezer_id"]))
 
     def contains(self, song: dict) -> bool:
         if str(song["id"]) in self.ids:
@@ -133,7 +154,12 @@ class UsedSongs:
         if vk and vk in self.version_keys:
             return True
         # Mismo audio con otro título o artista ("Hay Quel Venir al Sur" / "Hay que venir al sur").
-        return bool(song.get("preview_url")) and song["preview_url"] in self.preview_urls
+        if song.get("preview_url") and song["preview_url"] in self.preview_urls:
+            return True
+        # Misma pista de Deezer (single y álbum de Spotify).
+        if song.get("isrc") and str(song["isrc"]) in self.isrcs:
+            return True
+        return bool(song.get("deezer_id")) and str(song["deezer_id"]) in self.deezer_ids
 
 
 @dataclass

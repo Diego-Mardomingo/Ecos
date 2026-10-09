@@ -23,6 +23,11 @@ export const JOB_TYPES = {
     label: "Comprobación de juegos",
     color: "bg-cyan-500/20 text-cyan-600 dark:text-cyan-400",
   },
+  // Relleno puntual de ids de Deezer en el catálogo (scripts/backfill-deezer.py).
+  deezer_backfill: {
+    label: "Relleno de Deezer",
+    color: "bg-pink-500/20 text-pink-600 dark:text-pink-400",
+  },
   // Desde la revisión de reportes ya no desactiva nada: avisa de que 3 usuarios distintos han
   // reportado la misma canción. El valor no cambia porque lo admite el CHECK de la BD.
   report_auto_deactivate: {

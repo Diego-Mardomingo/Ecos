@@ -26,6 +26,13 @@ create table if not exists public.ecos_songs (
   preview_url text,
   spotify_playlist_name text,
   preview_duration_seconds double precision,
+  -- Deezer (fuente principal de audio; Spotify es el respaldo). La URL de preview de Deezer va
+  -- firmada y caduca a los 900 s, así que no se guarda: se resuelve con GET /track/{deezer_id}.
+  -- `deezer_checked_at` es la última vez que se buscó (también si no se encontró).
+  deezer_id bigint,
+  isrc text,
+  deezer_preview_seconds double precision,
+  deezer_checked_at timestamp with time zone,
   -- Clave canónica título+artista. La calcula el trigger ecos_songs_dedupe_key; no se escribe
   -- a mano. Existe para poder imponer un único sobre ella: Spotify publica la misma canción
   -- como single y dentro de un álbum, con distinto spotify_id y distinta carátula, y el único
@@ -38,7 +45,9 @@ create table if not exists public.ecos_games (
   song_id uuid not null,
   date date not null,
   game_number integer not null,
-  created_at timestamp with time zone default now()
+  created_at timestamp with time zone default now(),
+  -- Fuente de audio fijada al crear la partida. Las anteriores a Deezer se quedan en spotify.
+  audio_source text not null default 'spotify'
 );
 
 create table if not exists public.ecos_profiles (
@@ -154,6 +163,8 @@ alter table public.ecos_songs add constraint ecos_songs_spotify_id_key UNIQUE (s
 alter table public.ecos_games add constraint ecos_games_pkey PRIMARY KEY (id);
 alter table public.ecos_games add constraint ecos_games_date_key UNIQUE (date);
 alter table public.ecos_games add constraint ecos_games_game_number_key UNIQUE (game_number);
+alter table public.ecos_games add constraint ecos_games_audio_source_check
+  CHECK ((audio_source = ANY (ARRAY['spotify'::text, 'deezer'::text])));
 alter table public.ecos_games add constraint ecos_games_song_id_fkey
   FOREIGN KEY (song_id) REFERENCES ecos_songs(id) ON DELETE RESTRICT;
 
@@ -222,7 +233,7 @@ alter table public.ecos_spotify_playlists add constraint ecos_spotify_playlists_
 
 alter table public.ecos_system_logs add constraint ecos_system_logs_pkey PRIMARY KEY (id);
 alter table public.ecos_system_logs add constraint ecos_system_logs_job_type_check
-  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text])));
+  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text, 'deezer_backfill'::text])));
 alter table public.ecos_system_logs add constraint ecos_system_logs_status_check
   CHECK ((status = ANY (ARRAY['success'::text, 'partial'::text, 'failure'::text])));
 
@@ -244,6 +255,10 @@ CREATE INDEX IF NOT EXISTS idx_ecos_scores_game ON public.ecos_scores USING btre
 -- reingerir otra edición de la misma.
 CREATE UNIQUE INDEX IF NOT EXISTS ecos_songs_dedupe_key_activas_key ON public.ecos_songs
   USING btree (dedupe_key) WHERE is_active;
+-- No únicos: dos filas de Spotify (single y álbum) pueden mapear a la misma pista de Deezer; los
+-- duplicados se descartan en selection.py.
+CREATE INDEX IF NOT EXISTS ecos_songs_deezer_id_idx ON public.ecos_songs USING btree (deezer_id);
+CREATE INDEX IF NOT EXISTS ecos_songs_isrc_idx ON public.ecos_songs USING btree (isrc);
 CREATE INDEX IF NOT EXISTS ecos_spotify_playlists_sort_order_idx ON public.ecos_spotify_playlists USING btree (sort_order);
 
 -- ---------------------------------------------------------------------------------------------

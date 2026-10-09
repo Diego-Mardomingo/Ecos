@@ -91,6 +91,10 @@ export function ingestionPlaylistStats(raw: unknown): PlaylistRunStat[] {
       ["no_preview_url", "sin URL"],
       ["preview_short", "preview corto"],
       ["measure_failed", "fallo al medir"],
+      ["deezer_found", "Deezer encontradas"],
+      ["deezer_not_found", "Deezer no encontradas"],
+      ["deezer_api_error", "fallo de Deezer"],
+      ["eligible_by_deezer_only", "solo por Deezer"],
       ["enrich_failed", "fallo al leer"],
       ["unavailable", "retiradas"],
     ] as const) {
@@ -166,6 +170,17 @@ function ingestionLines(d: Details): string[] {
     const unavailable = num(d, "unavailable");
     if (unavailable !== null) parts.push(`Retiradas de Spotify: ${unavailable}`);
     lines.push(parts.join(" · "));
+    // Desde la ingesta con Deezer: `no_preview` pasa a ser «sin audio en ninguna fuente».
+    const noAudio = num(d, "no_audio");
+    if (noAudio !== null) lines.push(`Sin audio en ninguna fuente: ${noAudio}`);
+    const deezer = pairs(d, [
+      ["deezer_found", "Encontradas en Deezer"],
+      ["deezer_not_found", "No encontradas"],
+      ["deezer_api_error", "Fallo de la API de Deezer"],
+      ["deezer_short", "Preview corto en Deezer"],
+      ["eligible_by_deezer_only", "Entran solo por Deezer"],
+    ]);
+    if (deezer) lines.push(deezer);
   } else {
     const legacy = num(d, "no_preview");
     if (legacy !== null) lines.push(`Sin preview: ${legacy}`);
@@ -259,6 +274,24 @@ function gamesCheckLines(d: Details): string[] {
   return lines;
 }
 
+function deezerBackfillLines(d: Details): string[] {
+  const lines: string[] = [];
+  const main = pairs(d, [
+    ["songs_checked", "Canciones revisadas"],
+    ["found", "Encontradas"],
+    ["not_found", "No encontradas"],
+    ["api_errors", "Fallo de la API"],
+    ["short", "Preview corto"],
+    ["became_eligible", "Pasan a elegibles"],
+    ["updated", "Actualizadas"],
+  ]);
+  if (main) lines.push(main);
+  const hosts = strings(d, "cdn_hosts");
+  if (hosts.length) lines.push(`Hosts del CDN: ${hosts.join(", ")}`);
+  if (d.recheck === true) lines.push("Con --recheck (incluye las ya buscadas sin éxito)");
+  return lines;
+}
+
 function reportLines(d: Details): string[] {
   const parts: string[] = [];
   const title = text(d, "title");
@@ -294,6 +327,8 @@ export function summarizeLog(jobType: string, raw: unknown): string[] {
       return notificationsLines(d);
     case "games_check":
       return gamesCheckLines(d);
+    case "deezer_backfill":
+      return deezerBackfillLines(d);
     case "report_auto_deactivate":
       return reportLines(d);
     case "weekly_games":

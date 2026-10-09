@@ -29,6 +29,7 @@ JOB_INGESTION = "ingestion"
 JOB_DAILY_GAME = "daily_game"
 JOB_DAILY_NOTIFICATIONS = "daily_notifications"
 JOB_GAMES_CHECK = "games_check"
+JOB_DEEZER_BACKFILL = "deezer_backfill"
 
 
 def load_env() -> None:
