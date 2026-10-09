@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
  *
  * - Listo y en espera: respira (`.ecos-breathe`), para invitar a pulsarlo.
  * - Sonando: dos ondas expansivas desfasadas (`.ecos-ping`).
+ * - Arrancando (`starting`, entre el toque y el primer sonido): ya enseña el icono de parar, para
+ *   que el toque se note al instante, pero las ondas esperan a `playing` (sonido real).
  * - El icono cambia girando y escalando entre play, stop y carga.
  *
  * - Si el audio no ha cargado, en vez de girar para siempre: «reintentar» cuando la carga ha
@@ -20,6 +22,7 @@ import { cn } from "@/lib/utils";
  */
 export function PlayButton({
   playing,
+  starting = false,
   loaded,
   onClick,
   size = 80,
@@ -30,6 +33,8 @@ export function PlayButton({
   className,
 }: {
   playing: boolean;
+  /** Pedido el play, el cabezal aún no avanza: solo cambia el icono, no los efectos de «suena». */
+  starting?: boolean;
   loaded: boolean;
   onClick: () => void;
   size?: number;
@@ -47,7 +52,7 @@ export function PlayButton({
       ? "retry"
       : !loaded
         ? "loading"
-        : playing
+        : playing || starting
           ? "stop"
           : "play";
   const enabled = state === "play" || state === "stop" || state === "retry";

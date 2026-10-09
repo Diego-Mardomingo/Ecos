@@ -1,5 +1,7 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { BottomNav } from "@/components/bottom-nav/BottomNav";
 import { SidebarNav } from "@/components/sidebar-nav/SidebarNav";
@@ -7,6 +9,17 @@ import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { PlayNavigationPendingOverlay } from "@/components/navigation/PlayNavigationPendingOverlay";
 import { cn } from "@/lib/utils";
 import { stripLocalePrefix } from "@/i18n/locale-path";
+import { isAudioDebugEnabled } from "@/lib/audio/audioDebug";
+
+/** Diagnóstico de audio (`?audioDebug=1`): fuera del bundle salvo que se active. */
+const AudioDebugPanel = dynamic(
+  () => import("@/components/audio-player/AudioDebugPanel").then((mod) => mod.AudioDebugPanel),
+  { ssr: false }
+);
+
+/** Se decide una vez por carga de página, así que no hay nada a lo que suscribirse. */
+const subscribeToNothing = () => () => {};
+const audioDebugOffOnServer = () => false;
 
 function isPlayRoute(pathname: string): boolean {
   const normalized = stripLocalePrefix(pathname);
@@ -16,6 +29,7 @@ function isPlayRoute(pathname: string): boolean {
 export function AppLayoutClient({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const showNav = !isPlayRoute(pathname);
+  const audioDebug = useSyncExternalStore(subscribeToNothing, isAudioDebugEnabled, audioDebugOffOnServer);
 
   return (
     <>
@@ -35,6 +49,7 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
       </div>
       <PlayNavigationPendingOverlay />
       {showNav && <BottomNav />}
+      {audioDebug && <AudioDebugPanel />}
     </>
   );
 }

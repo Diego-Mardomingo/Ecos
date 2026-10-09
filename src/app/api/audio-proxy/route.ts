@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unstable_cache } from "next/cache";
-import { createServiceClient } from "@/lib/supabase/server";
-import { unwrapToOne } from "@/lib/supabase/relations";
+import { getGameAudioCached } from "@/lib/audio/gameAudio";
 import { getEffectiveGameDate } from "@/lib/date-utils";
 import { isUuid } from "@/lib/api/route";
 
 /**
- * Proxy de audio para el preview de Spotify.
+ * Proxy de audio para el preview de Spotify. **Temporal**: el reproductor ya no lo usa (descarga
+ * el MP3 directo del CDN con `/api/audio-url`). Se queda un despliegue solo para las pestañas que
+ * sigan con el JS anterior, y sirve los bytes en vez de redirigir porque la CSP de esas páginas
+ * (`media-src 'self' blob:`) bloquearía el salto a p.scdn.co. Borrarlo en la fase siguiente.
  *
  * Sirve el fragmento sin exponer la URL del CDN al cliente. Solo acepta un `gameId` y solo de un
  * día que ya haya llegado en Madrid: el selector crea los juegos con dos días de antelación y,
@@ -14,8 +15,9 @@ import { isUuid } from "@/lib/api/route";
  * SEC-06 / B4-05). Un juego futuro responde igual que uno inexistente.
  *
  * Caché:
- * - `gameId → (fecha, preview_url)` no cambia nunca: va en la caché de servidor y la BD solo se
- *   consulta la primera vez (PERFDB-16).
+ * - `gameId → (fecha, preview_url)` no cambia nunca: va en la caché de servidor (compartida con
+ *   `/api/audio-url`, ver `getGameAudioCached`) y la BD solo se consulta la primera vez
+ *   (PERFDB-16).
  * - El MP3 tampoco cambia para un juego, así que el navegador lo guarda una semana
  *   (`private, max-age, immutable`) en vez de bajarlo entero en cada visita a la partida
  *   (COST-01 / PDATA-07). Antes iba con `no-store` «para evitar la extracción», pero el preview
@@ -27,29 +29,6 @@ import { isUuid } from "@/lib/api/route";
 
 const AUDIO_CACHE_CONTROL = "private, max-age=604800, immutable";
 const NO_STORE = "no-store";
-
-interface GameAudio {
-  date: string;
-  previewUrl: string | null;
-}
-
-function getGameAudioCached(gameId: string): Promise<GameAudio | null> {
-  return unstable_cache(
-    async (): Promise<GameAudio | null> => {
-      const { data, error } = await createServiceClient()
-        .from("ecos_games")
-        .select("date, ecos_songs(preview_url)")
-        .eq("id", gameId)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) return null;
-      const song = unwrapToOne<{ preview_url: string | null }>(data.ecos_songs);
-      return { date: data.date as string, previewUrl: song?.preview_url ?? null };
-    },
-    ["game-audio", gameId],
-    { revalidate: 86400 }
-  )();
-}
 
 function textResponse(body: string, status: number): NextResponse {
   return new NextResponse(body, {

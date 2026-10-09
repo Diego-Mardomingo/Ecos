@@ -4,6 +4,9 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { gameAudioLabel } from "@/lib/audio/audioStore";
+import { FragmentPlayer, type FragmentPlayerContext } from "@/lib/audio/fragmentPlayer";
+import { useGameAudio } from "@/lib/audio/useGameAudio";
 
 export interface AudioPlayerHandle {
   togglePlay: () => void;
@@ -14,393 +17,166 @@ export interface AudioPlayerHandle {
    * siguiente play arranca desde ahí. Se acota al fragmento disponible (`maxDuration`).
    */
   seekTo: (seconds: number) => void;
-  /** Vuelve a cargar el audio después de un fallo de carga (UX-06). */
+  /** Vuelve a resolver y descargar el audio después de un fallo de carga (UX-06). */
   retry: () => void;
 }
 
 interface AudioPlayerProps {
-  /** Preview MP3 de Spotify, servido a través de /api/audio-proxy. Única fuente de audio. */
-  previewUrl?: string;
+  /**
+   * Partida cuyo audio suena. El MP3 lo resuelve y lo guarda `audioStore` (descarga directa del
+   * CDN, una vez por partida). Sin `gameId` la canción no tiene audio.
+   */
+  gameId?: string;
   maxDuration: number;
   onEnded?: () => void;
   onTimeUpdate?: (currentTime: number) => void;
+  /** `true` solo cuando el cabezal avanza de verdad, no cuando se pide el play. */
   onPlayingChange?: (isPlaying: boolean) => void;
+  /** Entre el toque y el primer avance del cabezal (en iOS, hasta ~0,4 s). */
+  onStartingChange?: (isStarting: boolean) => void;
   onLoadedChange?: (isLoaded: boolean) => void;
-  /** Avisa cuando la carga del audio falla (red, proxy caído…) y cuando deja de estar fallida. */
+  /** Avisa cuando la carga del audio falla (red, resolvedor caído…) y cuando deja de estar fallida. */
   onErrorChange?: (failed: boolean) => void;
+  /** La partida no tiene audio (no hay `gameId` o el resolvedor dice que no existe). */
+  onUnavailableChange?: (unavailable: boolean) => void;
   /** Cuando true, no se muestra la barra ni el botón (el padre dibuja el control grande) */
   hideControls?: boolean;
   className?: string;
 }
 
 const AudioPlayerComponent = ({
-  previewUrl,
+  gameId,
   maxDuration,
   onEnded,
   onTimeUpdate,
   onPlayingChange,
+  onStartingChange,
   onLoadedChange,
   onErrorChange,
+  onUnavailableChange,
   hideControls = false,
   className,
 }: AudioPlayerProps,
 ref: React.Ref<AudioPlayerHandle>) => {
   const t = useTranslations("game");
-  /** Se resuelve aqui porque dentro de `togglePlay` hay un `t` local que sombrea el del hook. */
   const fragmentTitle = t("audioFragment");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  /** id de requestAnimationFrame para el bucle de progreso */
-  const playbackRafRef = useRef<number | null>(null);
-  /** setTimeout de hard-stop absoluto — fallback cuando RAF se throttlea en móvil */
-  const stopTimeoutRef = useRef<number | null>(null);
+  const { audio: stored, retry: retryStore } = useGameAudio(gameId);
+  // El Blob (o, sin él, la URL directa) cuando la caché del audio ya lo tiene.
+  const src = stored.status === "ready" ? (stored.blobUrl ?? stored.directUrl) : null;
+  const unavailable = !gameId || stored.status === "unavailable";
 
-  const cancelHardStop = useCallback(() => {
-    if (stopTimeoutRef.current !== null) {
-      clearTimeout(stopTimeoutRef.current);
-      stopTimeoutRef.current = null;
-    }
-  }, []);
-
-  const cancelPlaybackLoop = useCallback(() => {
-    if (playbackRafRef.current !== null) {
-      cancelAnimationFrame(playbackRafRef.current);
-      playbackRafRef.current = null;
-    }
-  }, []);
-  /** Listener "ended" activo del preview, para poder retirarlo y no acumularlos. */
-  const endedHandlerRef = useRef<(() => void) | null>(null);
-  const maxDurationRef = useRef(maxDuration);
-  /** Segundo desde el que arrancará el siguiente play, fijado por `seekTo` con el audio parado. */
-  const pendingStartRef = useRef(0);
-  const onEndedRef = useRef(onEnded);
+  const playerRef = useRef<FragmentPlayer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+  /** El `<audio>` ha dado error (decodificación, URL directa caída…). El de la caché va aparte. */
+  const [elementError, setElementError] = useState(false);
+  const failed = !unavailable && (stored.status === "error" || elementError);
   /**
    * Solo alimenta los controles propios del reproductor. Con `hideControls` no se pinta, y el
    * bucle de progreso corre a 60 fps, así que ahí no se toca: quien dibuja es el padre a través
    * de `onTimeUpdate`.
    */
   const [currentTime, setCurrentTime] = useState(0);
-  const setCurrentTimeIfVisible = useCallback(
-    (value: number) => {
-      if (hideControls) return;
-      setCurrentTime(value);
-    },
-    [hideControls]
-  );
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [hasError, setHasError] = useState(false);
   /**
-   * Se incrementa en cada reintento: el efecto que crea el `<audio>` depende de él, así que un
-   * reintento monta un elemento nuevo. Antes, si fallaba la carga, el botón se quedaba girando
-   * para siempre y no había forma de volver a intentarlo sin recargar la página.
+   * Se incrementa en cada reintento: el efecto que crea el motor depende de él, así que un
+   * reintento monta un `<audio>` nuevo aunque la URL sea la misma (la directa).
    */
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const isPlayingRef = useRef(false);
-  const isLoadedRef = useRef(false);
 
-  // Espejos del último valor, para que los callbacks imperativos (rAF, handlers de
-  // <audio>, el handle expuesto por ref) los lean sin recrearse en cada cambio.
-  // Se escriben tras el commit y no durante el render, que rompe las garantías
-  // del compilador de React.
+  const handleTimeUpdate = (time: number) => {
+    if (!hideControls) setCurrentTime(time);
+    onTimeUpdate?.(time);
+  };
+
+  // Lo vigente (duración del fragmento, callbacks) para el motor, que lo lee cuando lo necesita
+  // en vez de recrearse. Se escribe tras el commit y no durante el render, que rompe las
+  // garantías del compilador de React. Va antes del efecto que crea el motor: así, en un mismo
+  // commit, ya está al día cuando este arranca.
+  const latestRef = useRef<FragmentPlayerContext>({
+    maxDuration,
+    fragmentTitle,
+    onTimeUpdate: handleTimeUpdate,
+    onEnded,
+  });
   useEffect(() => {
-    maxDurationRef.current = maxDuration;
-    onEndedRef.current = onEnded;
-    isPlayingRef.current = isPlaying;
-    isLoadedRef.current = isLoaded;
+    latestRef.current = { maxDuration, fragmentTitle, onTimeUpdate: handleTimeUpdate, onEnded };
   });
 
-  const updateMediaSessionPosition = useCallback((position: number) => {
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: maxDurationRef.current,
-          playbackRate: 1,
-          position: Math.min(position, maxDurationRef.current),
-        });
-      } catch {
-        // ignore
-      }
-    }
-  }, []);
-
-  const clearMediaSession = useCallback(() => {
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      try {
-        navigator.mediaSession.setPositionState();
-        navigator.mediaSession.metadata = null;
-        navigator.mediaSession.playbackState = "none";
-        navigator.mediaSession.setActionHandler("seekto", null);
-      } catch {
-        // ignore
-      }
-    }
-  }, []);
-
-  /** Declarado aquí, antes del efecto de montaje del reproductor, porque ese efecto
-   *  lo usa: si se declara después queda en zona muerta temporal y la referencia
-   *  capturada no se actualiza cuando cambia. */
-  const stopAndReset = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      if (endedHandlerRef.current) {
-        audioRef.current.removeEventListener("ended", endedHandlerRef.current);
-        endedHandlerRef.current = null;
-      }
-    }
-    cancelPlaybackLoop();
-    cancelHardStop();
-    pendingStartRef.current = 0;
+  // Reset al cambiar de audio (otra partida, un Blob nuevo, un reintento), ajustando el estado
+  // durante el render en lugar de en el efecto. En el primer render no hace nada, porque estos son
+  // ya los valores iniciales.
+  const mediaKey = src ? `${src}|${loadAttempt}` : "";
+  const [lastMediaKey, setLastMediaKey] = useState(mediaKey);
+  if (mediaKey !== lastMediaKey) {
+    setLastMediaKey(mediaKey);
+    setIsLoaded(false);
+    setElementError(false);
     setCurrentTime(0);
     setIsPlaying(false);
-    clearMediaSession();
-    onTimeUpdate?.(0);
-  }, [cancelPlaybackLoop, cancelHardStop, clearMediaSession, onTimeUpdate]);
-
-  /**
-   * Hard-stop absoluto: fallback para cuando RAF se throttlea en móvil. Se programa con lo que
-   * *queda* de fragmento desde `fromSeconds`, no con el fragmento entero: tras un salto hacia
-   * atrás, contar desde el play original cortaría el audio antes de tiempo.
-   */
-  const scheduleHardStop = useCallback(
-    (fromSeconds: number) => {
-      cancelHardStop();
-      const remaining = Math.max(0, maxDurationRef.current - fromSeconds);
-      stopTimeoutRef.current = window.setTimeout(() => {
-        stopAndReset();
-        onEndedRef.current?.();
-      }, (remaining + 0.5) * 1000);
-    },
-    [cancelHardStop, stopAndReset]
-  );
+    setIsStarting(false);
+  }
 
   useEffect(() => {
     onPlayingChange?.(isPlaying);
   }, [isPlaying, onPlayingChange]);
 
   useEffect(() => {
+    onStartingChange?.(isStarting);
+  }, [isStarting, onStartingChange]);
+
+  useEffect(() => {
     onLoadedChange?.(isLoaded);
   }, [isLoaded, onLoadedChange]);
 
   useEffect(() => {
-    onErrorChange?.(hasError);
-  }, [hasError, onErrorChange]);
-
-  // Reset al cambiar de pista, ajustando el estado durante el render en lugar de
-  // en el efecto de montaje del reproductor. En el primer render no hace nada,
-  // porque estos son ya los valores iniciales.
-  const trackKey = previewUrl ?? "";
-  const [lastTrackKey, setLastTrackKey] = useState(trackKey);
-  if (trackKey !== lastTrackKey) {
-    setLastTrackKey(trackKey);
-    setIsLoaded(false);
-    setHasError(false);
-    setCurrentTime(0);
-    setIsPlaying(false);
-  }
+    onErrorChange?.(failed);
+  }, [failed, onErrorChange]);
 
   useEffect(() => {
-    if (!previewUrl) return;
+    onUnavailableChange?.(unavailable);
+  }, [unavailable, onUnavailableChange]);
 
-    const audio = new Audio(previewUrl);
-    audioRef.current = audio;
-
-    const onLoaded = () => setIsLoaded(true);
-    const onError = () => {
-      audioRef.current = null;
-      setHasError(true);
-    };
-
-    const clampPreviewTime = () => {
-      const max = maxDurationRef.current;
-      if (audio.currentTime > max) {
-        audio.currentTime = max;
-        audio.pause();
-        stopAndReset();
-      }
-    };
-
-    const onSeeking = () => {
-      const max = maxDurationRef.current;
-      if (audio.currentTime > max) {
-        audio.currentTime = max;
-        audio.pause();
-        stopAndReset();
-      }
-    };
-
-    const onTimeUpdate = () => clampPreviewTime();
-
-    audio.addEventListener("loadeddata", onLoaded, { once: true });
-    audio.addEventListener("error", onError, { once: true });
-    audio.addEventListener("seeking", onSeeking);
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.load();
-
+  useEffect(() => {
+    if (!src || !gameId) return;
+    const player = new FragmentPlayer(src, gameAudioLabel(gameId), () => latestRef.current, {
+      loadedChange: setIsLoaded,
+      startingChange: setIsStarting,
+      playingChange: setIsPlaying,
+      error: () => setElementError(true),
+    });
+    playerRef.current = player;
     return () => {
-      audio.removeEventListener("loadeddata", onLoaded);
-      audio.removeEventListener("error", onError);
-      audio.removeEventListener("seeking", onSeeking);
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      if (endedHandlerRef.current) {
-        audio.removeEventListener("ended", endedHandlerRef.current);
-        endedHandlerRef.current = null;
-      }
-      if (playbackRafRef.current !== null) {
-        cancelAnimationFrame(playbackRafRef.current);
-        playbackRafRef.current = null;
-      }
-      if (stopTimeoutRef.current !== null) {
-        clearTimeout(stopTimeoutRef.current);
-        stopTimeoutRef.current = null;
-      }
-      audio.pause();
-      audio.src = "";
-      audioRef.current = null;
-      clearMediaSession();
+      player.dispose();
+      playerRef.current = null;
     };
     // `loadAttempt` no se lee dentro: está para que un reintento vuelva a crear el `<audio>`.
-  }, [previewUrl, loadAttempt, clearMediaSession, stopAndReset]);
+  }, [src, gameId, loadAttempt]);
 
   const retry = useCallback(() => {
-    if (!previewUrl) return;
-    setHasError(false);
-    setIsLoaded(false);
-    setIsPlaying(false);
+    if (!gameId) return;
     setLoadAttempt((n) => n + 1);
-  }, [previewUrl]);
-
-  const stopIfPlaying = useCallback(() => {
-    if (!isLoadedRef.current || !isPlayingRef.current) return;
-    audioRef.current?.pause();
-    stopAndReset();
-  }, [stopAndReset]);
+    retryStore();
+  }, [gameId, retryStore]);
 
   const togglePlay = useCallback(() => {
-    if (!isLoaded) return;
-
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (isPlaying) {
-      audio.pause();
-      stopAndReset();
-      return;
-    }
-
-    // Arranca donde lo dejó `seekTo` con el audio parado; si no hubo salto, desde el principio.
-    const startAt = Math.min(pendingStartRef.current, Math.max(0, maxDuration - 0.05));
-    pendingStartRef.current = 0;
-    audio.currentTime = startAt;
-    // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
-    // manejarlo para no quedar con isPlaying=true sin audio.
-    void audio.play().catch(() => {
-      setIsPlaying(false);
-      cancelHardStop();
-      cancelPlaybackLoop();
-    });
-    setIsPlaying(true);
-
-    const onEndedNative = () => {
-      cancelPlaybackLoop();
-      stopAndReset();
-      onEnded?.();
-    };
-    // Retirar cualquier listener previo para no acumularlos entre ciclos play/stop.
-    if (endedHandlerRef.current) {
-      audio.removeEventListener("ended", endedHandlerRef.current);
-    }
-    endedHandlerRef.current = onEndedNative;
-    audio.addEventListener("ended", onEndedNative);
-
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          // Sale en la pantalla de bloqueo del movil, asi que va traducido.
-          // Ojo: el handler de "seekto" de mas abajo declara su propio `t`, que sombrea
-          // el de useTranslations; este uso queda fuera de ese ambito a proposito.
-          title: fragmentTitle,
-          artist: "",
-          album: "",
-        });
-        // playbackState "none" evita que aparezca en controles del sistema
-        navigator.mediaSession.playbackState = "none";
-        updateMediaSessionPosition(startAt);
-        navigator.mediaSession.setActionHandler("seekto", (details) => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          const t = details.seekTime ?? 0;
-          const clamped = Math.min(Math.max(0, t), maxDuration);
-          audio.currentTime = clamped;
-          setCurrentTime(clamped);
-          onTimeUpdate?.(clamped);
-          updateMediaSessionPosition(clamped);
-        });
-      } catch {
-        // ignore
-      }
-    }
-
-    scheduleHardStop(startAt);
-
-    cancelPlaybackLoop();
-    const tickPreview = () => {
-      const a = audioRef.current;
-      if (!a) return;
-      const seek = a.currentTime;
-      const clamped = Math.min(seek, maxDuration);
-      if (clamped < seek) {
-        a.currentTime = clamped;
-        a.pause();
-      }
-      if (seek >= maxDuration) {
-        cancelPlaybackLoop();
-        a.pause();
-        onTimeUpdate?.(maxDuration);
-        updateMediaSessionPosition(maxDuration);
-        setTimeout(() => {
-          stopAndReset();
-          onEnded?.();
-        }, 120);
-        return;
-      }
-      setCurrentTimeIfVisible(seek);
-      onTimeUpdate?.(seek);
-      updateMediaSessionPosition(seek);
-      playbackRafRef.current = requestAnimationFrame(tickPreview);
-    };
-    playbackRafRef.current = requestAnimationFrame(tickPreview);
-  }, [cancelPlaybackLoop, cancelHardStop, isPlaying, isLoaded, maxDuration, stopAndReset, onEnded, onTimeUpdate, updateMediaSessionPosition, setCurrentTimeIfVisible, fragmentTitle, scheduleHardStop]);
-
-  const seekTo = useCallback(
-    (seconds: number) => {
-      if (!isLoadedRef.current) return;
-      const audio = audioRef.current;
-      if (!audio) return;
-      // Un pelo antes del final: caer justo en `maxDuration` dispararía el corte de fin de fragmento.
-      const clamped = Math.min(Math.max(0, seconds), Math.max(0, maxDurationRef.current - 0.05));
-      if (isPlayingRef.current) {
-        audio.currentTime = clamped;
-        scheduleHardStop(clamped);
-        updateMediaSessionPosition(clamped);
-      } else {
-        pendingStartRef.current = clamped;
-      }
-      setCurrentTimeIfVisible(clamped);
-      // Parado también se notifica: así quien pinta la onda deja el cabezal donde se tocó.
-      onTimeUpdate?.(clamped);
-    },
-    [scheduleHardStop, updateMediaSessionPosition, setCurrentTimeIfVisible, onTimeUpdate]
-  );
+    playerRef.current?.toggle();
+  }, []);
 
   useImperativeHandle(ref, () => ({
     togglePlay,
-    stopIfPlaying,
-    seekTo,
+    stopIfPlaying: () => playerRef.current?.stopIfPlaying(),
+    seekTo: (seconds: number) => playerRef.current?.seekTo(seconds),
     retry,
-  }), [togglePlay, stopIfPlaying, seekTo, retry]);
+  }), [togglePlay, retry]);
 
-  if (!previewUrl || hasError) {
+  // Con `hideControls` el padre pinta el botón y sus estados (reintentar, sin audio): una alerta
+  // propia aquí saldría además encima de ellos.
+  if (hideControls) {
+    return null;
+  }
+
+  if (unavailable || failed) {
     // Distingue «esta canción no tiene audio» de «no se ha podido cargar», que tiene arreglo
     // (reintentar desde el botón de play). `role="alert"` para que se anuncie al aparecer.
     return (
@@ -408,7 +184,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
         role="alert"
         className={cn("rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center text-sm text-destructive", className)}
       >
-        {previewUrl ? t("audioLoadError") : t("noAudio")}
+        {unavailable ? t("noAudio") : t("audioLoadError")}
       </div>
     );
   }
@@ -416,10 +192,6 @@ ref: React.Ref<AudioPlayerHandle>) => {
   const progress = Math.min((currentTime / maxDuration) * 100, 100);
   const formatTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
-  if (hideControls) {
-    return null;
-  }
 
   return (
     <div className={cn("flex flex-col items-center gap-4", className)}>

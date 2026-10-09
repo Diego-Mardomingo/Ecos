@@ -1,3 +1,4 @@
+import { clearGameAudioStore } from "@/lib/audio/audioStore";
 import { useGameProgressStore } from "@/lib/store/gameProgressStore";
 import { useGameStore } from "@/lib/store/gameStore";
 import { QUERY_CACHE_STORAGE_KEY } from "@/lib/queryPersist";
@@ -25,7 +26,7 @@ async function clearServiceWorkerRuntimeCaches(): Promise<void> {
 /**
  * Borra todo lo que el cliente guarda de una sesión al cambiar de usuario o cerrar sesión: el
  * progreso local de partidas (no mezclar el de invitado con el de la cuenta), la caché de queries
- * persistida y las cachés del service worker (PDATA-02).
+ * persistida, las cachés del service worker (PDATA-02) y los MP3 en memoria de `audioStore`.
  */
 export function clearSessionScopedClientData(): void {
   if (typeof window === "undefined") return;
@@ -40,6 +41,7 @@ export function clearSessionScopedClientData(): void {
   void clearServiceWorkerRuntimeCaches().catch(() => undefined);
   useGameProgressStore.setState({ byGameId: {} });
   useGameStore.getState().resetGame();
+  clearGameAudioStore();
 }
 
 export function syncCachedSessionUser(userId: string | null): void {

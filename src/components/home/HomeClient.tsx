@@ -59,6 +59,7 @@ import {
 import { PLAY_NAVIGATION_START_EVENT } from "@/lib/navigation/playNavigationEvents";
 import { PLAY_FROM_HOME_STORAGE_KEY } from "@/lib/navigation/useNavigateBackToHome";
 import { consumeHomeSyncSignal } from "@/lib/consistencySync";
+import { prefetchGameAudio, prefetchGameAudioWhenIdle } from "@/lib/audio/audioStore";
 
 interface Props {
   initialData?: {
@@ -372,6 +373,15 @@ export function HomeClient({ initialData }: Props) {
     router.prefetch("/play");
   }, [router]);
 
+  // El MP3 de hoy, en reposo y solo si hay algo que jugar: con el reto sin audio o ya terminado no
+  // se gasta red. Si se completa antes de que llegue el reposo, la limpieza lo cancela. El almacén
+  // es idempotente y respeta el ahorro de datos.
+  const todaysHasAudio = !!todaysGame?.ecos_songs.preview_url;
+  useEffect(() => {
+    if (!todaysGameId || !todaysHasAudio || todaysCompleted) return;
+    return prefetchGameAudioWhenIdle(todaysGameId, "home (reposo)");
+  }, [todaysGameId, todaysHasAudio, todaysCompleted]);
+
   /**
    * Partidas terminadas (fecha + intento del acierto) para la distribución de «Tu progreso».
    * Sin las queries de estado por día: los puntos del histórico bastan para saber el intento.
@@ -414,7 +424,11 @@ export function HomeClient({ initialData }: Props) {
     if (cacheUserId && todaysGameId) {
       void prefetchGameProgressById(queryClient, todaysGameId).catch(() => undefined);
     }
-  }, [router, queryClient, cacheUserId, todaysGameId]);
+    // Intención de abrir el reto de hoy: si el reposo aún no ha llegado, el audio no espera.
+    if (todaysGameId && todaysHasAudio && !todaysCompleted) {
+      prefetchGameAudio(todaysGameId, "intención (hoy)");
+    }
+  }, [router, queryClient, cacheUserId, todaysGameId, todaysHasAudio, todaysCompleted]);
 
   const handleShareHome = async (e: React.MouseEvent) => {
     e.preventDefault();
