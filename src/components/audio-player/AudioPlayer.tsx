@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { attachAudioDebug, audioDebugPlayRequested, audioDebugStopped } from "@/lib/audio/audioDebug";
 
 export interface AudioPlayerHandle {
   togglePlay: () => void;
@@ -141,6 +142,8 @@ ref: React.Ref<AudioPlayerHandle>) => {
    *  capturada no se actualiza cuando cambia. */
   const stopAndReset = useCallback(() => {
     if (audioRef.current) {
+      // Antes de volver a 0, para que el diagnóstico lea hasta dónde llegó el cabezal.
+      audioDebugStopped(audioRef.current);
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       if (endedHandlerRef.current) {
@@ -204,6 +207,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
 
     const audio = new Audio(previewUrl);
     audioRef.current = audio;
+    const detachDebug = attachAudioDebug(audio, previewUrl);
 
     const onLoaded = () => setIsLoaded(true);
     const onError = () => {
@@ -254,6 +258,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
         clearTimeout(stopTimeoutRef.current);
         stopTimeoutRef.current = null;
       }
+      detachDebug();
       audio.pause();
       audio.src = "";
       audioRef.current = null;
@@ -291,6 +296,7 @@ ref: React.Ref<AudioPlayerHandle>) => {
     // Arranca donde lo dejó `seekTo` con el audio parado; si no hubo salto, desde el principio.
     const startAt = Math.min(pendingStartRef.current, Math.max(0, maxDuration - 0.05));
     pendingStartRef.current = 0;
+    audioDebugPlayRequested(audio, startAt, maxDuration);
     audio.currentTime = startAt;
     // play() puede rechazar en iOS/Safari (autoplay bloqueado, o stop inmediato):
     // manejarlo para no quedar con isPlaying=true sin audio.
