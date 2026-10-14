@@ -267,7 +267,7 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------------------------
--- Facetas de canción (modo por categorías). Migración 20261014120000_metadatos_canciones (PENDIENTE).
+-- Facetas de canción (modo por categorías). Migración 20261014120000_metadatos_canciones (aplicada).
 -- ---------------------------------------------------------------------------------------------
 
 -- Facetas de una canción para el modo por categorías: década, género y origen. Función pura (solo
