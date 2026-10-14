@@ -1,4 +1,4 @@
-# Ingesta semanal (ingest-weekly.py) y backfill-preview-duration.py.
+# Ingesta semanal (ingest-weekly.py), enrich-metadata.py y backfill-preview-duration.py.
 # Topes de serie mayor: una mayor nueva no se instala sola en el cron sin que nadie la pruebe.
 # spotifyscraper 3.x es una reescritura de la API (sin spotify_scraper.parsers,
 # cambia SpotifyClient.get_playlist_info/get_album_info). Pinear a la serie 2.x.

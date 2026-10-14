@@ -28,6 +28,12 @@ export const JOB_TYPES = {
     label: "Relleno de Deezer",
     color: "bg-pink-500/20 text-pink-600 dark:text-pink-400",
   },
+  // Metadatos de canciones (fecha, género, idioma, país) de Deezer y MusicBrainz
+  // (scripts/enrich-metadata.py).
+  metadata_enrich: {
+    label: "Metadatos de canciones",
+    color: "bg-teal-500/20 text-teal-600 dark:text-teal-400",
+  },
   // Desde la revisión de reportes ya no desactiva nada: avisa de que 3 usuarios distintos han
   // reportado la misma canción. El valor no cambia porque lo admite el CHECK de la BD.
   report_auto_deactivate: {

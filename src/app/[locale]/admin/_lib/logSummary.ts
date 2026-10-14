@@ -292,6 +292,21 @@ function deezerBackfillLines(d: Details): string[] {
   return lines;
 }
 
+function metadataEnrichLines(d: Details): string[] {
+  const lines: string[] = [];
+  const main = pairs(d, [
+    ["songs_checked", "Canciones revisadas"],
+    ["deezer_found", "Con datos de Deezer"],
+    ["deezer_not_found", "Sin datos de Deezer"],
+    ["mb_found", "En MusicBrainz"],
+    ["mb_not_found", "No están en MusicBrainz"],
+    ["api_errors", "Fallos de API"],
+    ["updated", "Actualizadas"],
+  ]);
+  if (main) lines.push(main);
+  return lines;
+}
+
 function reportLines(d: Details): string[] {
   const parts: string[] = [];
   const title = text(d, "title");
@@ -329,6 +344,8 @@ export function summarizeLog(jobType: string, raw: unknown): string[] {
       return gamesCheckLines(d);
     case "deezer_backfill":
       return deezerBackfillLines(d);
+    case "metadata_enrich":
+      return metadataEnrichLines(d);
     case "report_auto_deactivate":
       return reportLines(d);
     case "weekly_games":

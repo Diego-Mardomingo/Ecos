@@ -33,6 +33,19 @@ create table if not exists public.ecos_songs (
   isrc text,
   deezer_preview_seconds double precision,
   deezer_checked_at timestamp with time zone,
+  -- Metadatos para el modo por categorías (scripts/enrich-metadata.py). Deezer: fecha de la pista
+  -- (`/track`) y géneros del álbum (`/album`). MusicBrainz (por ISRC): idioma de la obra (ISO 639-3),
+  -- país del artista (ISO 3166-1 alfa-2) y sus géneros. `*_checked_at` solo se marca con respuesta
+  -- definitiva (encontrado o no), nunca ante un fallo de la API. `origin_override` es la corrección
+  -- manual del origen. Las deriva ecos_song_facets (02_functions.sql).
+  deezer_release_date text,
+  deezer_genre_ids integer[],
+  deezer_meta_checked_at timestamp with time zone,
+  mb_language text,
+  mb_artist_country text,
+  mb_genres text[],
+  mb_checked_at timestamp with time zone,
+  origin_override text,
   -- Clave canónica título+artista. La calcula el trigger ecos_songs_dedupe_key; no se escribe
   -- a mano. Existe para poder imponer un único sobre ella: Spotify publica la misma canción
   -- como single y dentro de un álbum, con distinto spotify_id y distinta carátula, y el único
@@ -160,6 +173,9 @@ create table if not exists public.ecos_system_logs (
 alter table public.ecos_songs add constraint ecos_songs_pkey PRIMARY KEY (id);
 alter table public.ecos_songs add constraint ecos_songs_spotify_id_key UNIQUE (spotify_id);
 
+alter table public.ecos_songs add constraint ecos_songs_origin_override_check
+  CHECK (((origin_override IS NULL) OR (origin_override = ANY (ARRAY['es'::text, 'latam'::text, 'intl'::text]))));
+
 alter table public.ecos_games add constraint ecos_games_pkey PRIMARY KEY (id);
 alter table public.ecos_games add constraint ecos_games_date_key UNIQUE (date);
 alter table public.ecos_games add constraint ecos_games_game_number_key UNIQUE (game_number);
@@ -233,7 +249,7 @@ alter table public.ecos_spotify_playlists add constraint ecos_spotify_playlists_
 
 alter table public.ecos_system_logs add constraint ecos_system_logs_pkey PRIMARY KEY (id);
 alter table public.ecos_system_logs add constraint ecos_system_logs_job_type_check
-  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text, 'deezer_backfill'::text])));
+  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text, 'deezer_backfill'::text, 'metadata_enrich'::text])));
 alter table public.ecos_system_logs add constraint ecos_system_logs_status_check
   CHECK ((status = ANY (ARRAY['success'::text, 'partial'::text, 'failure'::text])));
 
