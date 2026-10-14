@@ -66,6 +66,14 @@ class DeezerTrack:
     preview_url: str | None  # firmada: caduca a los 900 s; no guardar
 
 
+@dataclass(frozen=True)
+class DeezerTrackMeta:
+    """Fecha de la pista y álbum al que pertenece (de `GET /track/{id}`)."""
+
+    release_date: str | None  # «YYYY-MM-DD», tal cual la da Deezer
+    album_id: int | None
+
+
 # --- Normalización y emparejamiento ---
 
 _PARENS = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]")
@@ -221,6 +229,62 @@ def track(deezer_id: int) -> DeezerTrack | None:
         duration_s=int(data.get("duration") or 0),
         preview_url=data.get("preview") or None,
     )
+
+
+def track_meta(deezer_id: int) -> DeezerTrackMeta | None:
+    """
+    Fecha de lanzamiento y álbum de una pista. None si Deezer dice que la pista no existe; lanza
+    DeezerApiError si la API falla. Una pista que existe sin fecha devuelve release_date=None.
+    """
+    data = _get(f"/track/{deezer_id}")
+    err = data.get("error")
+    if isinstance(err, dict):
+        if err.get("type") == "DataException" or err.get("code") == 800:
+            return None
+        raise DeezerApiError(f"pista {deezer_id}: error {err.get('code')}")
+    if not data.get("id"):
+        return None
+    album = data.get("album")
+    album_id = album.get("id") if isinstance(album, dict) else None
+    release = data.get("release_date")
+    # Deezer usa «0000-00-00» cuando no sabe la fecha.
+    if not isinstance(release, str) or not re.match(r"^[1-9]\d{3}-", release):
+        release = None
+    return DeezerTrackMeta(release_date=release, album_id=int(album_id) if album_id else None)
+
+
+# Géneros por álbum, en memoria: muchas canciones comparten álbum. None = Deezer no tiene el álbum
+# (respuesta definitiva); un fallo de la API lanza y no se cachea.
+_album_genres: dict[int, list[int] | None] = {}
+
+
+def album_genre_ids(album_id: int) -> list[int] | None:
+    """
+    Ids de género del álbum (`genres.data`, o `genre_id` si falta; -1 = «sin género» se descarta).
+    None si el álbum no existe; lista vacía si existe sin géneros. Lanza DeezerApiError si falla.
+    """
+    if album_id in _album_genres:
+        return _album_genres[album_id]
+    data = _get(f"/album/{album_id}")
+    err = data.get("error")
+    if isinstance(err, dict):
+        if err.get("type") == "DataException" or err.get("code") == 800:
+            _album_genres[album_id] = None
+            return None
+        raise DeezerApiError(f"álbum {album_id}: error {err.get('code')}")
+    if not data.get("id"):
+        _album_genres[album_id] = None
+        return None
+    ids: list[int] = []
+    genres = data.get("genres")
+    for g in (genres.get("data") if isinstance(genres, dict) else None) or []:
+        if isinstance(g, dict) and isinstance(g.get("id"), int) and g["id"] > 0 and g["id"] not in ids:
+            ids.append(g["id"])
+    gid = data.get("genre_id")
+    if not ids and isinstance(gid, int) and gid > 0:
+        ids.append(gid)
+    _album_genres[album_id] = ids
+    return ids
 
 
 def preview_host(url: str | None) -> str | None:

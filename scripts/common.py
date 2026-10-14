@@ -30,6 +30,7 @@ JOB_DAILY_GAME = "daily_game"
 JOB_DAILY_NOTIFICATIONS = "daily_notifications"
 JOB_GAMES_CHECK = "games_check"
 JOB_DEEZER_BACKFILL = "deezer_backfill"
+JOB_METADATA_ENRICH = "metadata_enrich"
 
 
 def load_env() -> None:

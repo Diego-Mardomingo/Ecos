@@ -231,6 +231,12 @@ revoke execute on function public.ecos_finalize_game_score(
 revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean, integer, boolean)
   from public, anon, authenticated;
 
+-- Facetas de canción (década, género, origen): función interna del modo por categorías. Migración
+-- 20261014120000_metadatos_canciones (PENDIENTE). Las columnas nuevas de ecos_songs (metadatos de
+-- Deezer y MusicBrainz, origin_override) heredan el recorte de la tabla: los clientes solo leen.
+revoke execute on function public.ecos_song_facets(text, text, text, integer[], text, text, text)
+  from public, anon, authenticated;
+
 -- Solo trigger (on auth.users): nadie la llama por la API. Un trigger no comprueba EXECUTE al
 -- dispararse, así que el alta de usuarios no se ve afectada.
 revoke execute on function public.ecos_handle_new_user() from public, anon, authenticated;
