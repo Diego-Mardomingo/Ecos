@@ -2,7 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import createIntlMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
-import { matchesLocalizedRoute } from "./i18n/locale-path";
+import { matchesLocalizedRoute, stripLocalePrefix } from "./i18n/locale-path";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
@@ -86,7 +86,11 @@ export async function proxy(request: NextRequest) {
   const isProtected = protectedRoutes.some((route) =>
     matchesLocalizedRoute(pathname, route)
   );
-  if (isProtected && !user) {
+  // La partida de una categoría (`/categorias/<slug>`) exige sesión; la lista (`/categorias`) es
+  // pública. Solo pide estar autenticado: a diferencia de /profile, no obliga a tener nombre de
+  // usuario, así que queda fuera de `isProtected`. La propia página lo vuelve a comprobar.
+  const isCategoryRunPath = stripLocalePrefix(pathname).startsWith("/categorias/");
+  if ((isProtected || isCategoryRunPath) && !user) {
     const loginUrl = new URL(enPrefixedPath(pathname, "/login"), request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return withSession(NextResponse.redirect(loginUrl));

@@ -4,7 +4,7 @@ import { localizedPath } from "@/lib/i18n/localizedPath";
 import { getSiteUrl } from "@/lib/seo/siteUrl";
 
 /** Solo las páginas públicas e indexables. Las partidas (`/play/<id>`) no se listan: son `noindex`. */
-const PATHS = ["/", "/ranking"];
+const PATHS = ["/", "/ranking", "/categorias"];
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = getSiteUrl();
@@ -17,7 +17,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     };
     return routing.locales.map((locale) => ({
       url: abs(localizedPath(locale, path)),
-      changeFrequency: path === "/" ? ("daily" as const) : ("hourly" as const),
+      changeFrequency:
+        path === "/"
+          ? ("daily" as const)
+          : path === "/ranking"
+            ? ("hourly" as const)
+            : ("weekly" as const),
       alternates: { languages },
     }));
   });

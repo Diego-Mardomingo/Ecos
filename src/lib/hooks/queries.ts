@@ -15,6 +15,7 @@ import type {
 import { isTerminalProgress } from "@/lib/store/gameProgressStore";
 
 import {
+  CATEGORIES_STALE_MS,
   HOME_HISTORY_GC_MS,
   HOME_USER_STATS_STALE_MS,
   PROFILE_STALE_MS,
@@ -25,6 +26,8 @@ import {
   staleUntilMadridMidnight,
 } from "./queryKeys";
 import {
+  fetchCategoriesData,
+  fetchCategoryRankingData,
   fetchGameProgressById,
   fetchHomeDayStatusById,
   fetchHomeTodayData,
@@ -32,7 +35,9 @@ import {
   fetchLeaderboardPeriodData,
   fetchProfileCoreData,
   fetchProfileStatsData,
+  postCategoryRun,
   postJson,
+  type CategoryRunOutcome,
 } from "./queryFetchers";
 import {
   applyGameOptimisticCaches,
@@ -40,6 +45,10 @@ import {
   syncQueriesAfterGameEvent,
   takeGameCacheSnapshot,
 } from "./gameCacheSync";
+import type {
+  CategoriesResponse,
+  CategoryRankingResponse,
+} from "@/lib/categories/types";
 import type {
   HomeData,
   ProfileData,
@@ -96,6 +105,7 @@ export type {
   RankingData,
 } from "./queryTypes";
 export type { InProgressProgress, TodaysCompletedResult };
+export type { CategoryRunOutcome };
 
 /* -------------------------------------------------------------------------------------------- */
 /* Home                                                                                          */
@@ -465,6 +475,97 @@ export function useLeaderboard(
     initialData: initialByPeriod?.[period],
     staleTime: RANKING_STALE_MS,
   });
+}
+
+/* -------------------------------------------------------------------------------------------- */
+/* Categorías (modo racha)                                                                       */
+/* -------------------------------------------------------------------------------------------- */
+
+/** Categorías visibles y, con sesión, la marca del usuario en cada una. La siembra el RSC. */
+export function useCategories(userId: string | null, initialData?: CategoriesResponse) {
+  return useQuery({
+    queryKey: queryKeys.categories.list(userId),
+    queryFn: fetchCategoriesData,
+    initialData,
+    staleTime: CATEGORIES_STALE_MS,
+  });
+}
+
+/** Top de una categoría (y la fila del usuario si queda fuera). La siembra el RSC. */
+export function useCategoryRanking(
+  slug: string,
+  userId: string | null,
+  initialData?: CategoryRankingResponse
+) {
+  return useQuery({
+    queryKey: queryKeys.categories.ranking(slug, userId),
+    queryFn: () => fetchCategoryRankingData(slug),
+    initialData,
+    staleTime: CATEGORIES_STALE_MS,
+  });
+}
+
+/**
+ * Cuando una partida termina cambian la mejor marca, la partida activa y, si hubo puntos, el
+ * ranking: se marcan como viejos para que la siguiente lectura los pida de nuevo.
+ */
+function invalidateCategoriesIfEnded(queryClient: QueryClient, outcome: CategoryRunOutcome) {
+  if (outcome.run.status !== "ended") return;
+  void queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+}
+
+/**
+ * Las cuatro jugadas del modo racha comparten forma: una petición que devuelve la partida tal como
+ * la tiene el servidor (`CategoryRunOutcome`). El componente reconcilia con ella, también en el
+ * 409. Sin reintentos automáticos: el estado del servidor manda.
+ */
+function useCategoryRunMutation<TVariables extends object>(
+  name: string,
+  url: string,
+  fallbackMessage: string
+) {
+  const queryClient = useQueryClient();
+  return useMutation<CategoryRunOutcome, Error, TVariables>({
+    mutationKey: ["category-run", name],
+    meta: { skipGlobalErrorToast: true },
+    retry: false,
+    mutationFn: (variables) => postCategoryRun(url, variables, fallbackMessage),
+    onSuccess: (outcome) => invalidateCategoriesIfEnded(queryClient, outcome),
+  });
+}
+
+export function useStartCategoryRunMutation() {
+  return useCategoryRunMutation<{ slug: string }>(
+    "start",
+    "/api/category-run/start",
+    "Failed to start run"
+  );
+}
+
+export function useCategoryGuessMutation() {
+  return useCategoryRunMutation<{
+    runId: string;
+    roundNumber: number;
+    attemptNumber: number;
+    guessText: string;
+    songId: string;
+  }>("guess", "/api/category-run/guess", "Failed to send guess");
+}
+
+export function useCategorySkipMutation() {
+  return useCategoryRunMutation<{
+    runId: string;
+    roundNumber: number;
+    attemptNumber: number;
+  }>("skip", "/api/category-run/skip", "Failed to skip attempt");
+}
+
+export function useAbandonCategoryRunMutation() {
+  return useCategoryRunMutation<{ runId: string }>(
+    "abandon",
+    "/api/category-run/abandon",
+    "Failed to abandon run"
+  );
 }
 
 

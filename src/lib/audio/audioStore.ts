@@ -64,9 +64,32 @@ interface Entry {
 const entries = new Map<string, Entry>();
 const listeners = new Map<string, Set<() => void>>();
 
+/**
+ * Las claves de la caché son ids de partida del diario (un uuid) o, en el modo por categorías, la
+ * clave de una canción concreta de una racha (`categoryAudioKey`). Una racha sirve el audio de su
+ * canción actual desde una URL fija, así que la clave lleva el número de canción: cada canción
+ * tiene su propia entrada y nunca se reutiliza el Blob de la anterior.
+ */
+const CATEGORY_KEY_PREFIX = "category:";
+
+export function categoryAudioKey(runId: string, roundNumber: number): string {
+  return `${CATEGORY_KEY_PREFIX}${runId}:${roundNumber}`;
+}
+
+/** Ruta que resuelve las fuentes de audio de la clave. */
+function audioUrlForKey(key: string): string {
+  if (key.startsWith(CATEGORY_KEY_PREFIX)) {
+    const runId = key.slice(CATEGORY_KEY_PREFIX.length).split(":")[0];
+    return `/api/category-run/audio?runId=${encodeURIComponent(runId)}`;
+  }
+  return `/api/audio-url?gameId=${encodeURIComponent(key)}`;
+}
+
 /** Identificador corto de la partida para el diagnóstico (igual que `gameLabel` de `audioDebug`). */
 export function gameAudioLabel(gameId: string): string {
-  return gameId.slice(0, 8);
+  return gameId.startsWith(CATEGORY_KEY_PREFIX)
+    ? gameId.slice(CATEGORY_KEY_PREFIX.length, CATEGORY_KEY_PREFIX.length + 8)
+    : gameId.slice(0, 8);
 }
 
 function notify(gameId: string) {
@@ -147,9 +170,7 @@ async function resolveSources(gameId: string): Promise<ResolveResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
   try {
-    const response = await fetch(`/api/audio-url?gameId=${encodeURIComponent(gameId)}`, {
-      signal: controller.signal,
-    });
+    const response = await fetch(audioUrlForKey(gameId), { signal: controller.signal });
     // 404: el juego no existe o no tiene audio. No se arregla reintentando.
     if (response.status === 404) return { kind: "unavailable" };
     if (!response.ok) return { kind: "error", message: `audio-url HTTP ${response.status}` };

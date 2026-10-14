@@ -56,8 +56,15 @@ function formatClock(totalSeconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
-  game,
+/**
+ * Versión sin acoplar a la partida del diario: la usan también las rachas por categorías. El audio
+ * se pide por `audioKey` (clave de `audioStore`; `undefined` = sin audio), `seed` fija la forma de
+ * la onda y `reportSlot` es el botón de reportar, que solo sale si hay sesión y el audio falla.
+ */
+const PlayingAudioSection = memo(function PlayingAudioSection({
+  seed,
+  audioKey,
+  reportSlot,
   audioDuration,
   guesses,
   maxAttempts,
@@ -65,7 +72,9 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   playerRef,
   children,
 }: {
-  game: GameWithSong;
+  seed: string;
+  audioKey: string | undefined;
+  reportSlot?: ReactNode;
   audioDuration: number;
   guesses: GuessEntry[];
   maxAttempts: number;
@@ -92,9 +101,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   const cardRef = useRef<HTMLDivElement | null>(null);
   /** Lo que diga `MotionConfig` (`prefers-reduced-motion`): la sacudida es de transformación. */
   const reduceMotion = useReducedMotionConfig();
-  const song = game.ecos_songs;
   const currentAttempt = Math.min(guesses.length + 1, maxAttempts);
-  const noAudio = !songHasAudio(song) || audioUnavailable;
+  const noAudio = !audioKey || audioUnavailable;
 
   /**
    * `onTimeUpdate` llega en cada requestAnimationFrame. Guardarlo en estado re-renderizaría toda
@@ -214,7 +222,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
 
         <SegmentedWaveform
           ref={waveformRef}
-          seed={game.id}
+          seed={seed}
           unlockedCount={currentAttempt}
           guesses={guesses}
           currentAttempt={currentAttempt}
@@ -269,7 +277,7 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
       <div className={cn("transition-[padding]", KEYBOARD_TRANSITION, keyboardOpen ? "pb-3" : "pb-8")}>
         <AudioPlayer
           ref={playerRef}
-          gameId={songHasAudio(song) ? game.id : undefined}
+          gameId={audioKey}
           maxDuration={audioDuration}
           onTimeUpdate={handleAudioTimeUpdate}
           onPlayingChange={setAudioPlaying}
@@ -281,10 +289,8 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
         />
         {/* Sin audio la partida es a ciegas: quien tiene sesión puede avisar ya, sin esperar al
             resultado (UX-06). */}
-        {!isGuest && (audioFailed || noAudio) && (
-          <div className="mt-1 flex justify-center">
-            <ReportSongDialog gameId={game.id} songId={song.id} trigger={<ReportSongTrigger />} />
-          </div>
+        {!isGuest && reportSlot && (audioFailed || noAudio) && (
+          <div className="mt-1 flex justify-center">{reportSlot}</div>
         )}
         {children}
       </div>
@@ -292,4 +298,30 @@ const PlayingGameAudioSection = memo(function PlayingGameAudioSection({
   );
 });
 
-export { PlayingGameAudioSection };
+/** La partida del diario: mismo comportamiento de siempre sobre `PlayingAudioSection`. */
+function PlayingGameAudioSection({
+  game,
+  ...props
+}: {
+  game: GameWithSong;
+  audioDuration: number;
+  guesses: GuessEntry[];
+  maxAttempts: number;
+  isGuest: boolean;
+  playerRef: RefObject<AudioPlayerHandle | null>;
+  children: ReactNode;
+}) {
+  const song = game.ecos_songs;
+  return (
+    <PlayingAudioSection
+      {...props}
+      seed={game.id}
+      audioKey={songHasAudio(song) ? game.id : undefined}
+      reportSlot={
+        <ReportSongDialog gameId={game.id} songId={song.id} trigger={<ReportSongTrigger />} />
+      }
+    />
+  );
+}
+
+export { PlayingAudioSection, PlayingGameAudioSection };

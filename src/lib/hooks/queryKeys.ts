@@ -32,6 +32,11 @@ export const RANKING_STALE_MS = 2 * 60 * 1000;
 export const PROFILE_STALE_MS = 3 * 60 * 1000;
 /** Búsqueda de canciones: el catálogo solo cambia con la ingesta semanal. */
 export const SEARCH_STALE_MS = 60 * 60 * 1000;
+/**
+ * Categorías y su ranking: la página los siembra con el RSC, así que no hace falta pedirlos otra
+ * vez enseguida. Al terminar una partida se invalidan (`queryKeys.categories.all`).
+ */
+export const CATEGORIES_STALE_MS = 60 * 1000;
 
 /** Segmento estable en query keys para invitado vs usuario autenticado. */
 export function homeSessionSegment(userId: string | null): string {
@@ -67,6 +72,14 @@ export const queryKeys = {
     all: ["profile"] as const,
     section: (section: "core" | "stats", userId: string | null) =>
       ["profile", "section", section, homeSessionSegment(userId)] as const,
+  },
+  /** Modo por categorías. Nada de esto se persiste en localStorage (`shouldPersistQuery`). */
+  categories: {
+    all: ["categories"] as const,
+    list: (userId: string | null) =>
+      ["categories", "list", homeSessionSegment(userId)] as const,
+    ranking: (slug: string, userId: string | null) =>
+      ["categories", "ranking", slug, homeSessionSegment(userId)] as const,
   },
   search: (q: string) => ["search", q] as const,
 };

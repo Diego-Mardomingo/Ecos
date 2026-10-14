@@ -1,4 +1,10 @@
 import type {
+  CategoriesResponse,
+  CategoryGuessEvaluation,
+  CategoryRankingResponse,
+  CategoryRunState,
+} from "@/lib/categories/types";
+import type {
   GameProgressData,
   HomeDayStatusData,
   HomeTodayData,
@@ -108,4 +114,51 @@ export async function fetchLeaderboardPeriodData(
   const res = await fetch(`/api/ranking?period=${period}`);
   if (!res.ok) throw new Error("Failed to fetch leaderboard");
   return res.json();
+}
+
+export async function fetchCategoriesData(): Promise<CategoriesResponse> {
+  const res = await fetch("/api/categories", { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch categories");
+  return res.json();
+}
+
+export async function fetchCategoryRankingData(slug: string): Promise<CategoryRankingResponse> {
+  const res = await fetch(`/api/categories/${encodeURIComponent(slug)}/ranking`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Failed to fetch category ranking");
+  return res.json();
+}
+
+/**
+ * Resultado de una petición del modo racha: la partida tal como la tiene el servidor. `conflict`
+ * (409) es el cliente desfasado, no un error: trae el estado real para reconciliar. Sin
+ * reintentos automáticos.
+ */
+export type CategoryRunOutcome =
+  | { kind: "ok"; run: CategoryRunState; evaluation?: CategoryGuessEvaluation; resumed?: boolean }
+  | { kind: "conflict"; run: CategoryRunState };
+
+/** `POST` a `/api/category-run/*`. Todo lo que no sea 200 o 409-con-partida lanza `ApiError`. */
+export async function postCategoryRun(
+  url: string,
+  body: unknown,
+  fallbackMessage: string
+): Promise<CategoryRunOutcome> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    run?: CategoryRunState;
+    evaluation?: CategoryGuessEvaluation;
+    resumed?: boolean;
+    error?: unknown;
+  } | null;
+  if (res.status === 409 && data?.run) return { kind: "conflict", run: data.run };
+  if (!res.ok || !data?.run) {
+    throw new ApiError(typeof data?.error === "string" ? data.error : fallbackMessage, res.status);
+  }
+  return { kind: "ok", run: data.run, evaluation: data.evaluation, resumed: data.resumed };
 }
