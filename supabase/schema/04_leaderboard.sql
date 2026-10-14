@@ -353,3 +353,49 @@ BEGIN
     COALESCE((SELECT ma.ac FROM monthly_agg ma WHERE ma.user_id = p_user_id), 0::bigint)::int;
 END;
 $function$;
+
+-- Clasificación de una categoría: la mejor partida TERMINADA de cada usuario (con puntos > 0),
+-- ordenada por puntos, luego racha y luego quién terminó antes (ended_at ascendente; user_id como
+-- último desempate para que el orden sea estable). Misma forma que get_leaderboard_by_period:
+-- nombre público ya resuelto (username, luego display_name salvo «admin», luego «Jugador») y avatar
+-- solo si show_avatar_in_rankings. No lee auth.users (la service role no tiene acceso).
+-- Si llega p_user_id y ese usuario está fuera de los p_limit primeros, su fila se AÑADE al final con
+-- su posición real (`rank`), en el mismo resultado.
+CREATE OR REPLACE FUNCTION public.get_category_leaderboard(p_category_id uuid, p_limit integer DEFAULT 50, p_user_id uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(rank integer, user_id uuid, display_name text, avatar_url text, points integer, streak integer, ended_at timestamp with time zone)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  WITH best AS (
+    SELECT DISTINCT ON (r.user_id) r.user_id, r.points, r.streak, r.ended_at
+    FROM public.ecos_category_runs r
+    WHERE r.category_id = p_category_id AND r.status = 'ended' AND r.points > 0
+    ORDER BY r.user_id, r.points DESC, r.streak DESC, r.ended_at ASC
+  ),
+  ranked AS (
+    SELECT b.*,
+      (ROW_NUMBER() OVER (ORDER BY b.points DESC, b.streak DESC, b.ended_at ASC, b.user_id))::integer AS rn
+    FROM best b
+  )
+  SELECT
+    r.rn AS rank,
+    r.user_id,
+    (
+      CASE
+        WHEN p.username IS NOT NULL AND btrim(p.username) <> '' THEN btrim(p.username)
+        WHEN p.display_name IS NOT NULL AND btrim(p.display_name) <> '' AND lower(btrim(p.display_name)) <> 'admin'
+          THEN btrim(p.display_name)
+        ELSE 'Jugador'
+      END
+    )::text AS display_name,
+    (CASE WHEN COALESCE(p.show_avatar_in_rankings, true) THEN p.avatar_url ELSE NULL END)::text AS avatar_url,
+    r.points,
+    r.streak,
+    r.ended_at
+  FROM ranked r
+  LEFT JOIN public.ecos_profiles p ON p.user_id = r.user_id
+  WHERE r.rn <= LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200)
+     OR (p_user_id IS NOT NULL AND r.user_id = p_user_id)
+  ORDER BY r.rn;
+$function$;

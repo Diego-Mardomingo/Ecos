@@ -292,3 +292,85 @@ CREATE TRIGGER ecos_push_subscriptions_updated_at_trigger
 CREATE TRIGGER set_updated_at
   BEFORE UPDATE ON public.ecos_spotify_playlists
   FOR EACH ROW EXECUTE FUNCTION ecos_set_updated_at();
+
+-- ---------------------------------------------------------------------------------------------
+-- Modo por categorías (racha): categorías y partidas
+-- ---------------------------------------------------------------------------------------------
+
+-- Categoría = filtro sobre las facetas de ecos_song_facets (década, género, origen). Un campo null
+-- no filtra por él. `min_songs`: tamaño mínimo del pool para mostrarla (lo aplica la API).
+create table if not exists public.ecos_categories (
+  id uuid not null default gen_random_uuid(),
+  slug text not null,
+  name_es text not null,
+  name_en text not null,
+  icon text not null,
+  decades integer[],
+  genres text[],
+  origins text[],
+  min_songs integer not null default 60,
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamp with time zone not null default now()
+);
+
+-- Una partida de racha infinita de un usuario en una categoría. Solo la escribe la service role.
+-- `round_guesses`: intentos de la canción ACTUAL, array ordenado por intento:
+--   [{"attempt": 1, "text": "lo escrito", "skipped": false}, ...]
+-- (`text` vacío si se saltó). Se vacía ('[]') al pasar a la siguiente canción. `current_attempt` es
+-- el número del próximo intento (1..6), de modo que round_guesses tiene current_attempt - 1 elementos.
+-- `played_song_ids`: canciones ya resueltas (acertadas o falladas), para no repetirlas; la actual
+-- no entra hasta resolverse.
+-- `end_reason`: failed (agotó los 6 intentos), abandoned (cerrada a mano) o exhausted (pool agotado).
+create table if not exists public.ecos_category_runs (
+  id uuid not null default gen_random_uuid(),
+  user_id uuid not null,
+  category_id uuid not null,
+  status text not null default 'active',
+  end_reason text,
+  streak integer not null default 0,
+  points integer not null default 0,
+  current_song_id uuid,
+  current_attempt smallint not null default 1,
+  round_guesses jsonb not null default '[]'::jsonb,
+  played_song_ids uuid[] not null default '{}'::uuid[],
+  started_at timestamp with time zone not null default now(),
+  ended_at timestamp with time zone,
+  updated_at timestamp with time zone not null default now()
+);
+
+alter table public.ecos_categories add constraint ecos_categories_pkey PRIMARY KEY (id);
+alter table public.ecos_categories add constraint ecos_categories_slug_key UNIQUE (slug);
+
+alter table public.ecos_category_runs add constraint ecos_category_runs_pkey PRIMARY KEY (id);
+alter table public.ecos_category_runs add constraint ecos_category_runs_user_id_fkey
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+alter table public.ecos_category_runs add constraint ecos_category_runs_category_id_fkey
+  FOREIGN KEY (category_id) REFERENCES public.ecos_categories(id) ON DELETE CASCADE;
+alter table public.ecos_category_runs add constraint ecos_category_runs_current_song_id_fkey
+  FOREIGN KEY (current_song_id) REFERENCES public.ecos_songs(id) ON DELETE SET NULL;
+alter table public.ecos_category_runs add constraint ecos_category_runs_status_check
+  CHECK ((status = ANY (ARRAY['active'::text, 'ended'::text])));
+alter table public.ecos_category_runs add constraint ecos_category_runs_end_reason_check
+  CHECK (((end_reason IS NULL) OR (end_reason = ANY (ARRAY['failed'::text, 'abandoned'::text, 'exhausted'::text]))));
+alter table public.ecos_category_runs add constraint ecos_category_runs_attempt_check
+  CHECK (((current_attempt >= 1) AND (current_attempt <= 6)));
+alter table public.ecos_category_runs add constraint ecos_category_runs_state_check
+  CHECK ((((status = 'active'::text) AND (end_reason IS NULL) AND (ended_at IS NULL))
+       OR ((status = 'ended'::text) AND (end_reason IS NOT NULL) AND (ended_at IS NOT NULL))));
+alter table public.ecos_category_runs add constraint ecos_category_runs_nonneg_check
+  CHECK (((streak >= 0) AND (points >= 0)));
+
+-- Una sola partida activa por usuario y categoría.
+CREATE UNIQUE INDEX IF NOT EXISTS ecos_category_runs_one_active_key ON public.ecos_category_runs
+  USING btree (user_id, category_id) WHERE status = 'active';
+-- Clasificación por categoría (mejor partida terminada de cada usuario).
+CREATE INDEX IF NOT EXISTS ecos_category_runs_ranking_idx ON public.ecos_category_runs
+  USING btree (category_id, status, points DESC, streak DESC, ended_at);
+-- Índices de FK con cascada (sin ellos, borrar un usuario o una canción recorre la tabla).
+CREATE INDEX IF NOT EXISTS ecos_category_runs_user_id_idx ON public.ecos_category_runs USING btree (user_id);
+CREATE INDEX IF NOT EXISTS ecos_category_runs_current_song_id_idx ON public.ecos_category_runs USING btree (current_song_id);
+
+CREATE TRIGGER ecos_category_runs_updated_at
+  BEFORE UPDATE ON public.ecos_category_runs
+  FOR EACH ROW EXECUTE FUNCTION public.ecos_set_updated_at();

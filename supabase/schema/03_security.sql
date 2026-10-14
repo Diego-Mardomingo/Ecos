@@ -232,7 +232,7 @@ revoke execute on function public.ecos_update_leaderboard(uuid, integer, boolean
   from public, anon, authenticated;
 
 -- Facetas de canción (década, género, origen): función interna del modo por categorías. Migración
--- 20261014120000_metadatos_canciones (PENDIENTE). Las columnas nuevas de ecos_songs (metadatos de
+-- 20261014120000_metadatos_canciones (aplicada el 2026-10-14). Las columnas nuevas de ecos_songs (metadatos de
 -- Deezer y MusicBrainz, origin_override) heredan el recorte de la tabla: los clientes solo leen.
 revoke execute on function public.ecos_song_facets(text, text, text, integer[], text, text, text)
   from public, anon, authenticated;
@@ -314,3 +314,28 @@ create policy "Public read avatars" on storage.objects
 -- No hay política de DELETE: un usuario no puede borrar su foto, solo sustituirla. Si cambia de
 -- formato (png -> webp) la anterior queda huérfana en el bucket. Conocido y aceptado; a revisar
 -- si algún día se añade «quitar foto».
+
+-- Modo por categorías (migración 20261014130000_categorias_modo_racha, aplicada). Las dos tablas se
+-- escriben solo con la service role.
+alter table public.ecos_categories    enable row level security;
+alter table public.ecos_category_runs enable row level security;
+
+-- Categorías: lectura pública de las activas. Runs: sin política, solo service role (la API lee y
+-- escribe con ella y atribuye siempre a user_id).
+create policy ecos_categories_read on public.ecos_categories
+  for select to anon, authenticated using (is_active);
+
+revoke insert, update, delete, truncate, references, trigger on public.ecos_categories from anon, authenticated;
+revoke all on public.ecos_category_runs from anon, authenticated;
+
+-- Funciones: nacen con EXECUTE para PUBLIC. Solo la service role (la API); ninguna es SECURITY DEFINER.
+revoke execute on function public.ecos_effective_game_date() from public, anon, authenticated;
+revoke execute on function public.ecos_category_pool(uuid) from public, anon, authenticated;
+revoke execute on function public.ecos_category_pool_sizes() from public, anon, authenticated;
+revoke execute on function public.ecos_category_next_song(uuid, uuid[]) from public, anon, authenticated;
+revoke execute on function public.get_category_leaderboard(uuid, integer, uuid) from public, anon, authenticated;
+grant execute on function public.ecos_effective_game_date() to service_role;
+grant execute on function public.ecos_category_pool(uuid) to service_role;
+grant execute on function public.ecos_category_pool_sizes() to service_role;
+grant execute on function public.ecos_category_next_song(uuid, uuid[]) to service_role;
+grant execute on function public.get_category_leaderboard(uuid, integer, uuid) to service_role;
