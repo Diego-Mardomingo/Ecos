@@ -9,13 +9,14 @@ import { Link } from "@/i18n/navigation";
 import { useNavPrefetch } from "@/components/navigation/useNavPrefetch";
 
 /**
- * Barra de navegación inferior (móvil): Ranking · Jugar · Perfil, en una cápsula flotante.
+ * Barra de navegación inferior (móvil): Ranking · Jugar · Categorías · Perfil, en una cápsula flotante.
  * La pestaña activa se invierte (fondo del color del texto) y la pastilla se desliza de una a
  * otra. Con sesión, la de perfil lleva el nombre del usuario; sin ella, «Entrar».
  */
 const ITEMS = [
   { href: "/ranking", icon: "leaderboard", labelKey: "ranking" },
   { href: "/", icon: "play_circle", labelKey: "play" },
+  { href: "/categorias", icon: "category", labelKey: "categories" },
   { href: "/profile", icon: "person", labelKey: "profile" },
 ] as const;
 

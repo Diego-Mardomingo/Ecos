@@ -142,16 +142,17 @@
  * (`font-optical-sizing: auto`); `wght` 400..700 y `FILL` 0..1 son los que se usan vía
  * `fontVariationSettings`; `GRAD` fijo en 0.
  *
- * Iconos (75): add_a_photo, admin_panel_settings, album, alternate_email, analytics, arrow_back,
- * arrow_forward, arrow_upward, bug_report, calendar_month, calendar_today, cancel, celebration,
- * check, check_circle, chevron_left, chevron_right, close, cloud_off, contrast, drag_indicator,
- * edit, emoji_events, error, expand_less, expand_more, flag, graphic_eq, headphones, heart_broken,
- * help, history, home, ios_share, leaderboard, library_music, lightbulb, link_off,
- * local_fire_department, login, logout, mail, manage_accounts, military_tech, music_note,
- * music_off, notifications, notifications_active, pause, person, photo_camera, play_arrow,
- * play_circle, priority_high, progress_activity, question_mark, queue_music, refresh, report,
- * search, search_off, send, settings, skip_next, south, stop, terminal, today, translate, trophy,
- * visibility, volunteer_activism, whatshot, wifi_off, workspace_premium
+ * Iconos (81): add_a_photo, admin_panel_settings, album, alternate_email, analytics, arrow_back,
+ * arrow_forward, arrow_upward, bug_report, calendar_month, calendar_today, cancel, category,
+ * celebration, check, check_circle, chevron_left, chevron_right, close, cloud_off, contrast,
+ * drag_indicator, edit, emoji_events, error, expand_less, expand_more, favorite, flag,
+ * graphic_eq, headphones, heart_broken, help, history, home, ios_share, leaderboard,
+ * library_music, lightbulb, link_off, local_fire_department, login, logout, mail,
+ * manage_accounts, military_tech, music_note, music_off, nightlife, notifications,
+ * notifications_active, pause, person, photo_camera, play_arrow, play_circle, priority_high,
+ * progress_activity, question_mark, queue_music, radio, refresh, replay, report, search,
+ * search_off, send, settings, skip_next, south, stop, terminal, today, translate, trending_up,
+ * trophy, visibility, volunteer_activism, whatshot, wifi_off, workspace_premium
  *
  * La regla de abajo es la misma que traía la hoja de Google, sin capa a propósito: así sigue ganando a las
  * utilidades de Tailwind como hasta ahora y los iconos se ven exactamente igual. En concreto,

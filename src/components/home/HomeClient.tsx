@@ -47,6 +47,7 @@ import { HomeGuestCard, HomeProgress, type CompletedGame } from "@/components/ho
 import { HomeArchive } from "@/components/home/HomeArchive";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { HomeTodayHero } from "@/components/home/HomeTodayHero";
+import { HomeCategoriesCard } from "@/components/home/HomeCategoriesCard";
 import { HomeRecentDays } from "@/components/home/HomeRecentDays";
 import { Countdown } from "@/components/home/HomeCountdown";
 import { deriveHomeDayState, type DerivedHomeDayState } from "@/components/home/homeDayDerived";
@@ -505,6 +506,8 @@ export function HomeClient({ initialData }: Props) {
           />
         </div>
       </div>
+
+      <HomeCategoriesCard />
 
       {/* Progreso por periodo, o el aviso para entrar si es invitado */}
       {userId && rankingStats ? (

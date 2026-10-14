@@ -16,6 +16,7 @@ import { useNavPrefetch } from "@/components/navigation/useNavPrefetch";
 
 const NAV_ITEMS = [
   { href: "/", labelKey: "play", icon: "play_circle" },
+  { href: "/categorias", labelKey: "categories", icon: "category" },
   { href: "/ranking", labelKey: "ranking", icon: "leaderboard" },
 ] as const;
 

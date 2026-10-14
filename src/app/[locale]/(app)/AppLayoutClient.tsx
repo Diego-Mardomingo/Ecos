@@ -21,9 +21,14 @@ const AudioDebugPanel = dynamic(
 const subscribeToNothing = () => () => {};
 const audioDebugOffOnServer = () => false;
 
+/** Pantallas de partida (diario y categoría): a pantalla completa, sin barra de navegación. */
 function isPlayRoute(pathname: string): boolean {
   const normalized = stripLocalePrefix(pathname);
-  return normalized === "/play" || normalized.startsWith("/play/");
+  return (
+    normalized === "/play" ||
+    normalized.startsWith("/play/") ||
+    normalized.startsWith("/categorias/")
+  );
 }
 
 export function AppLayoutClient({ children }: { children: React.ReactNode }) {
