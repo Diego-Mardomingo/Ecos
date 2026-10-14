@@ -1,7 +1,6 @@
 -- Metadatos de canciones para el modo por categorías (plan Fase 1).
 --
--- ESTADO: PENDIENTE. Se aplica a mano con el MCP de Supabase, ANTES de lanzar
--- scripts/enrich-metadata.py. Es aditiva (columnas nulas, un CHECK ampliado y una función nueva),
+-- ESTADO: APLICADA el 2026-10-14 en producción (antes de lanzar scripts/enrich-metadata.py). Es aditiva (columnas nulas, un CHECK ampliado y una función nueva),
 -- así que el código actual sigue funcionando con ella.
 --
 -- - ecos_songs: fecha y géneros de Deezer (`/track` y `/album`), idioma de la obra y país y

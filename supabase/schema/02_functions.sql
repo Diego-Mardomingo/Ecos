@@ -346,3 +346,89 @@ AS $function$
     END AS origin
   FROM calc c;
 $function$;
+
+-- ---------------------------------------------------------------------------------------------
+-- Modo por categorías (racha). Todas son INVOKER, con search_path vacío, y solo las ejecuta la
+-- service role desde la API (ver el revoke en 03_security.sql).
+-- ---------------------------------------------------------------------------------------------
+
+-- Día de juego efectivo: el día natural en Madrid. DEBE coincidir con getEffectiveGameDate() de
+-- src/lib/date-utils.ts (hoy es la fecha de Madrid sin hora de corte); si una cambia, cambia la otra.
+CREATE OR REPLACE FUNCTION public.ecos_effective_game_date()
+ RETURNS date
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  SELECT (now() AT TIME ZONE 'Europe/Madrid')::date;
+$function$;
+
+-- Canciones jugables de una categoría. Elegibilidad igual que is_eligible de scripts/selection.py
+-- (canción activa, playlist activa y audio de >= 29 s en Deezer o en Spotify; 29 = MIN_PREVIEW_SECONDS),
+-- facetas que cumplan la categoría y SIN las canciones de juegos diarios con fecha >= hoy (ni otras
+-- ediciones de la misma canción, por dedupe_key), para no destripar el reto de hoy ni los futuros.
+CREATE OR REPLACE FUNCTION public.ecos_category_pool(p_category_id uuid)
+ RETURNS SETOF uuid
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  WITH cat AS (
+    SELECT c.decades, c.genres, c.origins
+    FROM public.ecos_categories c
+    WHERE c.id = p_category_id
+  ),
+  reserved AS (
+    SELECT rs.id, rs.dedupe_key
+    FROM public.ecos_games g
+    JOIN public.ecos_songs rs ON rs.id = g.song_id
+    WHERE g.date >= public.ecos_effective_game_date()
+  )
+  SELECT s.id
+  FROM cat c
+  CROSS JOIN public.ecos_songs s
+  JOIN public.ecos_spotify_playlists pl
+    ON pl.spotify_playlist_id = s.spotify_playlist_id AND pl.is_active
+  CROSS JOIN LATERAL public.ecos_song_facets(
+    s.spotify_playlist_name, s.release_date, s.deezer_release_date, s.deezer_genre_ids,
+    s.mb_language, s.mb_artist_country, s.origin_override
+  ) f
+  WHERE s.is_active
+    AND (
+      (s.deezer_id IS NOT NULL AND s.deezer_preview_seconds >= 29)
+      OR (s.preview_url IS NOT NULL AND s.preview_duration_seconds >= 29)
+    )
+    AND (c.decades IS NULL OR f.decade = ANY (c.decades))
+    AND (c.genres IS NULL OR f.genre = ANY (c.genres))
+    AND (c.origins IS NULL OR f.origin = ANY (c.origins))
+    AND NOT EXISTS (
+      SELECT 1 FROM reserved r WHERE r.id = s.id OR r.dedupe_key = s.dedupe_key
+    );
+$function$;
+
+-- Tamaño del pool de cada categoría activa (la API filtra por min_songs).
+CREATE OR REPLACE FUNCTION public.ecos_category_pool_sizes()
+ RETURNS TABLE(category_id uuid, pool_size integer)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  SELECT c.id, (SELECT count(*) FROM public.ecos_category_pool(c.id))::integer
+  FROM public.ecos_categories c
+  WHERE c.is_active;
+$function$;
+
+-- Una canción aleatoria del pool que no esté en p_exclude, o null si no queda ninguna. VOLATILE
+-- (random()).
+CREATE OR REPLACE FUNCTION public.ecos_category_next_song(p_category_id uuid, p_exclude uuid[] DEFAULT '{}'::uuid[])
+ RETURNS uuid
+ LANGUAGE sql
+ VOLATILE
+ SET search_path TO ''
+AS $function$
+  SELECT p.song_id
+  FROM public.ecos_category_pool(p_category_id) AS p(song_id)
+  WHERE p_exclude IS NULL OR NOT (p.song_id = ANY (p_exclude))
+  ORDER BY random()
+  LIMIT 1;
+$function$;
