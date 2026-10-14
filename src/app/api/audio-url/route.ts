@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEffectiveGameDate } from "@/lib/date-utils";
-import { getGameAudioCached, type GameAudio } from "@/lib/audio/gameAudio";
-import { resolveDeezerPreview } from "@/lib/audio/deezer";
-import type { AudioSource, AudioUrlResponse } from "@/lib/audio/audioSources";
+import { getGameAudioCached } from "@/lib/audio/gameAudio";
+import { audioCacheControl, resolveAudioSources } from "@/lib/audio/resolveSources";
+import type { AudioUrlResponse } from "@/lib/audio/audioSources";
 import { handleRoute, isUuid, jsonError } from "@/lib/api/route";
 
 /**
@@ -31,44 +31,6 @@ import { handleRoute, isUuid, jsonError } from "@/lib/api/route";
  * - Los errores, `no-store`.
  */
 
-const SPOTIFY_CACHE_CONTROL = "private, max-age=86400";
-const DEEZER_MAX_AGE_SECONDS = 600;
-/** Margen que se descuenta a la vida de la URL firmada para que el cliente no la use al límite. */
-const DEEZER_SAFETY_SECONDS = 180;
-/** Respuesta degradada (Deezer era la primaria y ha fallado): se reintenta pronto, no en un día. */
-const DEGRADED_CACHE_CONTROL = "private, max-age=60";
-
-function spotifySource(audio: GameAudio): AudioSource[] {
-  return audio.previewUrl ? [{ source: "spotify", url: audio.previewUrl, expiresAt: null }] : [];
-}
-
-async function deezerSource(audio: GameAudio, gameId: string): Promise<AudioSource[]> {
-  if (!audio.deezerId) return [];
-  const result = await resolveDeezerPreview(audio.deezerId);
-  if (result.ok) return [result.source];
-  console.error(`[ops] audio-url: Deezer no sirvió el juego ${gameId} (${result.reason})`);
-  return [];
-}
-
-async function resolveSources(audio: GameAudio, gameId: string): Promise<AudioSource[]> {
-  if (audio.audioSource === "deezer") {
-    return [...(await deezerSource(audio, gameId)), ...spotifySource(audio)];
-  }
-  const spotify = spotifySource(audio);
-  return spotify.length > 0 ? spotify : deezerSource(audio, gameId);
-}
-
-function cacheControlFor(sources: AudioSource[]): string {
-  let maxAge = Infinity;
-  for (const { expiresAt } of sources) {
-    if (expiresAt === null) continue;
-    const left = Math.floor((expiresAt - Date.now()) / 1000) - DEEZER_SAFETY_SECONDS;
-    maxAge = Math.min(maxAge, DEEZER_MAX_AGE_SECONDS, left);
-  }
-  if (maxAge === Infinity) return SPOTIFY_CACHE_CONTROL;
-  return maxAge > 0 ? `private, max-age=${maxAge}` : "no-store";
-}
-
 export const GET = handleRoute("[ops] api/audio-url", async (request: NextRequest) => {
   const gameId = request.nextUrl.searchParams.get("gameId");
 
@@ -81,14 +43,14 @@ export const GET = handleRoute("[ops] api/audio-url", async (request: NextReques
     return jsonError(404, "Game not found");
   }
 
-  const sources = await resolveSources(audio, gameId);
+  const sources = await resolveAudioSources(audio, `el juego ${gameId}`);
   if (sources.length === 0) {
     console.error(`[ops] audio-url: el juego ${gameId} no tiene audio`);
     return jsonError(404, "No preview available");
   }
 
   const body: AudioUrlResponse = { sources };
-  const degraded = audio.audioSource === "deezer" && !sources.some((s) => s.source === "deezer");
-  const cacheControl = degraded ? DEGRADED_CACHE_CONTROL : cacheControlFor(sources);
-  return NextResponse.json(body, { headers: { "Cache-Control": cacheControl } });
+  return NextResponse.json(body, {
+    headers: { "Cache-Control": audioCacheControl(audio, sources) },
+  });
 });
