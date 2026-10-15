@@ -116,8 +116,8 @@ interface RunSummaryRow {
 }
 
 /**
- * Mejor puntuación, mejor racha y partida activa del usuario en cada categoría (mapa por id de
- * categoría; solo las que ha jugado). Sin caché.
+ * Mejor puntuación y mejor racha (de partidas terminadas) y partida activa del usuario en cada
+ * categoría (mapa por id de categoría; solo las que ha jugado). Sin caché.
  */
 export async function getUserCategorySummary(
   userId: string
@@ -135,11 +135,14 @@ export async function getUserCategorySummary(
   const summary: Record<string, UserCategorySummary> = {};
   for (const r of rows) {
     const entry = (summary[r.category_id] ??= { bestPoints: 0, bestStreak: 0, activeRun: null });
-    entry.bestPoints = Math.max(entry.bestPoints, r.points);
-    entry.bestStreak = Math.max(entry.bestStreak, r.streak);
     if (r.status === "active") {
       entry.activeRun = { runId: r.id, streak: r.streak, points: r.points };
+      continue;
     }
+    // La mejor marca sale solo de partidas terminadas, como la clasificación: la que está en
+    // curso ya se ve en «Continuar».
+    entry.bestPoints = Math.max(entry.bestPoints, r.points);
+    entry.bestStreak = Math.max(entry.bestStreak, r.streak);
   }
   return summary;
 }
