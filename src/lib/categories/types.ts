@@ -96,6 +96,7 @@ export interface CategorySummary {
 }
 
 export interface UserCategorySummary {
+  /** Mejor puntuación y mejor racha de las partidas **terminadas** (como la clasificación). */
   bestPoints: number;
   bestStreak: number;
   /** Partida activa del usuario en la categoría, si la hay. */

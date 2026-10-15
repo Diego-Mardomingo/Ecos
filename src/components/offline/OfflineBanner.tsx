@@ -21,7 +21,10 @@ function getServerSnapshot() {
   return true;
 }
 
-/** Aviso flotante de «sin conexión»: baja desde arriba al perder la red y se va al recuperarla. */
+/**
+ * Aviso flotante de «sin conexión»: baja desde arriba al perder la red y se va al recuperarla.
+ * Queda por debajo de las cabeceras fijas, igual que los toasts, para no tapar sus botones.
+ */
 export function OfflineBanner() {
   const t = useTranslations("common");
   const online = useSyncExternalStore(subscribeOnline, getOnlineSnapshot, getServerSnapshot);
@@ -35,7 +38,7 @@ export function OfflineBanner() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -40, opacity: 0 }}
           transition={{ type: "spring", stiffness: 420, damping: 30 }}
-          className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-[max(0.5rem,env(safe-area-inset-top))]"
+          className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-[calc(env(safe-area-inset-top,0px)+4rem)]"
         >
           <span className="flex items-center gap-2 rounded-full bg-destructive px-4 py-2 text-xs font-semibold text-white shadow-lg sm:text-sm">
             <span aria-hidden className="material-symbols-outlined text-base">wifi_off</span>

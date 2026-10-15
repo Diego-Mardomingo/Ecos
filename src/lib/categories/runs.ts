@@ -36,6 +36,12 @@ const RUN_SELECT =
 
 const SONG_SELECT = "id, title, artist_name, album_title, cover_url";
 
+/**
+ * La partida con su canción actual embebida, para las jugadas: así `applyMove` no necesita otra
+ * consulta para evaluarla. `toRunState` no copia `current_song`, así que nunca sale al cliente.
+ */
+const RUN_WITH_SONG_SELECT = `${RUN_SELECT}, current_song:ecos_songs!ecos_category_runs_current_song_id_fkey(${SONG_SELECT})`;
+
 export interface RunRow {
   id: string;
   user_id: string;
@@ -49,6 +55,8 @@ export interface RunRow {
   round_guesses: unknown;
   played_song_ids: string[];
   ecos_categories: { slug: string } | { slug: string }[] | null;
+  /** Solo en {@link loadRun}: la canción actual (sin revelar). */
+  current_song?: CategoryRunRevealedSong | CategoryRunRevealedSong[] | null;
 }
 
 type SongRow = CategoryRunRevealedSong;
@@ -96,7 +104,7 @@ export function toRunState(row: RunRow, lastRound?: CategoryRunLastRound): Categ
 // Lecturas
 // ---------------------------------------------------------------------------------------------
 
-/** Partida por id **del usuario**; `null` si no existe o es de otro. */
+/** Partida por id **del usuario**, con su canción actual; `null` si no existe o es de otro. */
 export async function loadRun(
   svc: SupabaseClient,
   userId: string,
@@ -104,7 +112,7 @@ export async function loadRun(
 ): Promise<RunRow | null> {
   const { data, error } = await svc
     .from("ecos_category_runs")
-    .select(RUN_SELECT)
+    .select(RUN_WITH_SONG_SELECT)
     .eq("id", runId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -170,10 +178,13 @@ export async function startOrResumeRun(
   userId: string,
   categoryId: string
 ): Promise<StartRunResult> {
-  const existing = await loadActiveRun(svc, userId, categoryId);
+  // A la vez: buscar la activa y sortear la primera canción por si no la hay. Al reanudar, el
+  // sorteo se descarta; a cambio, empezar una partida nueva se ahorra un viaje entero a la BD.
+  const [existing, songId] = await Promise.all([
+    loadActiveRun(svc, userId, categoryId),
+    pickNextSong(svc, categoryId, []),
+  ]);
   if (existing) return { kind: "ok", run: toRunState(existing), resumed: true };
-
-  const songId = await pickNextSong(svc, categoryId, []);
   if (!songId) return { kind: "empty" };
 
   const { data, error } = await svc
@@ -337,7 +348,9 @@ export async function applyMove(
   }
   if (!run.current_song_id) return replaceMissingSong(svc, run, move);
 
-  const song = await loadSong(svc, run.current_song_id);
+  // Normalmente ya viene embebida (`loadRun`); si no, se lee aparte.
+  const song =
+    unwrapToOne(run.current_song ?? null) ?? (await loadSong(svc, run.current_song_id));
   if (!song) return replaceMissingSong(svc, run, move);
 
   const attempt = run.current_attempt;

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { toast } from "sonner";
+import { useRouter } from "@/i18n/navigation";
 import { GuessInput, type EcosSong } from "@/components/guess-input/GuessInput";
 import type { AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { PlayingAudioSection } from "@/components/game/GameAudioSection";
@@ -12,6 +13,8 @@ import { GameBackdrop } from "@/components/game/GameBackdrop";
 import { CategoryHeader } from "@/components/categories/CategoryHeader";
 import { CategoryRanking } from "@/components/categories/CategoryRanking";
 import { RevealedSong } from "@/components/categories/RevealedSong";
+import { useLoginHref } from "@/components/game/useLoginHref";
+import { WaveformBars } from "@/components/home/HomeWaveform";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +40,7 @@ import type {
   CategoryRankingResponse,
   CategoryRunEndReason,
   CategoryRunGuess,
+  CategoryRunLastRound,
   CategoryRunState,
   CategorySummary,
 } from "@/lib/categories/types";
@@ -85,6 +89,48 @@ function roundKey(run: CategoryRunState): string {
   return `${run.runId}:${run.roundNumber}`;
 }
 
+/**
+ * Revelación pendiente (la canción recién acertada que aún no se ha cerrado con «Siguiente»). Va a
+ * `sessionStorage` para que una recarga o volver a la lista no se la salte: al continuar la
+ * partida se recupera si sigue apuntando a la canción en curso. Solo guarda la canción ya
+ * revelada, nunca la actual. Los `try` viven aquí fuera: dentro del componente lo dejarían sin
+ * compilar.
+ */
+const PENDING_REVEAL_KEY = "ecos:category-pending-reveal";
+
+function savePendingReveal(run: CategoryRunState): void {
+  if (!run.lastRound || run.status !== "active") return;
+  try {
+    sessionStorage.setItem(
+      PENDING_REVEAL_KEY,
+      JSON.stringify({ key: roundKey(run), lastRound: run.lastRound })
+    );
+  } catch {
+    // Sin almacenamiento (modo privado estricto): la revelación solo se pierde al recargar.
+  }
+}
+
+function clearPendingReveal(): void {
+  try {
+    sessionStorage.removeItem(PENDING_REVEAL_KEY);
+  } catch {
+    // Ídem.
+  }
+}
+
+/** La partida reanudada con su revelación pendiente, si la canción en curso aún no se ha tocado. */
+function withPendingReveal(run: CategoryRunState): CategoryRunState {
+  if (run.lastRound || run.status !== "active" || run.guesses.length > 0) return run;
+  let pending: { key?: unknown; lastRound?: CategoryRunLastRound } | null = null;
+  try {
+    pending = JSON.parse(sessionStorage.getItem(PENDING_REVEAL_KEY) ?? "null");
+  } catch {
+    return run;
+  }
+  if (!pending || pending.key !== roundKey(run) || !pending.lastRound) return run;
+  return { ...run, lastRound: pending.lastRound };
+}
+
 function audioDurationFor(attempt: number): number {
   return ATTEMPT_DURATIONS[Math.min(Math.max(attempt, 1), ATTEMPT_DURATIONS.length) - 1] ?? 30;
 }
@@ -97,9 +143,13 @@ function failureOf(error: unknown): {
   namespace: "game" | "categories";
   key: string;
   resetRun: boolean;
+  /** Sesión caducada: el aviso lleva un botón para volver a entrar. */
+  login?: boolean;
 } {
   if (error instanceof ApiError) {
-    if (error.status === 401) return { namespace: "game", key: "sessionExpiredError", resetRun: false };
+    if (error.status === 401) {
+      return { namespace: "game", key: "sessionExpiredError", resetRun: false, login: true };
+    }
     if (error.status === 404) return { namespace: "categories", key: "runNotFound", resetRun: true };
     if (error.status === 409) return { namespace: "categories", key: "noSongs", resetRun: false };
   }
@@ -134,6 +184,65 @@ const primaryButton =
   "inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand px-6 py-3.5 text-sm font-bold text-primary-foreground shadow-[0_8px_24px_-8px_var(--brand)] transition-transform active:scale-[0.97] disabled:opacity-60";
 const secondaryButton =
   "inline-flex w-full items-center justify-center gap-2 rounded-full border border-border bg-card/70 px-6 py-3 text-sm font-semibold text-foreground transition-[transform,border-color] hover:border-brand/40 active:scale-[0.97]";
+/** Acción que no se puede deshacer (abandonar): en rojo, para que no se confunda con seguir. */
+const dangerButton =
+  "inline-flex w-full items-center justify-center gap-2 rounded-full bg-destructive px-6 py-3.5 text-sm font-bold text-white shadow-[0_8px_24px_-8px_var(--destructive)] transition-transform hover:bg-destructive/90 active:scale-[0.97] disabled:opacity-60";
+
+/**
+ * Pantalla de carga al empezar o continuar una partida: el vinilo gira con el icono de la
+ * categoría en la galleta y la onda de la home late debajo. Entra con un pequeño retraso en CSS:
+ * si el servidor responde enseguida, no llega a verse y no hay parpadeo.
+ */
+function CategoryLoadingScreen({
+  name,
+  icon,
+  resuming,
+}: {
+  name: string;
+  icon: string;
+  resuming: boolean;
+}) {
+  const t = useTranslations("categories");
+  return (
+    <div className="relative flex min-h-dvh flex-col bg-background">
+      <GameBackdrop />
+      <div className="relative z-10 flex flex-1 flex-col">
+        <CategoryHeader name={name} />
+        <div
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-24 animate-in fade-in zoom-in-95 animation-duration-400 [--tw-animation-delay:150ms] fill-mode-backwards",
+            EASE_OUT
+          )}
+        >
+          <div className="relative size-44" aria-hidden>
+            <div className="absolute inset-0 -z-10 rounded-full bg-brand/20 blur-3xl" />
+            {/* `animate-spin` y no `ecos-spin-slow`: con movimiento reducido sigue girando, porque
+                aquí el giro dice que la app está trabajando (ver `globals.css`). */}
+            <div className="ecos-vinyl absolute inset-0 animate-spin rounded-full shadow-[0_20px_40px_-16px_rgba(0,0,0,0.7)] [animation-duration:2.4s]">
+              <div className="absolute inset-[30%] flex items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dim text-primary-foreground">
+                <span
+                  className="material-symbols-outlined text-[30px]"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  {icon}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="h-10 w-48" aria-hidden>
+            <WaveformBars />
+          </div>
+          <div className="text-center">
+            <p className="text-base font-bold">{resuming ? t("loadingResume") : t("loadingNew")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t("loadingHint")}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AbandonDialog({
   open,
@@ -159,7 +268,7 @@ function AbandonDialog({
           <DialogDescription>{t("abandonDescription", { streak, points })}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
-          <button type="button" onClick={onConfirm} disabled={pending} className={primaryButton}>
+          <button type="button" onClick={onConfirm} disabled={pending} className={dangerButton}>
             {t("abandonConfirm")}
           </button>
           <button type="button" onClick={() => onOpenChange(false)} className={secondaryButton}>
@@ -174,7 +283,10 @@ function AbandonDialog({
 export function CategoryGameClient({ category, userId, initialCategories, initialRanking }: Props) {
   const t = useTranslations("categories");
   const tg = useTranslations("game");
+  const tc = useTranslations("common");
   const locale = useLocale();
+  const router = useRouter();
+  const loginHref = useLoginHref();
   const { formatNumber } = useAppFormatters();
   const name = categoryName(category, locale);
 
@@ -210,19 +322,38 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
 
   /** Adopta el estado que dice el servidor (también en el 409, avisando de que se actualizó). */
   const reconcile = (outcome: CategoryRunOutcome) => {
+    savePendingReveal(outcome.run);
     setRun(outcome.run);
     if (outcome.kind === "conflict") toast.info(t("outOfSync"));
   };
 
   const handleFailure = (error: unknown) => {
     const failure = failureOf(error);
-    toast.error(failure.namespace === "game" ? tg(failure.key) : t(failure.key));
+    const message = failure.namespace === "game" ? tg(failure.key) : t(failure.key);
+    toast.error(
+      message,
+      failure.login
+        ? { action: { label: tc("enter"), onClick: () => router.push(loginHref) } }
+        : undefined
+    );
     if (failure.resetRun) setRun(null);
   };
 
   const handleStart = () => {
     if (busy) return;
-    startMutation.mutate({ slug: category.slug }, { onSuccess: reconcile, onError: handleFailure });
+    startMutation.mutate(
+      { slug: category.slug },
+      {
+        // Al continuar, recupera la revelación que quedó sin cerrar (recarga, volver a la lista).
+        onSuccess: (outcome) => reconcile({ ...outcome, run: withPendingReveal(outcome.run) }),
+        onError: handleFailure,
+      }
+    );
+  };
+
+  const dismissReveal = (current: CategoryRunState) => {
+    clearPendingReveal();
+    setDismissedKey(roundKey(current));
   };
 
   const handleGuess = (song: EcosSong) => {
@@ -271,6 +402,17 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
   // ------------------------------------------------------------------------------------------
   // Fin de partida
   // ------------------------------------------------------------------------------------------
+
+  // Empezar, continuar o «Jugar otra vez»: mientras responde el servidor, la pantalla de carga.
+  if (startMutation.isPending && (!run || run.status === "ended")) {
+    return (
+      <CategoryLoadingScreen
+        name={name}
+        icon={category.icon}
+        resuming={!run && mine?.activeRun != null}
+      />
+    );
+  }
 
   if (run && run.status === "ended") {
     const lastRound = run.lastRound ?? null;
@@ -378,7 +520,7 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
             <div className="mt-auto flex w-full flex-col gap-2">
               <button
                 type="button"
-                onClick={() => setDismissedKey(roundKey(run))}
+                onClick={() => dismissReveal(run)}
                 className={primaryButton}
               >
                 {t("nextSong")}
@@ -534,10 +676,12 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
               play_arrow
             </span>
             {activeRun
-              ? t("continueWithStats", {
-                  streak: activeRun.streak,
-                  points: formatNumber(activeRun.points),
-                })
+              ? activeRun.streak > 0 || activeRun.points > 0
+                ? t("continueWithStats", {
+                    streak: activeRun.streak,
+                    points: formatNumber(activeRun.points),
+                  })
+                : t("continueRun")
               : t("start")}
           </button>
 

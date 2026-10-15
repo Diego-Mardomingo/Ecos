@@ -13,6 +13,9 @@ import { SerwistProvider } from "../serwist";
 import { Toaster } from "@/components/ui/sonner";
 import "../globals.css";
 
+/** Hueco de los avisos sobre el borde superior: la cabecera fija (h-14) más el notch y aire. */
+const TOAST_TOP_OFFSET = "calc(env(safe-area-inset-top, 0px) + 4rem)";
+
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
   subsets: ["latin", "latin-ext"],
@@ -156,7 +159,14 @@ export default async function LocaleLayout({ children, params }: Props) {
               <NextIntlClientProvider messages={messages}>
                 {children}
               </NextIntlClientProvider>
-              <Toaster position="top-center" richColors />
+              {/* Por debajo de las cabeceras fijas (56 px más el notch): arriba del todo tapaban
+                  «Saltar» de la partida mientras duraba el aviso. */}
+              <Toaster
+                position="top-center"
+                richColors
+                offset={{ top: TOAST_TOP_OFFSET }}
+                mobileOffset={{ top: TOAST_TOP_OFFSET }}
+              />
             </MotionProvider>
           </SerwistProvider>
         </ThemeProvider>

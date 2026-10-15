@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getCategoryBySlug,
@@ -21,10 +22,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale, slug } = await params;
   const category = await getCategoryBySlug(slug);
-  return {
-    title: category ? categoryName(category, locale) : undefined,
-    robots: { index: false, follow: false },
-  };
+  // Sin categoría la página acaba en 404: que la pestaña lo diga en vez de quedarse sin título.
+  const title = category
+    ? categoryName(category, locale)
+    : (await getTranslations({ locale, namespace: "common" }))("notFoundTitle");
+  return { title, robots: { index: false, follow: false } };
 }
 
 export const dynamic = "force-dynamic";
