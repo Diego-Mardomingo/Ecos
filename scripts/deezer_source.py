@@ -287,5 +287,93 @@ def album_genre_ids(album_id: int) -> list[int] | None:
     return ids
 
 
+@dataclass(frozen=True)
+class DeezerCandidate:
+    """Resultado de una búsqueda de pistas (sin fecha: esa solo viene en `GET /track/{id}`)."""
+
+    deezer_id: int
+    title: str
+    title_short: str
+    artist: str
+    album_title: str
+    rank: int
+    has_preview: bool
+
+
+@dataclass(frozen=True)
+class DeezerTrackDetail:
+    """Ficha completa de una pista (`GET /track/{id}`), con el preview firmado fresco."""
+
+    deezer_id: int
+    title: str
+    artist: str
+    album_id: int | None
+    album_title: str
+    cover_url: str | None  # cover_xl o, si falta, cover_big
+    release_date: str | None  # «YYYY-MM-DD»
+    isrc: str | None
+    duration_s: int
+    explicit: bool
+    preview_url: str | None  # firmada: caduca a los 900 s; no guardar
+
+
+def search_tracks(query: str, limit: int = SEARCH_LIMIT) -> list[DeezerCandidate]:
+    """
+    Búsqueda simple de pistas, en el orden de relevancia de Deezer. Lista vacía = sin resultados;
+    lanza DeezerApiError si la API falla.
+    """
+    data = _get("/search/track", {"q": query, "limit": limit})
+    if isinstance(data.get("error"), dict):
+        raise DeezerApiError(f"búsqueda: error {data['error'].get('code')}")
+    out: list[DeezerCandidate] = []
+    for c in data.get("data") or []:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        album = c.get("album") if isinstance(c.get("album"), dict) else {}
+        artist = c.get("artist") if isinstance(c.get("artist"), dict) else {}
+        out.append(
+            DeezerCandidate(
+                deezer_id=int(c["id"]),
+                title=c.get("title") or "",
+                title_short=c.get("title_short") or c.get("title") or "",
+                artist=artist.get("name") or "",
+                album_title=album.get("title") or "",
+                rank=int(c.get("rank") or 0),
+                has_preview=bool(c.get("preview")),
+            )
+        )
+    return out
+
+
+def track_detail(deezer_id: int) -> DeezerTrackDetail | None:
+    """Ficha de una pista. None si Deezer dice que no existe; lanza DeezerApiError si falla."""
+    data = _get(f"/track/{deezer_id}")
+    err = data.get("error")
+    if isinstance(err, dict):
+        if err.get("type") == "DataException" or err.get("code") == 800:
+            return None
+        raise DeezerApiError(f"pista {deezer_id}: error {err.get('code')}")
+    if not data.get("id"):
+        return None
+    album = data.get("album") if isinstance(data.get("album"), dict) else {}
+    artist = data.get("artist") if isinstance(data.get("artist"), dict) else {}
+    release = data.get("release_date")
+    if not isinstance(release, str) or not re.match(r"^[1-9]\d{3}-", release):
+        release = None
+    return DeezerTrackDetail(
+        deezer_id=int(data["id"]),
+        title=data.get("title") or "",
+        artist=artist.get("name") or "",
+        album_id=int(album["id"]) if album.get("id") else None,
+        album_title=album.get("title") or "",
+        cover_url=album.get("cover_xl") or album.get("cover_big") or None,
+        release_date=release,
+        isrc=data.get("isrc") or None,
+        duration_s=int(data.get("duration") or 0),
+        explicit=bool(data.get("explicit_lyrics")),
+        preview_url=data.get("preview") or None,
+    )
+
+
 def preview_host(url: str | None) -> str | None:
     return urlparse(url).hostname if url else None

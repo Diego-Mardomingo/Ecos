@@ -1,15 +1,19 @@
 /**
- * Miniatura de 64 px de una carátula de Spotify (PERF-09).
+ * Miniatura de 64 px de una carátula de Spotify o de Deezer (PERF-09).
  *
  * El catálogo guarda la variante de 300 px (`ab67616d00001e02…`, unos 30–45 KB) y el buscador la
  * pinta a 40 px: con una búsqueda corriente bajaban más de 150 KB de imágenes. El CDN de Spotify
  * sirve la misma imagen a 64 px cambiando el código de tamaño del id (`ab67616d00004851…`, unos
  * 3 KB), en los mismos hosts (`image-cdn-*.spotifycdn.com`, `i.scdn.co`).
  *
+ * Las de Deezer (canciones solo de categorías) llevan el tamaño en el nombre del fichero
+ * (`/images/cover/<md5>/1000x1000-000000-80-0-0.jpg`) y el CDN sirve cualquier otro: se piden a 64 px.
+ *
  * Cualquier URL que no tenga esa forma se devuelve tal cual.
  */
 const SPOTIFY_COVER_300 = /^(https:\/\/(?:i\.scdn\.co|[\w-]+\.spotifycdn\.com)\/image\/ab67616d)00001e02(?=[0-9a-f]+$)/;
+const DEEZER_COVER = /^(https:\/\/cdn-images\.dzcdn\.net\/images\/cover\/[0-9a-f]+\/)\d+x\d+(?=-)/;
 
 export function coverThumbnailUrl(coverUrl: string): string {
-  return coverUrl.replace(SPOTIFY_COVER_300, "$100004851");
+  return coverUrl.replace(SPOTIFY_COVER_300, "$100004851").replace(DEEZER_COVER, "$164x64");
 }
