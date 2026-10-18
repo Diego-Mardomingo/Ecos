@@ -36,19 +36,27 @@ interface SearchRow {
  * Insensible a acentos (vía unaccent en DB). Solo canciones activas y con preview, ordenadas por
  * relevancia (ver `ecos_search_songs` en supabase/schema/02_functions.sql).
  *
+ * Con `scope=categories` incluye también las canciones solo de categorías (`daily_eligible` =
+ * false), que el buscador del reto diario no ofrece.
+ *
  * Con el cliente anónimo y sin cookies: la respuesta va a la CDN y no puede llevar `Set-Cookie`.
  */
 export const GET = handleRoute("api/search-songs", async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const rawQ = searchParams.get("q");
   const q = rawQ ? normalizeSearchQuery(rawQ) : "";
+  const includeCategoryOnly = searchParams.get("scope") === "categories";
 
   if (!q || q.length < 2) {
     return NextResponse.json({ data: [] }, { headers: SEARCH_CACHE });
   }
 
   const { data, error } = await createPublicClient()
-    .rpc("ecos_search_songs", { p_query: q, p_limit: SEARCH_LIMIT })
+    .rpc("ecos_search_songs", {
+      p_query: q,
+      p_limit: SEARCH_LIMIT,
+      p_include_category_only: includeCategoryOnly,
+    })
     .select(SEARCH_COLUMNS);
 
   if (error) {

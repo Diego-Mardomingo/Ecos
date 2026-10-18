@@ -24,6 +24,7 @@ import {
   homeSessionSegment,
   queryKeys,
   staleUntilMadridMidnight,
+  type SearchScope,
 } from "./queryKeys";
 import {
   fetchCategoriesData,
@@ -106,6 +107,7 @@ export type {
 } from "./queryTypes";
 export type { InProgressProgress, TodaysCompletedResult };
 export type { CategoryRunOutcome };
+export type { SearchScope };
 
 /* -------------------------------------------------------------------------------------------- */
 /* Home                                                                                          */
@@ -730,12 +732,13 @@ export interface EcosSong {
   spotify_id: string | null;
 }
 
-export function useSearchSongs(query: string) {
+export function useSearchSongs(query: string, scope: SearchScope = "daily") {
   return useQuery({
-    queryKey: queryKeys.search(query.trim()),
+    queryKey: queryKeys.search(query.trim(), scope),
     queryFn: async (): Promise<EcosSong[]> => {
+      const scopeParam = scope === "categories" ? "&scope=categories" : "";
       const res = await fetch(
-        `/api/search-songs?q=${encodeURIComponent(query.trim())}`
+        `/api/search-songs?q=${encodeURIComponent(query.trim())}${scopeParam}`
       );
       // Un fallo de la API no es «sin resultados»: se lanza para que el buscador pueda decirlo
       // (UX-04). Antes un 401 o un 500 se convertía en una lista vacía.

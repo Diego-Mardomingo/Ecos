@@ -28,6 +28,12 @@ export const JOB_TYPES = {
     label: "Relleno de Deezer",
     color: "bg-pink-500/20 text-pink-600 dark:text-pink-400",
   },
+  // Importación de canciones solo para categorías con lista curada
+  // (scripts/import-category-songs.py).
+  category_import: {
+    label: "Importación de categorías",
+    color: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
+  },
   // Metadatos de canciones (fecha, género, idioma, país) de Deezer y MusicBrainz
   // (scripts/enrich-metadata.py).
   metadata_enrich: {

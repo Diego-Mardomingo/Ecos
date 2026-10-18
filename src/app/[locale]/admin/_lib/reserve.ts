@@ -8,7 +8,7 @@ import { unwrapToOne } from "@/lib/supabase/relations";
  *
  * Es la regla 1 de `scripts/selection.py` (`is_eligible` + `UsedSongs.contains`) escrita otra
  * vez en TypeScript, porque el panel no puede ejecutar Python. Qué cuenta como elegible:
- * - canción activa, de una playlist activa, con audio de al menos `MIN_PREVIEW_SECONDS` en Deezer
+ * - canción activa, del catálogo diario (`daily_eligible`), de una playlist activa, con audio de al menos `MIN_PREVIEW_SECONDS` en Deezer
  *   (`deezer_id` y `deezer_preview_seconds`) o en Spotify (`preview_url` y
  *   `preview_duration_seconds`): `has_deezer_audio` / `has_spotify_audio` de `selection.py`;
  * - con título y artista;
@@ -42,6 +42,7 @@ type SongRow = {
   deezer_id: number | null;
   isrc: string | null;
   deezer_preview_seconds: number | null;
+  daily_eligible: boolean;
 };
 
 type UsedSongRow = {
@@ -143,7 +144,7 @@ export async function countSelectorReserve(supabase: ServiceClient): Promise<Res
       supabase
         .from("ecos_songs")
         .select(
-          "id, title, artist_name, preview_url, preview_duration_seconds, spotify_playlist_id, deezer_id, isrc, deezer_preview_seconds",
+          "id, title, artist_name, preview_url, preview_duration_seconds, spotify_playlist_id, deezer_id, isrc, deezer_preview_seconds, daily_eligible",
           { count: "exact" }
         )
         .eq("is_active", true)
@@ -190,6 +191,7 @@ export async function countSelectorReserve(supabase: ServiceClient): Promise<Res
   const eligible = songs.filter((s) => {
     const playlistId = (s.spotify_playlist_id ?? "").trim();
     return (
+      s.daily_eligible &&
       !!playlistId &&
       activePlaylistIds.has(playlistId) &&
       (hasDeezerAudio(s) || hasSpotifyAudio(s))

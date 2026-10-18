@@ -1,6 +1,9 @@
 import type { Query } from "@tanstack/react-query";
 import { getMsUntilNextMidnightMadrid } from "@/lib/date-utils";
 
+/** Catálogo del buscador: el del reto diario o, en el modo por categorías, también las canciones solo de categorías. */
+export type SearchScope = "daily" | "categories";
+
 /**
  * Registro central de claves de TanStack Query y sus ventanas de frescura.
  *
@@ -81,5 +84,5 @@ export const queryKeys = {
     ranking: (slug: string, userId: string | null) =>
       ["categories", "ranking", slug, homeSessionSegment(userId)] as const,
   },
-  search: (q: string) => ["search", q] as const,
+  search: (q: string, scope: SearchScope) => ["search", scope, q] as const,
 };

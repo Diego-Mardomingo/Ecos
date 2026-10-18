@@ -104,7 +104,13 @@ def has_spotify_audio(song: dict) -> bool:
 
 
 def is_eligible(song: dict, active_playlist_ids: set[str]) -> bool:
-    """Playlist activa + audio de Deezer o de Spotify de al menos MIN_PREVIEW_SECONDS."""
+    """Playlist activa + audio de Deezer o de Spotify de al menos MIN_PREVIEW_SECONDS.
+
+    Las canciones solo de categorías (`daily_eligible` = false, scripts/import-category-songs.py)
+    nunca entran en el reto diario.
+    """
+    if song.get("daily_eligible") is False:
+        return False
     pl_id = (song.get("spotify_playlist_id") or "").strip()
     if not pl_id or pl_id not in active_playlist_ids:
         return False
