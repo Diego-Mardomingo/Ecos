@@ -315,10 +315,12 @@ create policy "Public read avatars" on storage.objects
 -- formato (png -> webp) la anterior queda huérfana en el bucket. Conocido y aceptado; a revisar
 -- si algún día se añade «quitar foto».
 
--- Modo por categorías (migración 20261014130000_categorias_modo_racha, aplicada). Las dos tablas se
--- escriben solo con la service role.
-alter table public.ecos_categories    enable row level security;
-alter table public.ecos_category_runs enable row level security;
+-- Modo por categorías (migraciones 20261014130000_categorias_modo_racha y
+-- 20261018120000_categorias_listas_curadas, aplicadas). Las tres tablas se escriben solo con la
+-- service role.
+alter table public.ecos_categories     enable row level security;
+alter table public.ecos_category_runs  enable row level security;
+alter table public.ecos_category_songs enable row level security;
 
 -- Categorías: lectura pública de las activas. Runs: sin política, solo service role (la API lee y
 -- escribe con ella y atribuye siempre a user_id).
@@ -327,6 +329,8 @@ create policy ecos_categories_read on public.ecos_categories
 
 revoke insert, update, delete, truncate, references, trigger on public.ecos_categories from anon, authenticated;
 revoke all on public.ecos_category_runs from anon, authenticated;
+-- Listas curadas: ni lectura (sin política y sin privilegios).
+revoke all on public.ecos_category_songs from anon, authenticated;
 
 -- Funciones: nacen con EXECUTE para PUBLIC. Solo la service role (la API); ninguna es SECURITY DEFINER.
 revoke execute on function public.ecos_effective_game_date() from public, anon, authenticated;

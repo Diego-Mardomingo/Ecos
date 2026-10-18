@@ -50,6 +50,8 @@ const imageHosts = [
   "https://i.scdn.co",
   "https://image-cdn-fa.spotifycdn.com",
   "https://image-cdn-ak.spotifycdn.com",
+  // Carátulas de Deezer: las de las canciones solo de categorías (scripts/import-category-songs.py).
+  "https://cdn-images.dzcdn.net",
   `https://${supabaseHost}`,
 ];
 
@@ -151,6 +153,11 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "image-cdn-ak.spotifycdn.com",
+      },
+      {
+        protocol: "https",
+        hostname: "cdn-images.dzcdn.net",
+        pathname: "/images/cover/**",
       },
       {
         protocol: "https",

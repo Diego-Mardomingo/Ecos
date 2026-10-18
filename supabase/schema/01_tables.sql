@@ -46,6 +46,10 @@ create table if not exists public.ecos_songs (
   mb_genres text[],
   mb_checked_at timestamp with time zone,
   origin_override text,
+  -- false = canción solo para las categorías con lista curada (scripts/import-category-songs.py): no
+  -- entra en el reto diario, ni en las categorías por facetas, ni en el buscador del diario.
+  -- Migración 20261018120000_categorias_listas_curadas.
+  daily_eligible boolean not null default true,
   -- Clave canónica título+artista. La calcula el trigger ecos_songs_dedupe_key; no se escribe
   -- a mano. Existe para poder imponer un único sobre ella: Spotify publica la misma canción
   -- como single y dentro de un álbum, con distinto spotify_id y distinta carátula, y el único
@@ -249,7 +253,7 @@ alter table public.ecos_spotify_playlists add constraint ecos_spotify_playlists_
 
 alter table public.ecos_system_logs add constraint ecos_system_logs_pkey PRIMARY KEY (id);
 alter table public.ecos_system_logs add constraint ecos_system_logs_job_type_check
-  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text, 'deezer_backfill'::text, 'metadata_enrich'::text])));
+  CHECK ((job_type = ANY (ARRAY['ingestion'::text, 'weekly_games'::text, 'daily_game'::text, 'report_auto_deactivate'::text, 'daily_notifications'::text, 'games_check'::text, 'deezer_backfill'::text, 'metadata_enrich'::text, 'category_import'::text])));
 alter table public.ecos_system_logs add constraint ecos_system_logs_status_check
   CHECK ((status = ANY (ARRAY['success'::text, 'partial'::text, 'failure'::text])));
 
@@ -299,6 +303,8 @@ CREATE TRIGGER set_updated_at
 
 -- Categoría = filtro sobre las facetas de ecos_song_facets (década, género, origen). Un campo null
 -- no filtra por él. `min_songs`: tamaño mínimo del pool para mostrarla (lo aplica la API).
+-- `curated`: la categoría no usa las facetas, sino su lista de ecos_category_songs (Pop en inglés,
+-- Rock en inglés).
 create table if not exists public.ecos_categories (
   id uuid not null default gen_random_uuid(),
   slug text not null,
@@ -311,6 +317,16 @@ create table if not exists public.ecos_categories (
   min_songs integer not null default 60,
   is_active boolean not null default true,
   sort_order integer not null default 0,
+  created_at timestamp with time zone not null default now(),
+  curated boolean not null default false
+);
+
+-- Canciones de cada categoría curada (las carga scripts/import-category-songs.py). `position`: puesto
+-- en el listado de origen, solo informativo. Solo service role.
+create table if not exists public.ecos_category_songs (
+  category_id uuid not null,
+  song_id uuid not null,
+  position integer,
   created_at timestamp with time zone not null default now()
 );
 
@@ -341,6 +357,15 @@ create table if not exists public.ecos_category_runs (
 
 alter table public.ecos_categories add constraint ecos_categories_pkey PRIMARY KEY (id);
 alter table public.ecos_categories add constraint ecos_categories_slug_key UNIQUE (slug);
+
+alter table public.ecos_category_songs add constraint ecos_category_songs_pkey
+  PRIMARY KEY (category_id, song_id);
+alter table public.ecos_category_songs add constraint ecos_category_songs_category_id_fkey
+  FOREIGN KEY (category_id) REFERENCES public.ecos_categories(id) ON DELETE CASCADE;
+alter table public.ecos_category_songs add constraint ecos_category_songs_song_id_fkey
+  FOREIGN KEY (song_id) REFERENCES public.ecos_songs(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS ecos_category_songs_song_id_idx ON public.ecos_category_songs
+  USING btree (song_id);
 
 alter table public.ecos_category_runs add constraint ecos_category_runs_pkey PRIMARY KEY (id);
 alter table public.ecos_category_runs add constraint ecos_category_runs_user_id_fkey

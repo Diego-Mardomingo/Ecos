@@ -601,6 +601,7 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
               onGuess={handleGuess}
               disabled={busy}
               alreadyGuessedTexts={guesses.map((g) => g.text)}
+              searchScope="categories"
             />
             {guesses.length > 0 ? <PreviousAttempts guesses={guesses} /> : null}
             <button

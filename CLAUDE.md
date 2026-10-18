@@ -30,6 +30,7 @@ Misma canción para todos, 6 intentos, fragmento creciente (`ATTEMPT_DURATIONS` 
 
 - **Regla de acierto única**: `src/lib/guess-match.ts`, compartida por servidor e invitado. No la repliques.
 - **El servidor decide intento y puntos**: `submitAttempt` (`ecos-finalize-helpers.ts`) registra la jugada y cierra la partida cuando la jugada decide. `MAX_ATTEMPTS`, `SKIPPED_GUESS_TEXT` y `resolveServerAttempt` están en `server-attempt.ts`.
+- **Canciones solo de categorías**: `ecos_songs.daily_eligible = false` (Pop en inglés, Rock en inglés: categorías `curated` con su lista en `ecos_category_songs`). Nunca entran en el diario, en las categorías por facetas ni en el buscador del diario.
 - **Reportes**: nunca desactivan canciones; a los 3 usuarios distintos dejan un aviso al admin.
 - **Hora de Madrid**: el día de juego sale de `getEffectiveGameDate()` (`src/lib/date-utils.ts`), única fuente de verdad. Usa sus helpers, no `new Date()`. Hay días de 23 y 25 h. El ranking semanal y mensual solo cuenta una partida completada dentro del periodo de su día (SQL, `supabase/schema/04_leaderboard.sql`).
 - **Juegos futuros**: existen hoy, mañana y pasado. Nada puede servir uno con `date > getEffectiveGameDate()`. Lo cubren la RLS de `ecos_games`, `loadPlayableGame` y `audio-url`; una ruta nueva con service role tiene que comprobarlo ella.
@@ -99,7 +100,7 @@ Además de `ci.yml`, cuatro workflows de datos en `.github/workflows/`:
 | `send-daily-notifications.yml` | `send-daily-notifications.py` | Push, solo entre las 12:00 y las 21:00 de Madrid |
 
 - **Los crons de Actions llegan con horas de retraso**: no dependas de la hora exacta.
-- **Piezas comunes**: `common.py` (entorno, cliente, `log_job`, `JOB_*`), `selection.py` (reglas del selector y filtro del pool), `spotify_source.py` (lo único que depende de `spotifyscraper`) y `deezer_source.py` (API de Deezer). Todos admiten `--dry-run`. `backfill-deezer.py` es manual (rellena `deezer_id` y compañía en las canciones; registra `deezer_backfill`). `scripts/archivo/` no se mantiene.
+- **Piezas comunes**: `common.py` (entorno, cliente, `log_job`, `JOB_*`), `selection.py` (reglas del selector y filtro del pool), `spotify_source.py` (lo único que depende de `spotifyscraper`) y `deezer_source.py` (API de Deezer). Todos admiten `--dry-run`. `backfill-deezer.py` es manual (rellena `deezer_id` y compañía en las canciones; registra `deezer_backfill`), igual que `import-category-songs.py` (carga una lista CSV a una categoría curada; registra `category_import`). `scripts/archivo/` no se mantiene.
 - **Registro**: todo job registra con `log_job` en `ecos_system_logs`, que es lo que muestra `/admin`. Los `job_type` deben coincidir en `JOB_TYPES` (`system-logger.ts`), el `CHECK` de `01_tables.sql` y `common.py`; si no, el registro se pierde sin avisar.
 - **Distingue fallo de la API de «no hay resultados»**: confundirlos ya desactivó el catálogo entero una vez.
 - **El repo es público**: ningún log puede mostrar título ni artista de un reto futuro.

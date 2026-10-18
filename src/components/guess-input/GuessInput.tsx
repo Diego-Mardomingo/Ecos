@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
 import { m, AnimatePresence } from "framer-motion";
-import { useSearchSongs } from "@/lib/hooks/queries";
+import { useSearchSongs, type SearchScope } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { coverThumbnailUrl } from "./coverThumbnail";
@@ -18,6 +18,8 @@ interface GuessInputProps {
   className?: string;
   /** Textos de canciones ya elegidas (ej. "Title - Artist") para resaltarlas en el listado */
   alreadyGuessedTexts?: string[];
+  /** Catálogo en el que busca: el del reto diario (por defecto) o el del modo por categorías. */
+  searchScope?: SearchScope;
 }
 
 const DEBOUNCE_MS = 350;
@@ -44,7 +46,13 @@ const TAP_SLOP_PX = 10;
  * escribiendo mientras se navega con las flechas. Por eso las opciones son `<li role="option">`
  * y no `<button>`: un botón sería un punto de tabulación propio y rompería ese modelo.
  */
-export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts = [] }: GuessInputProps) {
+export function GuessInput({
+  onGuess,
+  disabled,
+  className,
+  alreadyGuessedTexts = [],
+  searchScope = "daily",
+}: GuessInputProps) {
   const t = useTranslations("game");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -65,7 +73,7 @@ export function GuessInput({ onGuess, disabled, className, alreadyGuessedTexts =
     isFetching,
     isError,
     refetch,
-  } = useSearchSongs(debouncedQuery);
+  } = useSearchSongs(debouncedQuery, searchScope);
 
   const isGuessed = useCallback(
     (song: Song) => {

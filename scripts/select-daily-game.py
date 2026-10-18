@@ -49,7 +49,8 @@ from selection import (
 # Columnas de la canción que necesitan las reglas (pool y juegos recientes).
 SONG_COLUMNS = (
     "id, title, artist_name, preview_url, preview_duration_seconds, release_date, "
-    "spotify_playlist_id, spotify_playlist_name, deezer_id, isrc, deezer_preview_seconds"
+    "spotify_playlist_id, spotify_playlist_name, deezer_id, isrc, deezer_preview_seconds, "
+    "daily_eligible"
 )
 NEARBY_SONG_COLUMNS = "release_date, spotify_playlist_id, spotify_playlist_name, artist_name"
 # Reintentos del insert si otro proceso se queda antes con el mismo game_number.
