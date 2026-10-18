@@ -4,6 +4,11 @@
 -- desplegado: la columna nueva nace a true para todo el catálogo, las categorías nuevas nacen
 -- inactivas y ecos_search_songs conserva su comportamiento con los dos argumentos de siempre.
 --
+-- PENDIENTE TRAS DESPLEGAR: las listas ya están cargadas (scripts/import-category-songs.py, 150 + 150),
+-- pero las categorías siguen inactivas porque el código desplegado no busca estas canciones
+-- (scope=categories) ni admite las carátulas de Deezer en la CSP. Tras desplegar:
+--   update public.ecos_categories set is_active = true where slug in ('pop-ingles', 'rock-ingles');
+--
 -- - ecos_songs.daily_eligible: false = la canción solo existe para las categorías con lista curada.
 --   No entra en el reto diario (selection.py, reserve.ts), ni en las categorías por facetas, ni en
 --   el buscador del diario.
