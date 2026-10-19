@@ -275,6 +275,20 @@ create policy ecos_ranking_broadcast_receive
     and (select realtime.topic()) = 'ecos:ranking'
   );
 
+-- Lo mismo para el ranking de cada categoría: un canal privado por categoría,
+-- `ecos:category-ranking:<slug>`, con aviso al terminar una partida con puntos.
+-- Ver src/lib/realtime/ranking-channel.ts.
+-- Migración: supabase/migrations/20261019120000_ecos_category_ranking_broadcast.sql
+
+create policy ecos_category_ranking_broadcast_receive
+  on realtime.messages
+  for select
+  to anon, authenticated
+  using (
+    realtime.messages.extension = 'broadcast'
+    and (select realtime.topic()) like 'ecos:category-ranking:%'
+  );
+
 -- ---------------------------------------------------------------------------------------------
 -- Storage: bucket `avatars` (DOC-17)
 --
