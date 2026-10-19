@@ -7,13 +7,16 @@ import type { LeaderboardEntryRow } from "@/lib/queries/users";
 import { LeaderboardPodiumAndList } from "@/components/leaderboard/LeaderboardPodiumAndList";
 import { rankingDisplayName } from "@/lib/display-name";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
+import { useCategoryRankingRealtime } from "@/lib/realtime/useCategoryRankingRealtime";
 
 /**
  * Clasificación de una categoría: puntos de la mejor partida de cada jugador, con la racha como
  * desempate. Reutiliza el podio y la lista del ranking diario; el «aciertos» de cada fila es la
  * racha de esa partida.
  *
- * La siembra el RSC y se refresca al terminar una partida (`queryKeys.categories.all`).
+ * La siembra el RSC, se refresca al terminar una partida propia (`queryKeys.categories.all`) y en
+ * vivo cuando termina la de cualquier otro jugador (Broadcast de Realtime, `useCategoryRankingRealtime`).
+ * Se monta en el lobby o en el fin de partida, nunca a la vez: un canal por montaje.
  */
 
 function toRow(entry: CategoryLeaderboardEntry): LeaderboardEntryRow {
@@ -42,6 +45,7 @@ export function CategoryRanking({
   const tr = useTranslations("ranking");
   const { formatNumber } = useAppFormatters();
   const { data } = useCategoryRanking(slug, userId, initialData);
+  useCategoryRankingRealtime(slug);
   const entries = (data?.entries ?? []).map(toRow);
   const me = data?.me ?? null;
 

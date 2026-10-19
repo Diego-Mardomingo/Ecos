@@ -81,6 +81,8 @@ export const queryKeys = {
     all: ["categories"] as const,
     list: (userId: string | null) =>
       ["categories", "list", homeSessionSegment(userId)] as const,
+    /** Prefijo de la clasificación de una categoría, sea cual sea el usuario. */
+    rankingOf: (slug: string) => ["categories", "ranking", slug] as const,
     ranking: (slug: string, userId: string | null) =>
       ["categories", "ranking", slug, homeSessionSegment(userId)] as const,
   },

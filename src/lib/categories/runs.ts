@@ -4,6 +4,7 @@ import { MAX_ATTEMPTS } from "@/lib/server-attempt";
 import { evaluateGuess, type GuessMatchSong } from "@/lib/guess-match";
 import { unwrapToOne } from "@/lib/supabase/relations";
 import { invalidateCategoryLeaderboard } from "@/lib/queries/categories";
+import { notifyCategoryRankingChanged } from "@/lib/realtime/broadcast-ranking";
 import type {
   CategoryGuessEvaluation,
   CategoryRunEndReason,
@@ -26,7 +27,9 @@ import type {
  * responde `conflict` con el estado real para que el cliente reconcilie. El servidor decide el
  * intento: el del cliente solo se acepta si coincide con `current_attempt`.
  *
- * No toca `ecos_scores`, `ecos_leaderboard`, `ecos_games` ni el canal realtime `ecos:ranking`.
+ * No toca `ecos_scores`, `ecos_leaderboard`, `ecos_games` ni el canal realtime `ecos:ranking`
+ * (el del ranking diario). Sí emite en `ecos:category-ranking:<slug>` al terminar una partida con
+ * puntos, para refrescar la clasificación de esa categoría.
  *
  * Logs: ids de partida y de usuario, nunca título ni artista.
  */
@@ -315,10 +318,15 @@ async function replaceMissingSong(
   return { kind: "conflict", run: toRunState(updated) };
 }
 
-/** Invalida el ranking de la categoría cuando termina una partida con puntos. */
+/**
+ * Cuando termina una partida con puntos, invalida la caché del ranking de la categoría y avisa por
+ * Realtime a quien lo tenga abierto. Sin slug (no debería pasar) solo invalida.
+ */
 function notifyIfEnded(updated: RunRow): void {
   if (updated.status === "ended" && updated.points > 0) {
     invalidateCategoryLeaderboard(updated.category_id);
+    const slug = unwrapToOne(updated.ecos_categories)?.slug;
+    if (slug) notifyCategoryRankingChanged(slug);
   }
 }
 
