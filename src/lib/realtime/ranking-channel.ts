@@ -16,8 +16,15 @@
  *   lleva datos: solo «ha cambiado algo». El cliente vuelve a pedir el ranking por la ruta de
  *   siempre.
  *
- * El canal es **privado**: solo el servidor (service role) puede emitir y solo se puede escuchar
- * con una política de `realtime.messages` (ver `supabase/migrations/20261007130000_*`).
+ * Hay dos familias de canal, con el mismo mecanismo:
+ * - `ecos:ranking`: el ranking diario (`useLeaderboardRealtime.ts`).
+ * - `ecos:category-ranking:<slug>`: la clasificación de cada categoría
+ *   (`useCategoryRankingRealtime.ts`), que emite el servidor al terminar una partida con puntos.
+ *
+ * Los canales son **privados**: solo el servidor (service role) puede emitir y solo se puede
+ * escuchar con una política de `realtime.messages` (ver `supabase/migrations/20261007130000_*`
+ * para el diario y `supabase/migrations/20261019120000_*` para las categorías, temas
+ * `ecos:category-ranking:%`).
  */
 
 /** Tema del canal. Tiene que coincidir con el de la política RLS de `realtime.messages`. */
@@ -25,3 +32,11 @@ export const RANKING_BROADCAST_TOPIC = "ecos:ranking";
 
 /** Evento: una partida se ha cerrado y la clasificación puede haber cambiado. */
 export const RANKING_BROADCAST_EVENT = "scores-changed";
+
+/** Tema del canal de una categoría. Tiene que encajar con `ecos:category-ranking:%` de la política. */
+export function categoryRankingTopic(slug: string): string {
+  return `ecos:category-ranking:${slug}`;
+}
+
+/** Evento: una partida de la categoría ha terminado y su clasificación puede haber cambiado. */
+export const CATEGORY_RANKING_BROADCAST_EVENT = "category-scores-changed";
