@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   closestCenter,
   DndContext,
@@ -25,6 +25,7 @@ import {
   setPlaylistActive,
   setPlaylistMode,
 } from "./actions";
+import { useIsMounted } from "@/lib/hooks/useIsMounted";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -103,17 +104,17 @@ export function PlaylistsClient({ playlists }: { playlists: PlaylistRow[] }) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [items, setItems] = useState<PlaylistRow[]>(playlists);
-  const [mounted, setMounted] = useState(false);
+  const [prevPlaylists, setPrevPlaylists] = useState(playlists);
 
   // Mantener `items` sincronizado con el servidor tras server actions + revalidate.
-  useEffect(() => {
+  // Se ajusta durante el render en vez de en un efecto para no pintar dos veces.
+  if (playlists !== prevPlaylists) {
+    setPrevPlaylists(playlists);
     setItems(playlists);
-  }, [playlists]);
+  }
 
   // Evitar hydration mismatch de dnd-kit (IDs aria-* difieren server vs client).
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useIsMounted();
 
   const stats = useMemo(() => {
     const total = items.length;
