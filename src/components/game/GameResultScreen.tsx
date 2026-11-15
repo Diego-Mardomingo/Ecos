@@ -7,7 +7,7 @@ import { AnimatePresence, m } from "framer-motion";
 import Image from "next/image";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { Link } from "@/i18n/navigation";
-import { track } from "@/lib/analytics/track";
+import { track, withShareCampaign } from "@/lib/analytics/track";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 import { useNavigateBackToHome } from "@/lib/navigation/useNavigateBackToHome";
@@ -313,7 +313,11 @@ function ResultScreen({
     const shareUrl =
       typeof window !== "undefined"
         ? // Sin prefijo en español (`localePrefix: "as-needed"`): con `/es/` costaba un 307 (SEO-06).
-          `${window.location.origin}${localizedPath(locale, `/play/${gameId}`)}`
+          // Con la marca de campaña para ver en Umami cuántas visitas llegan por compartir.
+          withShareCampaign(
+            `${window.location.origin}${localizedPath(locale, `/play/${gameId}`)}`,
+            "resultado"
+          )
         : "";
     const title = won
       ? t("shareTitleWon", {

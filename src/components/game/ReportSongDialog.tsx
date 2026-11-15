@@ -11,7 +11,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { track } from "@/lib/analytics/track";
 import { useReportGameMutation, type ReportGameInput } from "@/lib/hooks/queries";
 import { cn } from "@/lib/utils";
 
@@ -64,7 +63,6 @@ export function ReportSongDialog({
       },
       {
         onSuccess: () => {
-          track("reporte_enviado");
           setSent(true);
           setOpen(false);
         },

@@ -8,7 +8,9 @@
  */
 
 type Modo = "hoy" | "historico";
-type Sesion = "invitado" | "usuario";
+export type Sesion = "invitado" | "usuario";
+type CategoriaMotivo = "fallo" | "abandono" | "agotada";
+type LoginOrigen = "partida" | "categorias" | "ranking" | "perfil" | "inicio";
 
 export type AnalyticsEvents = {
   partida_primera_jugada: { modo: Modo; sesion: Sesion };
@@ -19,23 +21,36 @@ export type AnalyticsEvents = {
     sesion: Sesion;
   };
   categoria_iniciada: { slug: string };
-  categoria_terminada: { slug: string; racha: number };
+  /** `motivo`: `end_reason` de la racha (`failed`, `abandoned`, `exhausted`). */
+  categoria_terminada: { slug: string; racha: number; motivo: CategoriaMotivo };
   /** `resultado`: pantalla de fin de partida (GameResultScreen); `home`: botón de la home. */
   resultado_compartido: { origen: "resultado" | "home" };
-  login_iniciado: undefined;
+  /** `origen`: sección de la que venía quien entra (sale del destino tras el login). */
+  login_iniciado: { origen: LoginOrigen };
   registro_completado: undefined;
   push_activadas: undefined;
-  reporte_enviado: undefined;
+  /**
+   * Una fuente de audio falló al cargar la partida (una vez por carga). `fuente` es la que falló;
+   * `recuperado`, si otra la sustituyó. Ver `audioStore.ts`.
+   */
+  audio_fallo: { fuente: "deezer" | "spotify"; recuperado: boolean };
 };
 
 export type AnalyticsEventName = keyof AnalyticsEvents;
 
 type UmamiData = Record<string, string | number | boolean>;
 
+/**
+ * Datos de sesión de `identify`. Lista cerrada y **sin clave `id`**: el tracker la toma como id de
+ * usuario, y aquí no se identifica a nadie.
+ */
+type SessionData = { sesion: Sesion; pwa: boolean };
+
 declare global {
   interface Window {
     umami?: {
       track: (name?: string, data?: UmamiData) => unknown;
+      identify: (data: UmamiData) => unknown;
     };
   }
 }
@@ -60,4 +75,54 @@ export function track<E extends AnalyticsEventName>(evento: E, ...args: TrackArg
   } catch {
     // La analítica nunca puede romper el juego.
   }
+}
+
+/**
+ * Añade la marca de campaña de un enlace compartido (`utm_source=share`). `UmamiScript` descarta
+ * el resto de la query y conserva solo los `utm_*`, que Umami lee del servidor.
+ */
+export function withShareCampaign(url: string, medium: "resultado" | "home"): string {
+  return `${url}?utm_source=share&utm_medium=${medium}`;
+}
+
+/**
+ * Datos de sesión (`identify`) enviados a Umami: `sesion` (invitado o con cuenta) y `pwa` (instalada
+ * en pantalla de inicio). No llevan ningún identificador.
+ *
+ * Dos cosas pueden llegar primero: el estado de sesión (`AuthProvider`) o el tracker (script
+ * `afterInteractive`). `identifySession` guarda lo pedido y lo envía en cuanto `window.umami`
+ * existe; `onTrackerLoad`, que `UmamiScript` pasa al `onLoad` del tracker, lo reintenta al cargar.
+ * Un envío idéntico al anterior se omite (StrictMode, re-renders), y uno distinto (cerrar sesión
+ * sin recarga) vuelve a identificar.
+ */
+let wantedSession: Sesion | null = null;
+let sentSessionKey: string | null = null;
+
+function isStandalonePwa(): boolean {
+  const iosStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return window.matchMedia("(display-mode: standalone)").matches || iosStandalone;
+}
+
+function sendSession(): void {
+  try {
+    if (typeof window === "undefined" || !wantedSession || !window.umami?.identify) return;
+    const datos: SessionData = { sesion: wantedSession, pwa: isStandalonePwa() };
+    const key = `${datos.sesion}|${datos.pwa}`;
+    if (key === sentSessionKey) return;
+    sentSessionKey = key;
+    if (process.env.NODE_ENV !== "production") console.debug("[analytics] identify", datos);
+    window.umami.identify(datos);
+  } catch {
+    // La analítica nunca puede romper el juego.
+  }
+}
+
+export function identifySession(sesion: Sesion): void {
+  wantedSession = sesion;
+  sendSession();
+}
+
+/** `onLoad` del script del tracker: envía lo que estuviera esperando a que `window.umami` existiera. */
+export function onTrackerLoad(): void {
+  sendSession();
 }

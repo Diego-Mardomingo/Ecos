@@ -49,7 +49,9 @@ NOTIFICATION_TITLE = "\U0001f3a7 Tu reto ECOS de hoy"  # 🎧
 NOTIFICATION_BODY = (
     "Aún no has completado la canción del día de hoy, ¡estás a tiempo! \U0001f644"
 )  # 🙄
-NOTIFICATION_URL = "/play"
+# Marca de campaña: Umami la lee de la query al abrir la notificación (ver `UmamiScript.tsx`, que
+# solo conserva los `utm_*`). La abre el service worker tal cual, con una navegación completa.
+NOTIFICATION_URL = "/play?utm_source=push&utm_medium=notificacion"
 NOTIFICATION_TAG = "ecos-daily-game"
 
 # Ventana de envío, hora de Madrid. Fuera de ella no se manda (ver el docstring).

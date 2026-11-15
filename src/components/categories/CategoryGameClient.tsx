@@ -165,6 +165,13 @@ const END_REASON_KEYS: Record<CategoryRunEndReason, string> = {
   exhausted: "endExhausted",
 };
 
+/** Motivo de fin de la racha para la analítica (`end_reason` de la BD: siempre existe al terminar). */
+const END_REASON_ANALYTICS = {
+  failed: "fallo",
+  abandoned: "abandono",
+  exhausted: "agotada",
+} as const satisfies Record<CategoryRunEndReason, "fallo" | "abandono" | "agotada">;
+
 function StatTile({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="flex flex-1 flex-col items-center gap-1 rounded-2xl border border-border bg-card px-3 py-3">
@@ -325,8 +332,12 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
   const reconcile = (outcome: CategoryRunOutcome) => {
     // Solo la respuesta a una jugada propia (`ok`) cierra la partida de verdad: un 409 puede traer
     // una partida que ya había terminado en otra pestaña, y esa no se cuenta aquí.
-    if (outcome.kind === "ok" && outcome.run.status === "ended") {
-      track("categoria_terminada", { slug: category.slug, racha: outcome.run.streak });
+    if (outcome.kind === "ok" && outcome.run.status === "ended" && outcome.run.endReason) {
+      track("categoria_terminada", {
+        slug: category.slug,
+        racha: outcome.run.streak,
+        motivo: END_REASON_ANALYTICS[outcome.run.endReason],
+      });
     }
     savePendingReveal(outcome.run);
     setRun(outcome.run);
