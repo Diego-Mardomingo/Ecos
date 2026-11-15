@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { toast } from "sonner";
 import { useRouter } from "@/i18n/navigation";
+import { track } from "@/lib/analytics/track";
 import { GuessInput, type EcosSong } from "@/components/guess-input/GuessInput";
 import type { AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { PlayingAudioSection } from "@/components/game/GameAudioSection";
@@ -322,6 +323,11 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
 
   /** Adopta el estado que dice el servidor (también en el 409, avisando de que se actualizó). */
   const reconcile = (outcome: CategoryRunOutcome) => {
+    // Solo la respuesta a una jugada propia (`ok`) cierra la partida de verdad: un 409 puede traer
+    // una partida que ya había terminado en otra pestaña, y esa no se cuenta aquí.
+    if (outcome.kind === "ok" && outcome.run.status === "ended") {
+      track("categoria_terminada", { slug: category.slug, racha: outcome.run.streak });
+    }
     savePendingReveal(outcome.run);
     setRun(outcome.run);
     if (outcome.kind === "conflict") toast.info(t("outOfSync"));
@@ -345,7 +351,13 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
       { slug: category.slug },
       {
         // Al continuar, recupera la revelación que quedó sin cerrar (recarga, volver a la lista).
-        onSuccess: (outcome) => reconcile({ ...outcome, run: withPendingReveal(outcome.run) }),
+        onSuccess: (outcome) => {
+          // Solo una partida nueva: reanudar la que estaba a medias no es «iniciar».
+          if (outcome.kind === "ok" && !outcome.resumed) {
+            track("categoria_iniciada", { slug: category.slug });
+          }
+          reconcile({ ...outcome, run: withPendingReveal(outcome.run) });
+        },
         onError: handleFailure,
       }
     );

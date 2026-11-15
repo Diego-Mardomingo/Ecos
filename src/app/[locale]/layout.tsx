@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { MotionProvider } from "@/components/providers/MotionProvider";
 import { SerwistProvider } from "../serwist";
 import { Toaster } from "@/components/ui/sonner";
+import { UmamiScript } from "./UmamiScript";
 import "../globals.css";
 
 /** Hueco de los avisos sobre el borde superior: la cabecera fija (h-14) más el notch y aire. */
@@ -170,6 +171,7 @@ export default async function LocaleLayout({ children, params }: Props) {
             </MotionProvider>
           </SerwistProvider>
         </ThemeProvider>
+        <UmamiScript />
       </body>
     </html>
   );

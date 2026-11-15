@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { track } from "@/lib/analytics/track";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -94,6 +95,8 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: async (response: { credential: string }) => {
+        // One Tap: elegir la cuenta en el aviso de Google equivale a pulsar el botón.
+        track("login_iniciado");
         setLoading(true);
         /*
          * Sin `throw` dentro del `try`: el React Compiler no lo admite y dejaba sin compilar
@@ -129,6 +132,7 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
   }, [oneTapReady, googleClientId, initializeOneTap]);
 
   const handleGoogleSignIn = async () => {
+    track("login_iniciado");
     setLoading(true);
     rememberLoginRedirect(redirectTo);
     await supabase.auth.signInWithOAuth({

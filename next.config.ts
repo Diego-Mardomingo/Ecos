@@ -29,6 +29,10 @@ const supabaseHost = new URL(supabaseUrl).hostname;
  *                            llegan directas al navegador; el resto pasa por /_next/image) y
  *                            avatares de Google y de Supabase Storage (<img> plano).
  *  - supabase (https+wss) -> REST, Storage y realtime.
+ *  - cloud.umami.is       -> script del tracker de analítica (UmamiScript.tsx), en script-src.
+ *  - gateway.umami.is     -> donde el tracker envía eventos, errores y Web Vitals con fetch()
+ *                            (POST), en connect-src. El inline que define `before-send` entra por
+ *                            el 'unsafe-inline' de script-src, igual que el resto.
  *
  * El service worker lleva su propia CSP (`swCsp`): la caché por defecto de Serwist intercepta
  * todas las peticiones a otros orígenes (imágenes, Supabase, el script de Google) y las repite con
@@ -68,12 +72,12 @@ const isDev = process.env.NODE_ENV === "development";
 
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://accounts.google.com`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://accounts.google.com https://cloud.umami.is`,
   "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
   "font-src 'self' data:",
   ["img-src 'self' data: blob:", ...imageHosts].join(" "),
   `media-src 'self' blob: ${audioHosts}`,
-  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com ${audioHosts}`,
+  `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://accounts.google.com https://gateway.umami.is ${audioHosts}`,
   "frame-src https://accounts.google.com",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
