@@ -7,6 +7,8 @@ import { useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { track } from "@/lib/analytics/track";
+import { stripLocalePrefix } from "@/i18n/locale-path";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -59,6 +61,21 @@ function rememberLoginRedirect(target: string) {
     `; Max-Age=600; SameSite=Lax${secure}`;
 }
 
+/**
+ * Sección de la que viene quien entra, para `login_iniciado`. Sale del destino tras el login
+ * (`redirectTo`, ya saneado y con el prefijo de locale), sin query ni hash. Todo lo que no sea una
+ * sección conocida (la home y rutas sueltas) cuenta como `inicio`.
+ */
+function loginOrigin(redirectTo: string) {
+  const pathname = redirectTo.split(/[?#]/, 1)[0];
+  const path = stripLocalePrefix(pathname);
+  if (path === "/play" || path.startsWith("/play/")) return "partida";
+  if (path === "/categorias" || path.startsWith("/categorias/")) return "categorias";
+  if (path === "/ranking" || path.startsWith("/ranking/")) return "ranking";
+  if (path === "/profile" || path.startsWith("/profile/")) return "perfil";
+  return "inicio";
+}
+
 type LoginClientProps = {
   /** Destino tras entrar, ya saneado en el servidor (`getSafeRedirectTarget`). */
   redirectTo: string;
@@ -94,6 +111,8 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: async (response: { credential: string }) => {
+        // One Tap: elegir la cuenta en el aviso de Google equivale a pulsar el botón.
+        track("login_iniciado", { origen: loginOrigin(redirectTo) });
         setLoading(true);
         /*
          * Sin `throw` dentro del `try`: el React Compiler no lo admite y dejaba sin compilar
@@ -129,6 +148,7 @@ export function LoginClient({ redirectTo }: LoginClientProps) {
   }, [oneTapReady, googleClientId, initializeOneTap]);
 
   const handleGoogleSignIn = async () => {
+    track("login_iniciado", { origen: loginOrigin(redirectTo) });
     setLoading(true);
     rememberLoginRedirect(redirectTo);
     await supabase.auth.signInWithOAuth({

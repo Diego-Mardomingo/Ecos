@@ -25,6 +25,8 @@ import {
   type GameProgressData,
 } from "@/lib/hooks/queries";
 import { evaluateGuess } from "@/lib/guess-match";
+import { track } from "@/lib/analytics/track";
+import { getEffectiveGameDate } from "@/lib/date-utils";
 import { prefetchGameAudio } from "@/lib/audio/audioStore";
 import {
   ATTEMPT_DURATIONS,
@@ -123,6 +125,37 @@ function resolveAuthoritativeProgress(
   return serverProgress.guesses.length >= localProgress.guesses.length
     ? serverProgress
     : localProgress;
+}
+
+/**
+ * Analítica de la partida diaria. `modo` sale de la fecha del reto contra el día efectivo de
+ * Madrid; no se envía ningún dato de la canción ni ids. Funciones de módulo para llamarlas solo
+ * desde manejadores y callbacks (nunca desde el render ni desde un updater de `setState`).
+ */
+type TrackedSession = "invitado" | "usuario";
+
+function trackedMode(gameDate: string): "hoy" | "historico" {
+  return gameDate === getEffectiveGameDate() ? "hoy" : "historico";
+}
+
+/** Solo la jugada del intento 1 abre la partida; las demás no envían nada. */
+function trackFirstMove(gameDate: string, sesion: TrackedSession, attempt: number) {
+  if (attempt !== 1) return;
+  track("partida_primera_jugada", { modo: trackedMode(gameDate), sesion });
+}
+
+function trackGameFinished(
+  gameDate: string,
+  sesion: TrackedSession,
+  resultado: "acierto" | "fallo",
+  attempt: number
+) {
+  track("partida_terminada", {
+    resultado,
+    intento: attempt,
+    modo: trackedMode(gameDate),
+    sesion,
+  });
 }
 
 /**
@@ -461,7 +494,9 @@ export function GameClient({ game, userId }: Props) {
    */
   const applyGuestAttempt = (entry: GuessEntry) => {
     addGuess(entry);
+    trackFirstMove(game.date, "invitado", entry.attemptNumber);
     if (entry.attemptNumber >= maxAttempts) {
+      trackGameFinished(game.date, "invitado", "fallo", entry.attemptNumber);
       setLost();
       // Se lee después de setLost, como hacían los dos sitios originales.
       saveProgress(lostProgress({ game, guesses: useGameStore.getState().guesses }));
@@ -472,6 +507,8 @@ export function GameClient({ game, userId }: Props) {
 
   const applyGuestWin = (entry: GuessEntry) => {
     addGuess(entry);
+    trackFirstMove(game.date, "invitado", entry.attemptNumber);
+    trackGameFinished(game.date, "invitado", "acierto", entry.attemptNumber);
     const { totalPoints } = calculateScore(entry.attemptNumber, 0);
     setWon(entry.attemptNumber, totalPoints);
     saveProgress(
@@ -568,6 +605,17 @@ export function GameClient({ game, userId }: Props) {
       song: songSnapshot(moveGame),
       progress,
     });
+    // Analítica con lo que el servidor ha dejado guardado (no con lo optimista): una jugada
+    // aceptada llega aquí una sola vez, y el resultado sale de `progress`, ya corregido.
+    trackFirstMove(moveGame.date, "usuario", entry.attemptNumber);
+    if (progress.phase === "won" || progress.phase === "lost") {
+      trackGameFinished(
+        moveGame.date,
+        "usuario",
+        progress.phase === "won" ? "acierto" : "fallo",
+        entry.attemptNumber
+      );
+    }
     if (!isCurrentGame()) return;
 
     if (result.verdictChanged) {

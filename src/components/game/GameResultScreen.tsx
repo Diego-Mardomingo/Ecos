@@ -7,6 +7,7 @@ import { AnimatePresence, m } from "framer-motion";
 import Image from "next/image";
 import { AudioPlayer, type AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { Link } from "@/i18n/navigation";
+import { track, withShareCampaign } from "@/lib/analytics/track";
 import { useAppFormatters } from "@/lib/hooks/useAppFormatters";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 import { useNavigateBackToHome } from "@/lib/navigation/useNavigateBackToHome";
@@ -229,27 +230,29 @@ const ResultGameView = memo(function ResultGameView({
 
 /**
  * Comparte con la hoja nativa y, si no la hay o falla (salvo que el usuario la cierre), copia el
- * texto al portapapeles. Devuelve `true` si lo copió. Va fuera del componente porque el React
- * Compiler no admite condicionales dentro de un `try` y dejaría sin compilar `ResultScreen` entero.
+ * texto al portapapeles. Devuelve qué pasó: `shared` (hoja nativa completada), `copied` (copiado al
+ * portapapeles) o `none` (cancelado o sin forma de compartir). Va fuera del componente porque el
+ * React Compiler no admite condicionales dentro de un `try` y dejaría sin compilar `ResultScreen`
+ * entero.
  */
 async function shareOrCopy(
   data: { title: string; text: string; url: string },
   clipboardText: string
-): Promise<boolean> {
+): Promise<"shared" | "copied" | "none"> {
   try {
     if (typeof navigator !== "undefined" && navigator.share) {
       await navigator.share(data);
-      return false;
+      return "shared";
     }
     await navigator.clipboard.writeText(clipboardText);
-    return true;
+    return "copied";
   } catch (err) {
-    if ((err as Error).name === "AbortError") return false;
+    if ((err as Error).name === "AbortError") return "none";
     try {
       await navigator.clipboard.writeText(clipboardText);
-      return true;
+      return "copied";
     } catch {
-      return false;
+      return "none";
     }
   }
 }
@@ -310,7 +313,11 @@ function ResultScreen({
     const shareUrl =
       typeof window !== "undefined"
         ? // Sin prefijo en español (`localePrefix: "as-needed"`): con `/es/` costaba un 307 (SEO-06).
-          `${window.location.origin}${localizedPath(locale, `/play/${gameId}`)}`
+          // Con la marca de campaña para ver en Umami cuántas visitas llegan por compartir.
+          withShareCampaign(
+            `${window.location.origin}${localizedPath(locale, `/play/${gameId}`)}`,
+            "resultado"
+          )
         : "";
     const title = won
       ? t("shareTitleWon", {
@@ -348,11 +355,12 @@ function ResultScreen({
     const emojiIntro = won ? "🎵 🏆" : "🎵 💪";
     const textWithEmojis = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText}`;
     const fullTextForClipboard = `${emojiIntro} ${metaLabel}\n${scoreText}\n\n${dotsEmoji}\n\n👇 ${inviteText} ${shareUrl}`;
-    const copied = await shareOrCopy(
+    const shareOutcome = await shareOrCopy(
       { title, text: textWithEmojis, url: shareUrl },
       fullTextForClipboard
     );
-    if (copied) {
+    if (shareOutcome !== "none") track("resultado_compartido", { origen: "resultado" });
+    if (shareOutcome === "copied") {
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
     }

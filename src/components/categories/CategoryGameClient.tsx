@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { m } from "framer-motion";
 import { toast } from "sonner";
 import { useRouter } from "@/i18n/navigation";
+import { track } from "@/lib/analytics/track";
 import { GuessInput, type EcosSong } from "@/components/guess-input/GuessInput";
 import type { AudioPlayerHandle } from "@/components/audio-player/AudioPlayer";
 import { PlayingAudioSection } from "@/components/game/GameAudioSection";
@@ -164,6 +165,13 @@ const END_REASON_KEYS: Record<CategoryRunEndReason, string> = {
   exhausted: "endExhausted",
 };
 
+/** Motivo de fin de la racha para la analítica (`end_reason` de la BD: siempre existe al terminar). */
+const END_REASON_ANALYTICS = {
+  failed: "fallo",
+  abandoned: "abandono",
+  exhausted: "agotada",
+} as const satisfies Record<CategoryRunEndReason, "fallo" | "abandono" | "agotada">;
+
 function StatTile({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="flex flex-1 flex-col items-center gap-1 rounded-2xl border border-border bg-card px-3 py-3">
@@ -322,6 +330,15 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
 
   /** Adopta el estado que dice el servidor (también en el 409, avisando de que se actualizó). */
   const reconcile = (outcome: CategoryRunOutcome) => {
+    // Solo la respuesta a una jugada propia (`ok`) cierra la partida de verdad: un 409 puede traer
+    // una partida que ya había terminado en otra pestaña, y esa no se cuenta aquí.
+    if (outcome.kind === "ok" && outcome.run.status === "ended" && outcome.run.endReason) {
+      track("categoria_terminada", {
+        slug: category.slug,
+        racha: outcome.run.streak,
+        motivo: END_REASON_ANALYTICS[outcome.run.endReason],
+      });
+    }
     savePendingReveal(outcome.run);
     setRun(outcome.run);
     if (outcome.kind === "conflict") toast.info(t("outOfSync"));
@@ -345,7 +362,13 @@ export function CategoryGameClient({ category, userId, initialCategories, initia
       { slug: category.slug },
       {
         // Al continuar, recupera la revelación que quedó sin cerrar (recarga, volver a la lista).
-        onSuccess: (outcome) => reconcile({ ...outcome, run: withPendingReveal(outcome.run) }),
+        onSuccess: (outcome) => {
+          // Solo una partida nueva: reanudar la que estaba a medias no es «iniciar».
+          if (outcome.kind === "ok" && !outcome.resumed) {
+            track("categoria_iniciada", { slug: category.slug });
+          }
+          reconcile({ ...outcome, run: withPendingReveal(outcome.run) });
+        },
         onError: handleFailure,
       }
     );

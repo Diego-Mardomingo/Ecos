@@ -6,6 +6,7 @@ import { AnimatePresence, m } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { track } from "@/lib/analytics/track";
 import { useUpdateProfileMutation } from "@/lib/hooks/queries";
 import { localizedPath } from "@/lib/i18n/localizedPath";
 import { getSafeRedirectTarget } from "@/lib/auth/safeRedirectPath";
@@ -52,6 +53,7 @@ export function CompleteProfileClient() {
       { username: trimmed },
       {
         onSuccess: () => {
+          track("registro_completado");
           /* Navegación completa: evita RSC/prefetch del App Router y caché del SW con datos previos al PATCH. */
           window.location.assign(redirectTo);
         },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { track } from "@/lib/analytics/track";
 
 /** Máximo de veces que se puede cerrar el modal sin activar notificaciones; luego no se vuelve a mostrar. */
 const NOTIFICATIONS_MODAL_MAX_DISMISSES = 3;
@@ -247,7 +248,10 @@ export function useNotifications(options?: {
 
     setIsLoading(true);
     const ok = await subscribePush(publicKey, setPermission);
-    if (ok) setIsEnabled(true);
+    if (ok) {
+      setIsEnabled(true);
+      track("push_activadas");
+    }
     setIsLoading(false);
     return ok;
   }, [isSupported]);

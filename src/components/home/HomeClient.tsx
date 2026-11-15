@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { track, withShareCampaign } from "@/lib/analytics/track";
 import {
   getEffectiveGameDate,
   getMadridDate,
@@ -436,7 +437,7 @@ export function HomeClient({ initialData }: Props) {
     e.preventDefault();
     e.stopPropagation();
     const base = typeof window !== "undefined" ? window.location.origin : "";
-    const url = locale === "en" ? `${base}/en` : `${base}/`;
+    const url = withShareCampaign(locale === "en" ? `${base}/en` : `${base}/`, "home");
     try {
       if (navigator.share) {
         await navigator.share({
@@ -447,10 +448,12 @@ export function HomeClient({ initialData }: Props) {
       } else {
         await navigator.clipboard.writeText(url);
       }
+      track("resultado_compartido", { origen: "home" });
     } catch {
       // Fallback: copy to clipboard
       try {
         await navigator.clipboard.writeText(url);
+        track("resultado_compartido", { origen: "home" });
       } catch {
         /* ignore */
       }

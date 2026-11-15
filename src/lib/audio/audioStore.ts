@@ -1,5 +1,6 @@
 import type { AudioSource, AudioSourceName, AudioUrlResponse } from "@/lib/audio/audioSources";
 import { audioDebugLog } from "@/lib/audio/audioDebug";
+import { track } from "@/lib/analytics/track";
 
 /**
  * Caché del audio por partida, a nivel de módulo (solo cliente).
@@ -17,6 +18,9 @@ import { audioDebugLog } from "@/lib/audio/audioDebug";
  * - Se guardan como mucho `MAX_ENTRIES` partidas (LRU). Una entrada con algún reproductor montado
  *   (`acquireGameAudio`) no se expulsa, para no revocar un Blob en uso.
  * - `clearGameAudioStore` vacía todo al cerrar sesión (`clearSessionScopedClientData`).
+ * - Analítica (`audio_fallo`): una fuente «falla» cuando no se puede bajar su MP3 como Blob (red,
+ *   CORS, HTTP no 2xx o cuerpo vacío). Se envía una sola vez por entrada, aunque se reintente, y
+ *   sin url, id de partida ni de canción. Ver `reportAudioFailure`.
  */
 
 export type GameAudioStatus = "idle" | "resolving" | "downloading" | "ready" | "unavailable" | "error";
@@ -58,6 +62,8 @@ interface Entry {
   inflight: Promise<void> | null;
   /** Se incrementa al reintentar, expulsar o limpiar: una carga con otra generación se descarta. */
   generation: number;
+  /** `audio_fallo` ya enviado para esta entrada: los reintentos no lo repiten. */
+  failureReported: boolean;
 }
 
 /** El orden de inserción es el de uso: el primero es el menos reciente. */
@@ -150,7 +156,13 @@ function touch(gameId: string): Entry {
   if (entry) {
     entries.delete(gameId);
   } else {
-    entry = { snapshot: IDLE_GAME_AUDIO, users: 0, inflight: null, generation: 0 };
+    entry = {
+      snapshot: IDLE_GAME_AUDIO,
+      users: 0,
+      inflight: null,
+      generation: 0,
+      failureReported: false,
+    };
   }
   entries.set(gameId, entry);
   trim(gameId);
@@ -215,6 +227,18 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "error desconocido";
 }
 
+/**
+ * `audio_fallo`: `fuente` es la primera que no se pudo bajar y `recuperado`, si otra la sustituyó.
+ * Si no se pudo bajar ninguna (`recuperado: false`) no se mira lo que pase después con la URL
+ * directa en el `<audio>`: la URL es la misma que acaba de fallar y ese resultado no pasa por el
+ * almacén. Una vez por entrada.
+ */
+function reportAudioFailure(entry: Entry, fuente: AudioSourceName, recuperado: boolean) {
+  if (entry.failureReported) return;
+  entry.failureReported = true;
+  track("audio_fallo", { fuente, recuperado });
+}
+
 async function runLoad(gameId: string, entry: Entry, generation: number): Promise<void> {
   const label = gameAudioLabel(gameId);
   const current = () => entry.generation === generation && entries.get(gameId) === entry;
@@ -248,6 +272,7 @@ async function runLoad(gameId: string, entry: Entry, generation: number): Promis
 
   setSnapshot(gameId, entry, { status: "downloading" });
   const failures: string[] = [];
+  const failedSources: AudioSourceName[] = [];
   for (const [index, source] of usable.entries()) {
     const downloadStart = performance.now();
     try {
@@ -255,6 +280,7 @@ async function runLoad(gameId: string, entry: Entry, generation: number): Promis
       // Entre medias pudo reintentarse o expulsarse la entrada: no crear un Blob que nadie revoque.
       if (!current()) return;
       const blobUrl = URL.createObjectURL(blob);
+      if (failedSources.length > 0) reportAudioFailure(entry, failedSources[0], true);
       audioDebugLog(
         label,
         "descarga",
@@ -265,6 +291,7 @@ async function runLoad(gameId: string, entry: Entry, generation: number): Promis
     } catch (err) {
       if (!current()) return;
       failures.push(`${source.source}: ${errorMessage(err)}`);
+      failedSources.push(source.source);
       audioDebugLog(label, "descarga", `${source.source} falló: ${errorMessage(err)} · ${elapsed(downloadStart)} ms`);
     }
   }
@@ -273,6 +300,7 @@ async function runLoad(gameId: string, entry: Entry, generation: number): Promis
   // `<audio>`, que el `media-src` de la CSP permite. Si tampoco carga, el reproductor avisa del
   // error y el reintento vuelve a empezar desde aquí.
   const [fallback] = usable;
+  reportAudioFailure(entry, failedSources[0], false);
   audioDebugLog(label, "directo", `sin Blob (${failures.join(" · ")}); URL directa de ${fallback.source}`);
   setSnapshot(gameId, entry, {
     status: "ready",
